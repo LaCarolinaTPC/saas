@@ -136,8 +136,18 @@ async function leer(conversacionId: string): Promise<number> {
   const mios = lote.filter((m) => filaDe.has(m.id));
   if (!mios.length) return 0;
 
-  const guardar = (id: string, cambios: Record<string, unknown>) =>
-    db.from("seleccion_lecturas").update({ ...cambios, updated_at: new Date().toISOString() }).eq("id", id);
+  const guardar = async (id: string, cambios: Record<string, unknown>) => {
+    const r = await db.from("seleccion_lecturas").update({ ...cambios, updated_at: new Date().toISOString() }).eq("id", id);
+    // Sin la migración 20261124230624 la base no acepta la clase «certificado_bancario»:
+    // queda como «otro», con el resumen y los campos leídos para quien lo revisa.
+    if (r.error && cambios.clase === "certificado_bancario" && /clase|check/i.test(r.error.message)) {
+      return db
+        .from("seleccion_lecturas")
+        .update({ ...cambios, clase: "otro", resumen: `Certificado bancario: ${String(cambios.resumen ?? "")}`.slice(0, 500), updated_at: new Date().toISOString() })
+        .eq("id", id);
+    }
+    return r;
+  };
 
   // Cédulas que ya leyó la lectura de la entrega 1: se guardan sin otra llamada.
   const paraModelo: MensajeArchivo[] = [];

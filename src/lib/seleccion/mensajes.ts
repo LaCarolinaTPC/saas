@@ -67,6 +67,7 @@ export const VARIABLES: Record<string, { descripcion: string; ejemplo: string }>
   fase: { descripcion: "Fase de los exámenes médicos", ejemplo: "1" },
   rutas: { descripcion: "Cuántas rutas debe aprender en el reconocimiento", ejemplo: "2" },
   aprendidas: { descripcion: "Cuántas rutas lleva aprendidas", ejemplo: "1" },
+  correo: { descripcion: "Correo electrónico del aspirante (prueba psicosensotécnica)", ejemplo: "carlos.perez@gmail.com" },
 };
 
 export const EJEMPLOS: Record<string, string> = Object.fromEntries(Object.entries(VARIABLES).map(([k, v]) => [k, v.ejemplo]));

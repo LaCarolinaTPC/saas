@@ -2,8 +2,9 @@
 
 /**
  * Tablero de procesos de contratación: una columna por estado, en el orden
- * real del proceso. Arrastrar una tarjeta cambia el estado del proceso (con
- * historial); soltar en «Cierre» pide la causa. Se actualiza solo con el aviso
+ * real del proceso. Arrastrar hacia atrás cambia el estado del proceso (con
+ * historial); hacia adelante abre la ficha con lo que pide esa etapa (ver
+ * lib/seleccion/mover-tablero); soltar en «Cierre» pide la causa. Se actualiza solo con el aviso
  * en tiempo real del canal privado «procesos» (solo trae el id, nunca datos).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -15,6 +16,7 @@ import { usePermisos } from "@/components/permisos/permisos-provider";
 import { useAvisosProcesos } from "@/hooks/use-avisos-procesos";
 import { CAUSAS_NO_CONTRATO, PROCESO_ESTADOS, type ProcesoContratacion } from "@/lib/contratacion/constants";
 import { updateProcesoEstado } from "@/lib/contratacion/actions";
+import { movimientoAlSoltar, type EtapaConPaso } from "@/lib/seleccion/mover-tablero";
 import { ProcesoFormDialog, type VacanteOption } from "@/components/contratacion/procesos-client";
 import { SemaforoPuntos } from "@/components/seleccion/semaforo";
 import { timeAgoBogota } from "@/lib/utils";
@@ -32,6 +34,8 @@ export function KanbanProcesos({ procesos, vacancies }: { procesos: ProcesoContr
   const edita = usePermisos()("candidatos.editar");
   const [columnas, setColumnas] = useState<Columnas>(() => agrupar(procesos));
   const [abierto, setAbierto] = useState<ProcesoContratacion | null>(null);
+  // Arrastrada hacia adelante: la ficha se abre con lo que pide esa etapa (24-nov-2026).
+  const [destino, setDestino] = useState<EtapaConPaso | null>(null);
   const [cierre, setCierre] = useState<{ proceso: ProcesoContratacion; causa: string } | null>(null);
 
   // Cada relectura del servidor trae el estado real: reemplaza lo local
@@ -68,8 +72,17 @@ export function KanbanProcesos({ procesos, vacancies }: { procesos: ProcesoContr
     if (!destination || !edita || source.droppableId === destination.droppableId) return;
     const proceso = columnas[source.droppableId]?.find((p) => p.id === draggableId);
     if (!proceso) return;
-    if (destination.droppableId === "cierre") {
+    const mov = movimientoAlSoltar(source.droppableId, destination.droppableId);
+    if (mov.tipo === "nada") return;
+    if (mov.tipo === "cierre") {
       setCierre({ proceso, causa: proceso.requisito_incumplido ?? "" });
+      return;
+    }
+    // Hacia adelante no se mueve solo: se abre la ficha con lo que pide esa etapa
+    // (citar, la prueba, los exámenes…) y avanza cuando se hace.
+    if (mov.tipo === "ficha") {
+      setDestino(mov.destino);
+      setAbierto(proceso);
       return;
     }
     mover(draggableId, source.droppableId, destination.droppableId, destination.index);
@@ -155,6 +168,14 @@ export function KanbanProcesos({ procesos, vacancies }: { procesos: ProcesoContr
                                 {p.estado === "pendiente" ? <SemaforoPuntos resultado={p.preseleccion} /> : <span />}
                                 <span className="text-[11px] text-gray-400">{timeAgoBogota(p.updated_at)}</span>
                               </div>
+                              {p.revision_examen && p.estado !== "cierre" && (
+                                <div
+                                  className={`mt-1.5 truncate rounded px-1.5 py-0.5 text-[11px] font-medium ${p.revision_examen.resultado === "no_apto" ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-800"}`}
+                                  title={p.revision_examen.observacion ?? undefined}
+                                >
+                                  {p.revision_examen.resultado === "no_apto" ? `No apto fase ${p.revision_examen.fase}: revisar y decidir` : `Aplazado fase ${p.revision_examen.fase}`}
+                                </div>
+                              )}
                               {p.estado === "cierre" && p.causa_no_contrato && (
                                 <div className="mt-1.5 truncate text-[11px] text-red-600">{p.causa_no_contrato}</div>
                               )}
@@ -180,7 +201,18 @@ export function KanbanProcesos({ procesos, vacancies }: { procesos: ProcesoContr
         </div>
       </DragDropContext>
 
-      {abierto && <ProcesoFormDialog proceso={abierto} vacancies={vacancies} onClose={() => { setAbierto(null); router.refresh(); }} />}
+      {abierto && (
+        <ProcesoFormDialog
+          proceso={abierto}
+          vacancies={vacancies}
+          destino={destino}
+          onClose={() => {
+            setAbierto(null);
+            setDestino(null);
+            router.refresh();
+          }}
+        />
+      )}
 
       {cierre && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setCierre(null)}>

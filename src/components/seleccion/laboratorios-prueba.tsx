@@ -6,8 +6,10 @@
  * Gestivo le habría enviado (con sus adjuntos) y lo que el laboratorio
  * responde. Desde aquí se escribe como el laboratorio: la respuesta entra por
  * la misma lectura que un mensaje real y se confirma aquí mismo, con lo que el
- * aspirante pasa a la fase 2 (y el mensaje le llega al chat). Nada sale por
- * WhatsApp ni por correo. Todo queda guardado: al volver, sigue ahí.
+ * aspirante pasa a la fase 2 (y el mensaje le llega al chat). La orden sale de
+ * verdad solo si el laboratorio tiene un destino de prueba (24-nov-2026); si
+ * no, queda simulada. Las respuestas rápidas usan la frase acordada con el
+ * laboratorio: con ella el resultado se registra solo. Todo queda guardado.
  */
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { Download, Mail, MessageCircle, Paperclip, RefreshCw, Send } from "lucide-react";
@@ -17,6 +19,7 @@ import {
   simularRespuestaLaboratorioAccion, type DocumentoDescarga,
 } from "@/app/(dashboard)/candidatos/seleccion/laboratorios-actions";
 import type { Laboratorio } from "@/lib/seleccion/laboratorios";
+import { FRASE_APTO_POR_DEFECTO } from "@/lib/seleccion/laboratorio";
 import type { MensajeHiloLaboratorio } from "@/lib/seleccion/laboratorios-servidor";
 import { ETIQUETA_MENSAJE, avisarPrueba } from "./profesor-tipos";
 
@@ -28,10 +31,17 @@ const RESULTADOS: Record<string, string> = { apto: "Apto", no_apto: "No apto", a
 type AspiranteOrdenHilo = NonNullable<MensajeHiloLaboratorio["aspirantes"]>[number];
 type ResultadoRapido = "apto" | "no_apto" | "aplazado";
 
-/** Lo que escribiría el laboratorio para ese resultado (pasa por la misma lectura que un WhatsApp real). */
-export function textoRespuestaLaboratorio(a: Pick<AspiranteOrdenHilo, "nombre" | "cedula" | "fase">, r: ResultadoRapido): string {
+type FrasesLab = Pick<Laboratorio, "frase_apto" | "frase_no_apto" | "frase_aplazado">;
+
+/**
+ * Lo que escribiría el laboratorio para ese resultado (pasa por la misma
+ * lectura que un WhatsApp real). Con la frase acordada, esa frase.
+ */
+export function textoRespuestaLaboratorio(a: Pick<AspiranteOrdenHilo, "nombre" | "cedula" | "fase">, r: ResultadoRapido, frases?: FrasesLab | null): string {
   const fase = a.fase === 1 ? "primera" : "segunda";
   const quien = `${a.nombre} CC ${a.cedula}`;
+  const acordada = (r === "apto" ? frases?.frase_apto || (a.fase === 1 ? FRASE_APTO_POR_DEFECTO : null) : r === "no_apto" ? frases?.frase_no_apto : frases?.frase_aplazado)?.trim();
+  if (acordada) return `${quien}: ${acordada}`;
   if (r === "apto") return a.fase === 1 ? `${quien}: APTO en la primera fase, puede continuar a la segunda fase.` : `${quien}: APTO en la segunda fase, concepto definitivo apto.`;
   if (r === "no_apto") return `${quien}: NO APTO en la ${fase} fase.`;
   return `${quien}: APLAZADO en la ${fase} fase, debe repetir el hemograma.`;
@@ -47,24 +57,28 @@ function descargar(d: DocumentoDescarga) {
   URL.revokeObjectURL(url);
 }
 
-function Saliente({ m, onResponder, ocupado }: { m: MensajeHiloLaboratorio; onResponder?: (texto: string) => void; ocupado: boolean }) {
+function Saliente({ m, onResponder, ocupado, frases }: { m: MensajeHiloLaboratorio; onResponder?: (texto: string) => void; ocupado: boolean; frases?: FrasesLab | null }) {
   const [bajando, enTransicion] = useTransition();
   const esperando = (m.aspirantes ?? []).filter((a) => a.esperando);
+  const destino = m.para?.join(", ") || "—";
+  const estado = m.resultado === "simulado" ? "simulado (no salió)" : m.resultado === "fallido" ? `falló: ${m.error ?? ""}` : "enviado";
   return (
     <div className="ml-6 rounded-xl rounded-tr-sm bg-[#DCF8C6] p-2.5 text-xs text-slate-800 shadow-sm">
-      <p className="mb-1 flex items-center gap-1 text-[10px] font-medium text-slate-500">
+      <p className="mb-1 flex flex-wrap items-center gap-1 text-[11px] text-slate-700">
         {m.canal === "correo" ? <Mail className="h-3 w-3" /> : <MessageCircle className="h-3 w-3" />}
-        {m.canal === "correo" ? "Correo" : "WhatsApp"} de Gestivo · {m.resultado === "simulado" ? "simulado (no salió)" : m.resultado === "fallido" ? `falló: ${m.error ?? ""}` : "enviado"}
+        <span className="font-medium">{m.canal === "correo" ? "Correo" : "WhatsApp"} a {destino}</span>
+        <span className="text-slate-500">· {estado}</span>
+        {m.canal === "correo" && m.copia?.length ? <span className="text-slate-500">· CC {m.copia.join(", ")}</span> : null}
       </p>
-      {m.canal === "correo" && (
-        <p className="mb-1 text-[11px] text-slate-600">
-          Para: {m.para?.join(", ") || "—"}
-          {m.copia?.length ? ` · CC: ${m.copia.join(", ")}` : ""}
-          <br />
-          Asunto: <span className="font-medium">{m.asunto}</span>
+      {!!m.aspirantes?.length && (
+        <p className="text-[11px] text-slate-600">
+          {m.aspirantes.map((a) => `${a.nombre} · fase ${a.fase}`).join(" · ")}
         </p>
       )}
-      <p className="whitespace-pre-wrap">{m.texto}</p>
+      <details className="mt-1">
+        <summary className="cursor-pointer text-[11px] text-slate-500">{m.canal === "correo" ? `Ver el correo${m.asunto ? ` («${m.asunto}»)` : ""}` : "Ver el mensaje"}</summary>
+        <p className="mt-1 whitespace-pre-wrap">{m.texto}</p>
+      </details>
       {!!m.adjuntos?.length && (
         <div className="mt-1.5 flex flex-wrap gap-1">
           {m.adjuntos.map((a) => (
@@ -89,7 +103,9 @@ function Saliente({ m, onResponder, ocupado }: { m: MensajeHiloLaboratorio; onRe
       )}
       {onResponder && esperando.length > 0 && (
         <div className="mt-2 space-y-1 rounded-md bg-white/70 p-1.5">
-          <p className="text-[10px] font-medium text-slate-500">Responder como el laboratorio</p>
+          <p className="text-[10px] font-medium text-slate-500">
+            Responder como el laboratorio (con la frase acordada: se registra solo)
+          </p>
           {esperando.map((a) => (
             <div key={`${a.procesoId}-${a.fase}`} className="flex flex-wrap items-center gap-1">
               <span className="mr-auto text-[11px] text-slate-700">
@@ -100,8 +116,8 @@ function Saliente({ m, onResponder, ocupado }: { m: MensajeHiloLaboratorio; onRe
                   key={r}
                   type="button"
                   disabled={ocupado}
-                  onClick={() => onResponder(textoRespuestaLaboratorio(a, r))}
-                  title={textoRespuestaLaboratorio(a, r)}
+                  onClick={() => onResponder(textoRespuestaLaboratorio(a, r, frases))}
+                  title={textoRespuestaLaboratorio(a, r, frases)}
                   className={`rounded-md px-1.5 py-0.5 text-[11px] font-medium disabled:opacity-50 ${
                     r === "apto" ? "bg-emerald-600 text-white hover:bg-emerald-700" : r === "no_apto" ? "bg-red-600 text-white hover:bg-red-700" : "bg-amber-500 text-white hover:bg-amber-600"
                   }`}
@@ -193,6 +209,8 @@ function Entrante({ m, onListo }: { m: MensajeHiloLaboratorio; onListo: () => vo
 
 export function LaboratoriosPrueba({ puedeEditar }: { puedeEditar: boolean }) {
   const [labs, setLabs] = useState<Laboratorio[]>([]);
+  /** Entorno de pruebas: a dónde sale de verdad la orden de cada laboratorio (null = simulada). */
+  const [destinos, setDestinos] = useState<Record<string, string | null>>({});
   const [labId, setLabId] = useState("");
   const [hilo, setHilo] = useState<MensajeHiloLaboratorio[]>([]);
   const [pendientes, setPendientes] = useState<{ fecha: string; citaIds: string[]; nombres: string[] }[]>([]);
@@ -209,6 +227,7 @@ export function LaboratoriosPrueba({ puedeEditar }: { puedeEditar: boolean }) {
         if (!r.ok) return;
         const activos = r.laboratorios.filter((l) => l.activo);
         setLabs(activos);
+        setDestinos(r.destinosPrueba ?? {});
         setLabId((id) => id || activos[0]?.id || "");
       })
       .catch(() => undefined);
@@ -238,6 +257,15 @@ export function LaboratoriosPrueba({ puedeEditar }: { puedeEditar: boolean }) {
     return () => window.removeEventListener("seleccion-prueba", alAviso);
   }, [cargar]);
 
+  /** Lo registrado solo por la frase acordada: el mensaje que le sale al aspirante llega a su chat de prueba. */
+  const avisarConfirmados = (confirmados: { procesoId: string; fase: 1 | 2; texto?: string }[]) => {
+    for (const c of confirmados) {
+      const clave = c.fase === 1 ? "examenes_fase2" : "reconocimiento_ruta";
+      if (c.texto) avisarPrueba({ texto: c.texto, procesoId: c.procesoId, etiqueta: ETIQUETA_MENSAJE[clave], clave });
+      else avisarPrueba({ procesoId: c.procesoId });
+    }
+  };
+
   /** Un botón de respuesta rápida: el texto entra como un mensaje del laboratorio (misma lectura que uno real). */
   const responderRapido = (texto: string) =>
     enTransicion(async () => {
@@ -245,18 +273,35 @@ export function LaboratoriosPrueba({ puedeEditar }: { puedeEditar: boolean }) {
       fd.set("texto", texto);
       const r = await simularRespuestaLaboratorioAccion(labId, fd);
       if (!r.ok) return setAviso({ ok: false, texto: r.error });
-      setAviso(r.avisos ? { ok: true, texto: "Respuesta del laboratorio leída: confírmela abajo para que el aspirante siga." } : { ok: false, texto: "No se leyó ningún resultado en la respuesta." });
+      avisarConfirmados(r.confirmados ?? []);
+      setAviso(
+        r.confirmados?.length
+          ? { ok: true, texto: "Respuesta con la frase acordada: el resultado quedó registrado y el aspirante siguió (el mensaje le llegó a su chat)." }
+          : r.avisos
+            ? { ok: true, texto: "Respuesta del laboratorio leída: confírmela abajo para que el aspirante siga." }
+            : { ok: false, texto: "No se leyó ningún resultado en la respuesta." }
+      );
       await cargar();
     });
 
   const lab = labs.find((l) => l.id === labId);
+  const destino = labId ? (destinos[labId] ?? null) : null;
   if (!labs.length) return <p className="text-xs text-text-tertiary">No hay laboratorios activos (Candidatos › Selección › Laboratorios).</p>;
 
   return (
     <div className="space-y-2">
       <p className="text-[11px] text-text-muted">
-        Lo que Gestivo le manda a cada laboratorio y lo que el laboratorio responde, solo con los candidatos de prueba. Nada sale por WhatsApp ni por correo, y queda guardado.
+        Lo que Gestivo le manda a cada laboratorio y lo que el laboratorio responde, solo con los candidatos de prueba. Queda guardado. La respuesta del laboratorio se escribe aquí abajo.
       </p>
+      {destino ? (
+        <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] text-emerald-800">
+          Este laboratorio tiene un destino de prueba: la orden sale de verdad a <strong>{destino}</strong>. Lo que responda allí no llega a este entorno: escríbalo aquí.
+        </p>
+      ) : (
+        <p className="text-[11px] text-text-muted">
+          La orden no sale: queda simulada. Para recibirla de verdad, ponga al laboratorio un correo o número de prueba y agréguelo en Tiempos y reglas › Entorno de pruebas.
+        </p>
+      )}
       <div className="flex items-center gap-2">
         <select className={`${campo} min-w-0 flex-1`} value={labId} onChange={(e) => setLabId(e.target.value)}>
           {labs.map((l) => (
@@ -285,7 +330,7 @@ export function LaboratoriosPrueba({ puedeEditar }: { puedeEditar: boolean }) {
                 onClick={() =>
                   enTransicion(async () => {
                     const r = await enviarOrdenPruebaAccion(labId, p.fecha, p.citaIds);
-                    setAviso(r.ok ? { ok: true, texto: "Orden simulada: quedó en la conversación." } : { ok: false, texto: r.error });
+                    setAviso(r.ok ? { ok: true, texto: destino ? `Orden enviada de verdad a ${destino}: quedó en la conversación.` : "Orden simulada: quedó en la conversación." } : { ok: false, texto: r.error });
                     await cargar();
                   })
                 }
@@ -301,7 +346,7 @@ export function LaboratoriosPrueba({ puedeEditar }: { puedeEditar: boolean }) {
         {!hilo.length && <p className="py-6 text-center text-xs text-slate-500">Todavía no hay mensajes con este laboratorio.</p>}
         {hilo.map((m) =>
           m.direccion === "saliente" ? (
-            <Saliente key={m.id} m={m} ocupado={ocupado} onResponder={puedeEditar ? responderRapido : undefined} />
+            <Saliente key={m.id} m={m} ocupado={ocupado} frases={lab} onResponder={puedeEditar ? responderRapido : undefined} />
           ) : (
             <Entrante key={m.id} m={m} onListo={() => void cargar()} />
           )
@@ -336,7 +381,14 @@ export function LaboratoriosPrueba({ puedeEditar }: { puedeEditar: boolean }) {
                   if (!r.ok) return setAviso({ ok: false, texto: r.error });
                   setTexto("");
                   setArchivo(null);
-                  setAviso(r.avisos ? null : { ok: false, texto: "No se leyó ningún resultado (un saludo o una pregunta no deja aviso)." });
+                  avisarConfirmados(r.confirmados ?? []);
+                  setAviso(
+                    r.confirmados?.length
+                      ? { ok: true, texto: "Traía la frase acordada: el resultado quedó registrado." }
+                      : r.avisos
+                        ? null
+                        : { ok: false, texto: "No se leyó ningún resultado (un saludo o una pregunta no deja aviso)." }
+                  );
                   await cargar();
                 })
               }

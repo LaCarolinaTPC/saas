@@ -17,6 +17,7 @@ import { MAX_RECORDATORIOS_TOPE, mensajeDelRecordatorio, textoRecordatorio, type
 import { guardarAjuste, guardarSeguimientoSeleccion, restaurarAjuste } from "./actions";
 import { AvisoLinea, Historial, campo, fechaHora, type Aviso } from "./comunes";
 import RutasReconocimiento from "./RutasReconocimiento";
+import { PanelServicios } from "@/components/estado-servicios/panel-servicios";
 
 export interface SeguimientoPantalla {
   disponible: boolean;
@@ -567,6 +568,7 @@ export default function TiemposReglas({
         {secciones.map((s) => (
           <Tarjeta key={s.id} id={s.id} titulo={s.titulo} detalle={s.detalle}>
             {s.id === "costo" && <GastoDelMesLinea />}
+            {s.id === "verificaciones" && <PanelServicios />}
             {s.filas.map((fila) => (
               <div key={`${fila.ajuste.clave}:${fila.ajuste.updated_at}`}>
                 <FilaAjuste fila={fila} puedeEditar={puedeEditar} />

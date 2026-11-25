@@ -11,12 +11,14 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { canAccess, getCurrentPermissions, puedeEditarEn, tienePermiso } from "@/lib/permissions";
 import { actorUsuario } from "@/lib/contratacion/servidor";
 import { correoConfigurado } from "@/lib/correo/enviar";
+import { destinoDePrueba } from "@/lib/entorno-pruebas";
 import { parsearCorreos, type Laboratorio, type ModoReparto } from "@/lib/seleccion/laboratorios";
-import { leerYGuardarAvisos } from "@/lib/seleccion/laboratorio-lectura";
+import { leerYGuardarAvisos, type ConfirmadoPorFrase } from "@/lib/seleccion/laboratorio-lectura";
 import type { LecturaLaboratorio } from "@/lib/seleccion/laboratorio";
 import {
   asignacionesRecientes, asignarLaboratorio, documentosAspirante, enviarDocumentosAspirante, enviarOrdenLaboratorio, estadoPlantillas, guardarLaboratorio,
   guardarReparto, hiloLaboratorio, leerLaboratorios, modoReparto, pendientesPrueba, planFase1, subirPlantillaCarta, subirPlantillaOrden, vistaOrden,
+  estadoFirmaCarta, guardarFirmante, quitarImagenCarta, subirImagenCarta, type ImagenCarta,
   type MensajeHiloLaboratorio, type ResultadoOrden, type VistaOrden,
 } from "@/lib/seleccion/laboratorios-servidor";
 
@@ -49,6 +51,8 @@ export interface PantallaLaboratorios {
   reparto: ModoReparto;
   /** Aspirantes asignados a cada laboratorio en los últimos 30 días. */
   asignados: Record<string, number>;
+  /** Entorno de pruebas: a dónde sale de verdad la orden de cada laboratorio (null = simulada). */
+  destinosPrueba: Record<string, string | null>;
 }
 
 export async function datosLaboratorios(): Promise<Resultado<PantallaLaboratorios>> {
@@ -60,6 +64,7 @@ export async function datosLaboratorios(): Promise<Resultado<PantallaLaboratorio
       laboratorios,
       plantillas,
       smtp: correoConfigurado(),
+      destinosPrueba: Object.fromEntries(await Promise.all(laboratorios.map(async (l) => [l.id, await destinoDePrueba(l)] as const))),
       puedeEditar: puedeEditarEn(perms, "candidatos.seleccion_config"),
       puedeEnviar: puedeEditarEn(perms, "candidatos") || tienePermiso(perms, "candidatos.editar"),
       reparto,
@@ -85,6 +90,9 @@ export async function guardarLaboratorioAccion(d: {
   dias_atencion: number[];
   dias_preferidos: number[];
   porcentaje: number;
+  frase_apto?: string;
+  frase_no_apto?: string;
+  frase_aplazado?: string;
 }): Promise<Resultado<{ id: string }>> {
   try {
     const perms = await exigirConfig();
@@ -146,6 +154,54 @@ export async function subirPlantillaCartaAccion(form: FormData): Promise<Resulta
     const r = await subirPlantillaCarta(await archivoDe(form), perms.userEmail);
     revalidatePath(RUTA);
     return r.ok ? { ok: true, marcas: r.marcas ?? [] } : { ok: false, error: r.error ?? "No se pudo subir." };
+  } catch (e) {
+    return fallo(e);
+  }
+}
+
+// ── Firma de la carta del banco (24-nov-2026) ──────────────────────────────
+
+export async function datosFirmaCartaAccion(): Promise<Resultado<{ nombre: string; cargo: string; firma: string | null; sello: string | null }>> {
+  try {
+    await exigirLectura();
+    return { ok: true, ...(await estadoFirmaCarta()) };
+  } catch (e) {
+    return fallo(e);
+  }
+}
+
+export async function guardarFirmanteAccion(nombre: string, cargo: string): Promise<Resultado<object>> {
+  try {
+    const perms = await exigirConfig();
+    const r = await guardarFirmante(String(nombre ?? ""), String(cargo ?? ""), perms.userEmail);
+    revalidatePath(RUTA);
+    return r.ok ? { ok: true } : { ok: false, error: r.error ?? "No se pudo guardar." };
+  } catch (e) {
+    return fallo(e);
+  }
+}
+
+export async function subirImagenCartaAccion(tipo: ImagenCarta, form: FormData): Promise<Resultado<object>> {
+  try {
+    await exigirConfig();
+    if (tipo !== "firma" && tipo !== "sello") return { ok: false, error: "Tipo de imagen no válido." };
+    const f = form.get("archivo");
+    if (!(f instanceof File) || !f.size) return { ok: false, error: "Elija la imagen (PNG o JPG)." };
+    const r = await subirImagenCarta(tipo, Buffer.from(await f.arrayBuffer()));
+    revalidatePath(RUTA);
+    return r.ok ? { ok: true } : { ok: false, error: r.error ?? "No se pudo subir." };
+  } catch (e) {
+    return fallo(e);
+  }
+}
+
+export async function quitarImagenCartaAccion(tipo: ImagenCarta): Promise<Resultado<object>> {
+  try {
+    await exigirConfig();
+    if (tipo !== "firma" && tipo !== "sello") return { ok: false, error: "Tipo de imagen no válido." };
+    const r = await quitarImagenCarta(tipo);
+    revalidatePath(RUTA);
+    return r.ok ? { ok: true } : { ok: false, error: r.error ?? "No se pudo quitar." };
   } catch (e) {
     return fallo(e);
   }
@@ -257,7 +313,10 @@ export async function enviarOrdenAccion(labId: string, fecha: string, simular: b
  * pasa por la misma lectura que un mensaje real de WhatsApp y deja el aviso
  * en «Avisos del laboratorio» para confirmarlo.
  */
-export async function simularRespuestaLaboratorioAccion(labId: string, form: FormData): Promise<Resultado<{ avisos: number; lecturas: LecturaLaboratorio[] }>> {
+export async function simularRespuestaLaboratorioAccion(
+  labId: string,
+  form: FormData
+): Promise<Resultado<{ avisos: number; lecturas: LecturaLaboratorio[]; confirmados: ConfirmadoPorFrase[] }>> {
   try {
     await exigirEdicion();
     const texto = String(form.get("texto") ?? "").trim().slice(0, 4000);
@@ -278,7 +337,7 @@ export async function simularRespuestaLaboratorioAccion(labId: string, form: For
     if (!texto && !mediaPath) return { ok: false, error: "Escriba el mensaje del laboratorio o adjunte un archivo." };
     const r = await leerYGuardarAvisos({ texto, mediaPath, mime, nombreArchivo, laboratorioId: labId ? String(labId) : null, simulado: true });
     revalidatePath("/candidatos");
-    return { ok: true, avisos: r.avisos, lecturas: r.lecturas };
+    return { ok: true, avisos: r.avisos, lecturas: r.lecturas, confirmados: r.confirmados };
   } catch (e) {
     return fallo(e);
   }

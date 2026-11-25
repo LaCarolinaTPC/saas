@@ -5,6 +5,7 @@
  * no estén aquí (van a «Otros ajustes»). Puro: lo usa la pantalla y se prueba.
  */
 import type { AjusteSeleccion } from "./ajustes";
+import { DEFINICIONES_ALERTAS } from "./alertas-indicadores";
 
 export interface PresentacionAjuste {
   etiqueta: string;
@@ -70,6 +71,22 @@ export const SECCIONES_AJUSTES: SeccionAjustes[] = [
     detalle:
       "Qué consultas son obligatorias para avanzar. Si una no lo es y Croma no la responde, el proceso sigue con la observación de que falta.",
     ajustes: {
+      croma_pausado: {
+        etiqueta: "Pausar Croma",
+        ayuda: "Sí: no se consulta nada en Croma (por ejemplo, si está caído). El proceso sigue como si las verificaciones no fueran obligatorias, el asistente pide la licencia y todo queda para revisar a mano («Lo revisé a mano» en la ficha); nadie se cita solo. Al volver a «no», la revisión automática retoma lo pendiente.",
+      },
+      runt_obligatorio: {
+        etiqueta: "RUNT obligatorio",
+        ayuda: "Para pasar a antecedentes. No: si Croma no responde el RUNT, el asistente pide la categoría y una foto de la licencia, y vale la que dice el aspirante (con la observación). Sí: hace falta el RUNT o que una persona verifique la licencia a mano.",
+      },
+      alerta_servicios_correos: {
+        etiqueta: "Avisar por correo si un servicio falla",
+        ayuda: "Separados por comas. Les llega un correo cuando Croma, la IA, WhatsApp o el correo empiezan a fallar, un recordatorio cada 6 horas si sigue igual y otro cuando vuelve a funcionar. Vacío: no se avisa. Desde el entorno de pruebas el correo dice que es de pruebas.",
+      },
+      alerta_servicios_copia: {
+        etiqueta: "Con copia a",
+        ayuda: "Separados por comas: reciben la misma alerta en copia, para verificar (por ejemplo, soporte). Vacío: sin copia.",
+      },
       simit_obligatorio: { etiqueta: "SIMIT obligatorio", ayuda: "Para pasar a antecedentes." },
       rnmc_obligatorio: { etiqueta: "RNMC obligatorio", ayuda: "Para quedar «Listo para citar»." },
       policia_obligatorio: { etiqueta: "Policía obligatoria", ayuda: "Para quedar «Listo para citar»." },
@@ -132,6 +149,11 @@ export const SECCIONES_AJUSTES: SeccionAjustes[] = [
       cita_hora_sabado: { etiqueta: "Hora de la cita, sábados" },
       cita_limite_mismo_dia: { etiqueta: "Ofrecer cita el mismo día hasta", ayuda: "Hora límite para ofrecer la cita ese mismo día." },
       recordatorio_cita_hora: { etiqueta: "Recordatorio el día de la cita" },
+      cambio_mismo_dia_minutos: {
+        etiqueta: "El profesor cambia las citas de hoy hasta",
+        ayuda: "Minutos antes de la primera cita (y de la hora nueva). Hoy solo por un imprevisto, con la explicación escrita, para alcanzar a avisar a los aspirantes. Gestión Humana, desde la Agenda, puede siempre.",
+        sufijo: "min antes",
+      },
       alerta_no_confirmo_hora: { etiqueta: "Alerta para llamar si no confirmó" },
       tolerancia_inasistencia_minutos: { etiqueta: "Tolerancia antes de marcar «No asistió»" },
       reprogramaciones_max: { etiqueta: "Reprogramaciones permitidas", ayuda: "Después, el proceso se cierra por desistimiento.", sufijo: "veces" },
@@ -168,6 +190,19 @@ export const SECCIONES_AJUSTES: SeccionAjustes[] = [
         ayuda: "Cuántas debe aprender, entre ellas todas las obligatorias de la lista de abajo. Si hay más obligatorias que este número, se exigen todas.",
         sufijo: "rutas",
       },
+      correo_psico_activo: {
+        etiqueta: "Pedir el correo para la prueba psicosensotécnica",
+        ayuda: "Al entrar a exámenes · fase 1 se le pide por WhatsApp, se le pregunta si está bien escrito y le llega un correo con un enlace para confirmarlo. Con el correo confirmado sale en Candidatos › «Psicosensotécnica: por inscribir».",
+      },
+      correo_psico_horas: { etiqueta: "Recordar el correo cada", ayuda: "Horas sin escribirlo o sin confirmarlo antes de cada recordatorio (dentro del horario de los recordatorios de WhatsApp)." },
+      correo_psico_recordatorios: { etiqueta: "Recordatorios del correo", ayuda: "Después, el chat queda para una persona.", sufijo: "veces" },
+      certificado_banco_activo: {
+        etiqueta: "Recordar el certificado bancario",
+        ayuda: "Después de la pregunta del banco en la fase 1, si no envía el certificado de su cuenta del Banco de Bogotá se le recuerda por WhatsApp. Se detiene cuando lo envía o el ítem de la carpeta deja de estar pendiente.",
+      },
+      certificado_banco_horas: { etiqueta: "Recordar el certificado cada", ayuda: "Horas sin enviarlo antes de cada recordatorio (dentro del horario de los recordatorios de WhatsApp)." },
+      certificado_banco_espera_apertura_horas: { etiqueta: "Si no tenía cuenta, el primero a las", ayuda: "Tiempo para abrir la cuenta con la carta antes del primer recordatorio." },
+      certificado_banco_recordatorios: { etiqueta: "Recordatorios del certificado", ayuda: "Después, el chat queda para una persona.", sufijo: "veces" },
       documentos_pendientes_dias: { etiqueta: "Recordatorio de documentos pendientes", ayuda: "Días para recordarle lo que falta en la carpeta." },
       carpeta_items: {
         etiqueta: "Documentos de la carpeta",
@@ -179,7 +214,7 @@ export const SECCIONES_AJUSTES: SeccionAjustes[] = [
       },
       contratar_exige_psicotecnica: {
         etiqueta: "Exigir la prueba psicosensotécnica apta para contratar",
-        ayuda: "Vale la de Gestivo con concepto apto o el resultado de una IPS registrado en «Día de contratación».",
+        ayuda: "El resultado de la plataforma psicosensotécnica que Gestión Humana registra en «Día de contratación».",
       },
     },
   },
@@ -217,6 +252,57 @@ export const SECCIONES_AJUSTES: SeccionAjustes[] = [
     },
   },
   {
+    id: "reporte",
+    titulo: "Reporte diario por correo",
+    detalle: "Cada día a las 7:00 llega por correo lo de ayer y los últimos 30 días, con las mismas cifras de Candidatos › Indicadores (donde también se cambia esto y se puede enviar ya).",
+    ajustes: {
+      reporte_diario_activo: { etiqueta: "Enviar el reporte diario" },
+      reporte_diario_correos: { etiqueta: "Enviarlo a", ayuda: "Correos separados por comas (por ejemplo, Gestión Humana). Vacío: no se envía." },
+      reporte_diario_copia: { etiqueta: "Con copia a", ayuda: "Separados por comas. Vacío: sin copia." },
+    },
+  },
+  {
+    id: "alertas",
+    titulo: "Alertas del reporte diario",
+    detalle:
+      "Si un indicador cruza su umbral, sale como alerta arriba del reporte diario (y el asunto lo dice) y en Candidatos › Indicadores, con una sugerencia para los anuncios, las promociones o el proceso. 0 apaga una alerta de mínimo; 100 %, una de máximo. Los porcentajes solo se calculan con suficientes casos (10 o más).",
+    ajustes: Object.fromEntries(
+      DEFINICIONES_ALERTAS.map((d) => [
+        d.ajuste,
+        {
+          etiqueta: `${d.etiqueta}: ${d.tipo === "min" ? "alertar si es menor que" : "alertar si es mayor que"}`,
+          ayuda: d.accion,
+          sufijo: d.unidad === "porcentaje" ? "%" : undefined,
+        },
+      ])
+    ),
+  },
+  {
+    id: "psicotecnica",
+    titulo: "Prueba psicosensotécnica (PsicoAlianza)",
+    detalle: "Para Candidatos › Psicosensotécnica. Si el informe no trae el concepto escrito (Ethikos lo trae como imagen), sale del porcentaje con estos cortes; una persona lo confirma.",
+    ajustes: {
+      psico_corte_no_recomendado: { etiqueta: "No recomendado hasta", ayuda: "Un porcentaje igual o menor es «no recomendado» (no apto).", sufijo: "%" },
+      psico_corte_con_sugerencias: { etiqueta: "Recomendado con sugerencias hasta", ayuda: "Entre el corte anterior y este, «recomendado con sugerencias» (apto con observaciones); por encima, «recomendado».", sufijo: "%" },
+      psico_dias_para_presentar: { etiqueta: "Días para presentarla", ayuda: "Después de inscrito, si pasan más días sin resultado sale en rojo en «Esperando resultado»." },
+    },
+  },
+  {
+    id: "pruebas",
+    titulo: "Entorno de pruebas",
+    detalle: "Solo cuenta en el entorno de pruebas (copia de producción), donde los correos no salen a sus destinatarios reales. En producción no hace nada.",
+    ajustes: {
+      correos_prueba_desarrollo: {
+        etiqueta: "Correos de prueba que sí reciben",
+        ayuda: "Separados por comas. Lo que va a estas direcciones sale de verdad (por ejemplo, un laboratorio al que se le puso un correo de prueba); las demás se quitan del envío. También vale un dominio: @lacarolina.com.co.",
+      },
+      whatsapp_prueba_desarrollo: {
+        etiqueta: "Números de WhatsApp de prueba que sí reciben",
+        ayuda: "Separados por comas. Lo que va a estos números sale de verdad (por ejemplo, un laboratorio al que se le puso un número de prueba). Lo que respondan desde allí llega a producción, no aquí: la respuesta del laboratorio se escribe en el chat de prueba.",
+      },
+    },
+  },
+  {
     id: "politica",
     titulo: "Política de tratamiento de datos",
     detalle: "Completan la página pública /politica-de-datos y el enlace de la autorización. Lo que quede vacío se omite.",
@@ -232,7 +318,7 @@ export const SECCIONES_AJUSTES: SeccionAjustes[] = [
   },
 ];
 
-const SUFIJO_UNIDAD: Record<string, string> = { horas: "horas", dias: "días", minutos: "min" };
+const SUFIJO_UNIDAD: Record<string, string> = { horas: "horas", dias: "días", minutos: "min", porcentaje: "%" };
 
 export interface FilaPresentada {
   ajuste: AjusteSeleccion;
@@ -253,7 +339,7 @@ export interface SeccionPresentada {
  * modelos de lectura y transcripción pasaron a la pestaña IA de Selección (21-nov-2026)
  * y sus ajustes quedan sin uso.
  */
-export const EN_OTRA_PANTALLA = new Set(["carta_banco_ruta", "laboratorio_reparto", "lectura_modelo", "transcripcion_modelo"]);
+export const EN_OTRA_PANTALLA = new Set(["carta_banco_ruta", "carta_firmante", "carta_firmante_cargo", "laboratorio_reparto", "lectura_modelo", "transcripcion_modelo"]);
 
 /** Ajustes agrupados por sección, en el orden de la pantalla; los desconocidos van a «Otros ajustes». */
 export function agruparAjustes(ajustes: AjusteSeleccion[]): SeccionPresentada[] {

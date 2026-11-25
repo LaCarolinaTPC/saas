@@ -127,14 +127,24 @@ export const MODULOS: ModuloDef[] = [
     ],
   },
   // Selección de conductores, entrega 2: la pantalla del profesor de manejo
-  // (prueba de manejo, escuela, reconocimiento de ruta). El rol «Profesor de
-  // manejo» solo tiene este módulo: no ve Candidatos.
+  // (prueba de manejo y escuela; desde el 24-nov-2026 el reconocimiento de
+  // ruta tiene su propia pantalla). El rol «Profesor de manejo» solo tiene
+  // este módulo: no ve Candidatos.
   {
     clave: "profesor",
     etiqueta: "Profesor de manejo",
     inicio: "/profesor",
     rutas: ["/profesor"],
-    acciones: [VER, { clave: "editar", etiqueta: "Registrar llegada, prueba de manejo, clases, rutas, observaciones y concepto", nivel: "editar" }],
+    acciones: [VER, { clave: "editar", etiqueta: "Registrar llegada, prueba de manejo, clases, observaciones y concepto", nivel: "editar" }],
+  },
+  // Reconocimiento de ruta (24-nov-2026): lo hace un encargado, no el profesor.
+  // El rol «Coordinador de rutas» solo tiene este módulo.
+  {
+    clave: "reconocimiento",
+    etiqueta: "Reconocimiento de ruta",
+    inicio: "/reconocimiento",
+    rutas: ["/reconocimiento"],
+    acciones: [VER, { clave: "editar", etiqueta: "Registrar rutas, citar al reconocimiento y darlo por terminado", nivel: "editar" }],
   },
   { clave: "empleados", etiqueta: "Empleados", inicio: "/empleados", rutas: ["/empleados"], acciones: [VER, { clave: "editar", etiqueta: "Editar, novedades, descargos y observaciones", nivel: "editar" }, ELIMINAR, EXPORTAR] },
   { clave: "conductores", etiqueta: "Conductores", inicio: "/conductores", rutas: ["/conductores"] },
@@ -239,26 +249,6 @@ export const MODULOS: ModuloDef[] = [
     inicio: "/examenes-periodicos",
     rutas: ["/examenes-periodicos"],
     acciones: [VER, CREAR, EDITAR, { clave: "anular", etiqueta: "Anular", nivel: "editar" }, EXPORTAR],
-  },
-  {
-    // Prueba psicosensotécnica de conductores: bandeja de la psicóloga. La
-    // persona la presenta sin cuenta en /prueba-psicosensotecnica (pública).
-    // Los puntajes son datos sensibles: solo en la pantalla, nunca por el MCP
-    // ni la Data API.
-    clave: "psicosensotecnica",
-    etiqueta: "Prueba psicosensotécnica",
-    inicio: "/psicosensotecnica",
-    rutas: ["/psicosensotecnica"],
-    acciones: [
-      VER,
-      { clave: "editar", etiqueta: "Asignar pruebas y anular intentos", nivel: "editar" },
-      // El concepto es del psicólogo (Ley 1090 de 2006): no lo da «editar».
-      { clave: "concepto", etiqueta: "Dar el concepto apto / no apto", nivel: "especial" },
-      EXPORTAR,
-    ],
-    funciones: [
-      { clave: "config", vieja: "psico_config", etiqueta: "Configuración (quién puede presentarla, equipos, intentos y umbrales de alerta)", rutas: ["/psicosensotecnica/configuracion"], inicio: "/psicosensotecnica/configuracion", sensible: true },
-    ],
   },
   { clave: "configuracion", etiqueta: "Configuración", inicio: "/configuracion", rutas: ["/configuracion", "/integraciones"] },
   // Solo datos: van al final para no quedar como primer módulo al redirigir.

@@ -42,7 +42,8 @@ export const TIPOS_FIJOS: Record<string, string> = {
 export const tipoDeItem = (item: string) =>
   `carpeta:${item.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
 
-export const ITEMS_CARPETA_POR_DEFECTO = ["Hoja de vida", "Fotocopia de la cédula", "Fotocopia de la licencia", "Carta laboral", "Referencia laboral", "Referencia personal"];
+// 24-nov-2026: el certificado bancario (cuenta en el Banco de Bogotá para los pagos).
+export const ITEMS_CARPETA_POR_DEFECTO = ["Hoja de vida", "Fotocopia de la cédula", "Fotocopia de la licencia", "Carta laboral", "Referencia laboral", "Referencia personal", "Certificado bancario"];
 
 export async function itemsCarpeta(): Promise<string[]> {
   const v = valorAjuste<unknown>(await leerAjustes().catch(() => []), "carpeta_items", ITEMS_CARPETA_POR_DEFECTO);

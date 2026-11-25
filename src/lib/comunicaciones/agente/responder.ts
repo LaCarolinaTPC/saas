@@ -25,6 +25,8 @@ import {
 } from "./motor";
 import { generarRespuesta } from "./proveedores";
 import { actualizarDesdeChat, regresoDeConversacion } from "@/lib/seleccion/proceso-desde-chat";
+import { correoParaAsistente } from "@/lib/seleccion/correo-psico-servidor";
+import { preguntaExamenDeConversacion } from "@/lib/seleccion/respuestas-examenes-servidor";
 import { leerFotosPendientes, lecturasDeConversacion } from "@/lib/seleccion/lectura-fotos";
 import { transcribirAudiosPendientes, transcripcionesDeConversacion } from "@/lib/seleccion/audios";
 import { leerDocumentosPendientes, lecturasDocumentosDeConversacion } from "@/lib/seleccion/lectura/ejecutar";
@@ -37,6 +39,7 @@ import {
   contextoSeleccion,
   fechaRechazadaDeConversacion,
   licenciaVerificadaDeConversacion,
+  pedirLicenciaDeConversacion,
   verificacionDemoradaDeConversacion,
 } from "@/lib/seleccion/servidor";
 
@@ -465,6 +468,15 @@ export async function responderConAgente(
     const cita = enSeleccion ? await citaDeConversacion(conversacionId).catch(() => null) : null;
     // Vuelve después de un cierre automático: el asistente retoma y pregunta de nuevo lo que lo descartó.
     const regreso = enSeleccion ? await regresoDeConversacion(conversacionId).catch(() => null) : null;
+    // 24-nov-2026: con el proceso terminado (cerrado por una persona, por cualquier causa) no se le
+    // pide nada más: ni el correo, ni la licencia, ni la respuesta del banco o de las rutas.
+    const sigue = enSeleccion && !cerradoAntecedentes;
+    // 24-nov-2026: se le pidió el correo para la psicosensotécnica (lo que lo escribe lo atiende el webhook).
+    const correoPsico = sigue ? await correoParaAsistente(conversacionId).catch(() => null) : null;
+    // 24-nov-2026: el RUNT no respondió (Croma caído o en pausa): se le pide la licencia.
+    const pedirLicencia = sigue ? await pedirLicenciaDeConversacion(conversacionId).catch(() => false) : false;
+    // 24-nov-2026: la pregunta del mensaje de exámenes (banco o rutas) que espera respuesta.
+    const preguntaExamen = sigue ? await preguntaExamenDeConversacion(conversacionId).catch(() => null) : null;
     // Primera respuesta (nadie le ha escrito todavía): va el saludo del catálogo de mensajes.
     const primeraRespuesta = enSeleccion && !regreso && !(await tieneSalientes(conversacionId));
     const sistema = construirSistema(config.prompt, contacto.nombre, new Date(), {
@@ -484,6 +496,9 @@ export async function responderConAgente(
       autorizada,
       cita,
       regreso,
+      correoPsico,
+      pedirLicencia,
+      preguntaExamen,
       bienvenida: primeraRespuesta ? ctx?.bienvenida ?? "" : "",
       nombreAsistente: ctx?.nombreAsistente ?? "",
       respuestas: ctx?.respuestas ?? [],

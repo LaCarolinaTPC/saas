@@ -143,6 +143,7 @@ export function ProfesorVista({ acciones, puedeEditar, modoPrueba = false }: { a
           <ArrowLeft className="h-5 w-5" /> Volver
         </button>
         <DisponibilidadProfesor
+          reglaMismoDia
           acciones={acciones.disponibilidad}
           puedeEditar={puedeEditar}
           fechaInicial={fecha}

@@ -16,6 +16,10 @@ import {
 import { cerrarNoPreseleccionados } from "@/lib/seleccion/servidor";
 import { avisarResultadoRevision } from "@/lib/comunicaciones/agente/responder";
 import { ejecutarDocumentosPendientes } from "@/lib/seleccion/documentos-ejecutar";
+import { ejecutarCorreosPsico } from "@/lib/seleccion/correo-psico-servidor";
+import { ejecutarRecordatoriosCertificado } from "@/lib/seleccion/certificado-banco-servidor";
+import { alertarServicios } from "@/lib/alerta-servicios";
+import { avisosReconocimientoPendientes } from "@/lib/seleccion/respuestas-examenes-servidor";
 import { topeAlcanzado } from "@/lib/seleccion/consumos-servidor";
 import { leerDocumentosPendientesCron } from "@/lib/seleccion/lectura/ejecutar";
 import { enviarOrdenesDelDia } from "@/lib/seleccion/laboratorios-servidor";
@@ -84,9 +88,17 @@ export async function GET(request: NextRequest) {
     const ordenes = await intentar(() => enviarOrdenesDelDia());
     // Entrega 3: recordatorio de los documentos que le faltan de la carpeta.
     const documentos = await intentar(() => ejecutarDocumentosPendientes());
+    // 24-nov-2026: pedir y recordar el correo para la prueba psicosensotécnica.
+    // 24-nov-2026: el aviso del reconocimiento de ruta a quien no respondió lo del banco en 24 h.
+    const reconocimiento = await intentar(() => avisosReconocimientoPendientes());
+    const correos = await intentar(() => ejecutarCorreosPsico());
+    // 24-nov-2026: recordarle el certificado bancario (cuenta del Banco de Bogotá para los pagos).
+    const certificado = await intentar(() => ejecutarRecordatoriosCertificado());
+    // 24-nov-2026: correo a Gestión Humana si un servicio externo (Croma, IA, WhatsApp, correo) está fallando.
+    const alertas = await intentar(() => alertarServicios());
     // Entrega 4: documentos que no se alcanzaron a leer mientras respondía el asistente.
     const lecturas = sinGasto ? { omitida: "tope mensual del gasto alcanzado" } : await intentar(() => leerDocumentosPendientesCron());
-    return NextResponse.json({ ok: true, ...r, seleccion: { plantillas, reactivacion, simit, simitRelanzado, runt, policia, rnmc, antecedentes, lanzados, cierres, agenda, ordenes, documentos, lecturas } });
+    return NextResponse.json({ ok: true, ...r, seleccion: { plantillas, reactivacion, simit, simitRelanzado, runt, policia, rnmc, antecedentes, lanzados, cierres, agenda, ordenes, documentos, reconocimiento, correos, certificado, alertas, lecturas } });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[cron seguimiento-whatsapp]", e);

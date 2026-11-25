@@ -65,6 +65,12 @@ export const ESTADOS_REVISION_REINGRESO = ["pendiente", "antecedentes"] as const
  */
 export const FILTRO_ANTECEDENTES = "antecedentes_por_revisar";
 
+/**
+ * Filtro «Psicosensotécnica: por inscribir» (24-nov-2026): confirmaron su
+ * correo y Gestión Humana todavía no los inscribe en la plataforma.
+ */
+export const FILTRO_PSICO_INSCRIBIR = "psico_por_inscribir";
+
 /** Cierre automático: la cédula ya es de un conductor activo de la empresa (Gestivo). */
 export const CAUSA_YA_TRABAJA = "Ya trabaja en la empresa";
 
@@ -180,6 +186,19 @@ export interface ProcesoContratacion {
   /** Desde cuándo puede empezar a trabajar, como lo dijo por WhatsApp (migración 20261120011552). */
   disponibilidad?: string | null;
   experiencia_meses?: number | null;
+  /** Respuestas a las preguntas de los mensajes de exámenes (migración 20261124194635). */
+  banco_cuenta?: "si" | "no" | null;
+  banco_preguntado_at?: string | null;
+  banco_respondido_at?: string | null;
+  rutas_declaradas?: number | null;
+  rutas_preguntado_at?: string | null;
+  rutas_respondido_at?: string | null;
+  /** Reconocimiento de ruta con su encargado (migración 20261124203802). */
+  reconocimiento_estado?: "pendiente" | "por_verificar" | "en_curso" | "finalizado" | null;
+  reconocimiento_finalizado_at?: string | null;
+  reconocimiento_finalizado_por?: string | null;
+  /** Solo en el tablero: examen no apto por revisar (o aplazado), para marcar la tarjeta (24-nov-2026). */
+  revision_examen?: { fase: 1 | 2; resultado: "no_apto" | "aplazado"; observacion: string | null } | null;
   licencia_verificada_runt?: boolean;
   /** Licencia según el RUNT (Croma); con ella la verificación ya no es manual (migración 20261114180402). */
   licencia_runt?: {

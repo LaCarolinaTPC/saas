@@ -8,7 +8,7 @@
  */
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ACTOR_SISTEMA, cambiarEstadoProceso, registrarEvento, type ActorProceso } from "@/lib/contratacion/servidor";
-import { ventanaAbierta } from "@/lib/comunicaciones/seguimiento";
+import { horaBogota, ventanaAbierta } from "@/lib/comunicaciones/seguimiento";
 import { esDiaHabilRecobro, fechaBogota } from "@/lib/tesoreria/recobros";
 import {
   ajustesAgenda,
@@ -22,6 +22,7 @@ import {
   proximaFechaReconocimiento,
   reprogramacionesDe,
   superaReprogramaciones,
+  validarCambioMismoDia,
   type AjustesAgenda,
   type Cita,
   type ExcepcionProfesor,
@@ -435,6 +436,35 @@ export async function citarReconocimiento(
   return { ok: true, citaId, envio, texto };
 }
 
+/**
+ * El encargado del reconocimiento cita al aspirante en el día y la hora que
+ * elige (24-nov-2026): si ya tiene una salida en pie, se mueve (por la
+ * empresa, sin contarle reprogramación); si no, se crea y se le avisa con
+ * «reconocimiento_ruta» (la primera) o «reconocimiento_siguiente».
+ */
+export async function citarReconocimientoEn(
+  procesoId: string,
+  cuando: { fecha: string; hora: string },
+  actor: ActorProceso,
+  extra: Record<string, string> = {}
+): Promise<ResultadoAgenda> {
+  if (!FECHA_RE.test(cuando.fecha ?? "") || !HORA_RE.test(hhmm(cuando.hora ?? ""))) return { ok: false, error: "Elija el día y la hora." };
+  if (cuando.fecha < fechaBogota(new Date().toISOString())) return { ok: false, error: "Ese día ya pasó." };
+  const p = await leerProceso(procesoId);
+  if (!p) return { ok: false, error: "El proceso no existe." };
+  if (p.estado === "contratado" || p.estado === "cierre") return { ok: false, error: "El proceso ya está cerrado o contratado." };
+  const deRuta = (await citasDeProceso(procesoId)).filter((c) => c.tipo === "reconocimiento");
+  const enPie = deRuta.find((c) => citaVigente(c));
+  if (enPie) return reprogramarCita(enPie.id, { fecha: cuando.fecha, hora: hhmm(cuando.hora) }, "empresa", actor);
+  const yaFue = deRuta.some((c) => c.estado === "asistio");
+  const clave = yaFue ? "reconocimiento_siguiente" : "reconocimiento_ruta";
+  const citaId = await crearCita(procesoId, "reconocimiento", { fecha: cuando.fecha, hora: hhmm(cuando.hora) }, actor);
+  if (!citaId) return { ok: false, error: "No se pudo crear la cita del reconocimiento de ruta." };
+  const { envio, texto } = await avisar(p, clave, cuando, { directo: false, extra });
+  await registrarEvento(procesoId, { tipo: "cita", detalle: { accion: "citado", tipo: "reconocimiento", fecha: cuando.fecha, hora: hhmm(cuando.hora), envio } }, actor);
+  return { ok: true, citaId, envio, texto };
+}
+
 /** Cancela las salidas de reconocimiento en pie (completó las rutas o no continúa). */
 export async function cancelarReconocimientos(procesoId: string, actor: ActorProceso, motivo: string): Promise<number> {
   const { data } = await createAdminClient()
@@ -751,21 +781,33 @@ async function citasVigentesDe(fecha: string): Promise<(Cita & { nombre: string;
  */
 export async function guardarDisponibilidad(
   ex: { fecha: string; disponible: boolean; hora?: string | null; motivo?: string | null; nota?: string | null },
-  actor: ActorProceso
+  actor: ActorProceso,
+  /** El profesor (no Gestión Humana): las citas de hoy solo por un imprevisto y con tiempo para avisar (24-nov-2026). */
+  opciones: { reglaMismoDia?: boolean } = {}
 ): Promise<ResultadoDisponibilidad> {
   if (!FECHA_RE.test(ex.fecha ?? "")) return { ok: false, error: "La fecha no es válida.", afectadas: [] };
   const hora = ex.disponible && ex.hora ? hhmm(ex.hora) : null;
   if (ex.disponible && !HORA_RE.test(hora ?? "")) return { ok: false, error: "Escribe la hora a la que puede ese día.", afectadas: [] };
-  const motivos = ["enfermedad", "permiso", "otra_hora", "otro"];
+  const motivos = ["enfermedad", "permiso", "otra_hora", "otro", "imprevisto"];
   const motivo = ex.disponible ? "otra_hora" : motivos.includes(ex.motivo ?? "") ? ex.motivo! : "otro";
-  const { error } = await createAdminClient()
-    .from("seleccion_disponibilidad_profesor")
-    .upsert(
-      { fecha: ex.fecha, disponible: ex.disponible, hora, motivo, nota: (ex.nota ?? "").trim().slice(0, 300) || null, registrado_por: actor.userEmail },
-      { onConflict: "fecha" }
+  const vigentes = await citasVigentesDe(ex.fecha);
+  const porMover = citasAfectadas(vigentes, { fecha: ex.fecha, disponible: ex.disponible, hora });
+  if (opciones.reglaMismoDia) {
+    const a = await leerAjustesAgenda();
+    const rechazo = validarCambioMismoDia(
+      { fecha: ex.fecha, hoy: hoy(), ahora: horaBogota(new Date()), disponible: ex.disponible, hora, motivo, nota: ex.nota, afectadas: porMover.map((c) => hhmm(c.hora)) },
+      a.cambioMismoDiaMinutos
     );
+    if (rechazo) return { ok: false, error: rechazo, afectadas: [] };
+  }
+  const fila = { fecha: ex.fecha, disponible: ex.disponible, hora, motivo, nota: (ex.nota ?? "").trim().slice(0, 300) || null, registrado_por: actor.userEmail };
+  let { error } = await createAdminClient().from("seleccion_disponibilidad_profesor").upsert(fila, { onConflict: "fecha" });
+  // Sin la migración 20261124201356: «imprevisto» no está permitido todavía; queda como «otro» (la nota lo explica).
+  if (error && motivo === "imprevisto" && /check|motivo/i.test(error.message)) {
+    ({ error } = await createAdminClient().from("seleccion_disponibilidad_profesor").upsert({ ...fila, motivo: "otro" }, { onConflict: "fecha" }));
+  }
   if (error) return { ok: false, error: error.message, afectadas: [] };
-  const afectadas = citasAfectadas(await citasVigentesDe(ex.fecha), { fecha: ex.fecha, disponible: ex.disponible, hora });
+  const afectadas = porMover;
   return { ok: true, afectadas: afectadas.map((c) => ({ id: c.id, nombre: c.nombre, hora: hhmm(c.hora) })) };
 }
 
@@ -786,12 +828,24 @@ export interface ResultadoReprogramarDia {
  * al siguiente cupo (si el día sigue pero a otra hora, solo cambia la hora) y
  * avisa a cada aspirante. No le cuenta como reprogramación al aspirante.
  */
-export async function reprogramarCitasDelDia(fecha: string, actor: ActorProceso, opciones: { soloPrueba?: boolean } = {}): Promise<ResultadoReprogramarDia> {
+export async function reprogramarCitasDelDia(
+  fecha: string,
+  actor: ActorProceso,
+  opciones: { soloPrueba?: boolean; reglaMismoDia?: boolean } = {}
+): Promise<ResultadoReprogramarDia> {
   if (!FECHA_RE.test(fecha ?? "")) return { ok: false, error: "La fecha no es válida.", movidas: [] };
   const [a, excepciones] = await Promise.all([leerAjustesAgenda(), leerDisponibilidad(fecha, enDias(fecha, 62))]);
   const ex = excepciones.find((e) => e.fecha === fecha);
   if (!ex) return { ok: false, error: "Ese día no tiene marcada ninguna novedad del profesor.", movidas: [] };
   const afectadas = citasAfectadas(await citasVigentesDe(fecha), ex).filter((c) => (opciones.soloPrueba ? c.origen === "chat_prueba" : c.origen !== "chat_prueba"));
+  // Hoy: se vuelve a mirar el plazo (entre guardar y reprogramar pudo pasar el tiempo).
+  if (opciones.reglaMismoDia) {
+    const rechazo = validarCambioMismoDia(
+      { fecha, hoy: hoy(), ahora: horaBogota(new Date()), disponible: ex.disponible, hora: ex.hora, motivo: ex.motivo, nota: ex.nota ?? "imprevisto ya explicado", afectadas: afectadas.map((c) => hhmm(c.hora)) },
+      a.cambioMismoDiaMinutos
+    );
+    if (rechazo) return { ok: false, error: rechazo, movidas: [] };
+  }
   const mismoDia = horaDelDia(fecha, a, excepciones);
   // Desde el final de ese día: el siguiente con prueba (saltando los demás días sin profesor).
   const nueva = mismoDia ? { fecha, hora: mismoDia } : proximaCita(new Date(`${fecha}T23:00:00-05:00`), a, excepciones, true);

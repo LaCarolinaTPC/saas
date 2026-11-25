@@ -52,6 +52,8 @@ export interface DatosContratar {
   rutas?: AvanceRutas;
   /** Trabajó antes en la empresa: ya conoce las rutas. */
   reingreso: boolean;
+  /** El encargado dio por terminado el reconocimiento de ruta (24-nov-2026). */
+  reconocimientoFinalizado?: boolean;
   /** Documentos que debe tener la carpeta (ajuste `carpeta_items`). */
   itemsCarpeta: readonly string[];
   carpeta: readonly { item: string; estado: EstadoCarpeta }[];
@@ -94,9 +96,15 @@ export function condicionesContratar(d: DatosContratar): { ok: boolean; condicio
     },
     {
       id: "rutas",
-      nombre: "Rutas aprendidas",
-      cumple: d.reingreso || (d.rutas ? d.rutas.completas : d.rutasAprendidas >= d.rutasMinimas),
-      detalle: d.reingreso ? "Reingreso: ya conoce las rutas" : d.rutas ? d.rutas.detalle : `${Math.min(d.rutasAprendidas, d.rutasMinimas)} de ${d.rutasMinimas}`,
+      nombre: "Reconocimiento de ruta terminado",
+      cumple: d.reingreso || d.reconocimientoFinalizado === true || (d.rutas ? d.rutas.completas : d.rutasAprendidas >= d.rutasMinimas),
+      detalle: d.reingreso
+        ? "Reingreso: ya conoce las rutas"
+        : d.reconocimientoFinalizado
+          ? "Lo dio por terminado el encargado del reconocimiento"
+          : d.rutas
+            ? d.rutas.detalle
+            : `${Math.min(d.rutasAprendidas, d.rutasMinimas)} de ${d.rutasMinimas}`,
     },
     {
       id: "carpeta",

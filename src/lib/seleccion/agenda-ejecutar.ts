@@ -19,8 +19,6 @@ import { ACTOR_SISTEMA, registrarEvento } from "@/lib/contratacion/servidor";
 import { horaBogota } from "@/lib/comunicaciones/seguimiento";
 import { fechaBogota } from "@/lib/tesoreria/recobros";
 import { TIPOS_CON_SEGUIMIENTO, accionAgenda, citasAfectadas, hhmm, horaDelDia, interpretarRespuestaCita, citaVigente, type Cita } from "./agenda";
-import { tocaRecordatorioPsicotecnica } from "./dia-contratacion";
-import { leerAjustes, valoresFijos } from "./servidor";
 import {
   CLAVE_RECORDATORIO,
   avisarProceso,
@@ -107,35 +105,6 @@ export async function ejecutarAgenda(ahora: Date = new Date()): Promise<Resultad
     if (conv) await db.from("wa_conversaciones").update({ requiere_humano: true }).eq("id", conv.id);
     await registrarEvento(p.id, { tipo: "cita", detalle: { accion: "alerta_no_confirmo", tipo: c.tipo, fecha: c.fecha, hora: hhmm(c.hora) } }, ACTOR_SISTEMA);
     r.alertas++;
-  }
-
-  // Psicotécnica (entrega 4): recordatorio el día de la cita, con el lugar.
-  const { data: psico } = await db
-    .from("seleccion_citas")
-    .select("*, procesos_contratacion!inner(id, origen, estado)")
-    .eq("fecha", hoy)
-    .eq("tipo", "psicotecnica")
-    .is("recordatorio_at", null)
-    .in("estado", ["programada", "confirmada"]);
-  let sede: string | undefined;
-  for (const c of (psico ?? []) as FilaCita[]) {
-    const p = uno(c.procesos_contratacion) as { id: string; origen?: string | null; estado?: string } | null;
-    if (!p || p.origen === "chat_prueba" || p.estado === "cierre" || p.estado === "contratado") continue;
-    if (!tocaRecordatorioPsicotecnica(c, ahora, a)) continue;
-    const { data: tomada } = await db
-      .from("seleccion_citas")
-      .update({ recordatorio_at: ahora.toISOString() })
-      .eq("id", c.id)
-      .is("recordatorio_at", null)
-      .select("id");
-    if (!tomada?.length) continue;
-    // Sin lugar, la sede. Si tampoco hay dirección, queda como borrador (falta_dato).
-    sede ??= valoresFijos(await leerAjustes()).direccion ?? "";
-    const extra = { lugar: c.lugar?.trim() || sede };
-    const { envio } = await avisarProceso(p.id, "recordatorio_psicotecnica", { fecha: c.fecha, hora: c.hora }, { directo: false, extra });
-    await registrarEvento(p.id, { tipo: "cita", detalle: { accion: "recordatorio", tipo: "psicotecnica", fecha: c.fecha, hora: hhmm(c.hora), envio } }, ACTOR_SISTEMA);
-    if (envio === "sin_plantilla" || envio === "falta_dato") await db.from("seleccion_citas").update({ recordatorio_at: null }).eq("id", c.id);
-    else r.recordatorios++;
   }
 
   // Escuela: una vez por día, desde la hora configurada y antes de la clase, si hoy hay profesor.

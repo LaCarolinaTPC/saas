@@ -6,11 +6,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { cambiarEstadoProceso, registrarEvento, type ActorProceso } from "@/lib/contratacion/servidor";
 import { fechaBogota } from "@/lib/tesoreria/recobros";
 import { siguienteDiaHabil } from "./agenda";
-import { avisarProceso, citarReconocimiento, crearCitaSimple, leerAjustesAgenda, type EnvioAgenda } from "./agenda-servidor";
-import { rutasAprendidas } from "./agenda";
+import { avisarProceso, crearCitaSimple, leerAjustesAgenda, type EnvioAgenda } from "./agenda-servidor";
 import { enviarOrdenAlCitar, fechaFase2 } from "./laboratorios-servidor";
-import { avanceRutas } from "./rutas";
-import { rutasObligatorias } from "./rutas-servidor";
 import { CAUSA_EXAMENES, efectoExamen, type ExamenGuardado, type FaseExamen, type ResultadoExamen } from "./examenes";
 
 export interface ExamenVista extends ExamenGuardado {
@@ -95,30 +92,72 @@ export async function registrarExamen(
     const aviso = await avisarProceso(procesoId, "examenes_fase2", cuando);
     envio = aviso.envio;
     texto = aviso.texto;
+    // Las rutas ya no se preguntan aquí: se preguntan en la fase 1 (aviso del reconocimiento).
     // La orden de la fase 2 al laboratorio, si el envío es automático (23-nov-2026).
     await enviarOrdenAlCitar(citaF2, actor);
   }
-  if (efecto.estado === "reconocimiento_ruta" && p.reingreso !== true) {
-    const [{ rutasMinimas }, obligatorias, { data: salidas }] = await Promise.all([
-      leerAjustesAgenda(),
-      rutasObligatorias(),
-      db.from("seleccion_reconocimientos_ruta").select("ruta, resultado").eq("proceso_id", procesoId),
-    ]);
-    const avance = avanceRutas(rutasAprendidas((salidas ?? []) as { ruta: string; resultado: string }[]), rutasMinimas, obligatorias);
-    if (!avance.completas) {
-      const r = await citarReconocimiento(procesoId, "reconocimiento_ruta", actor, { rutas: String(avance.necesarias), aprendidas: String(avance.aprendidas.length) });
-      envio = r.envio;
-      texto = r.texto;
-    }
-  }
+  // Desde el 24-nov-2026 el reconocimiento de ruta no se cita solo al pasar la fase 2:
+  // lo cita su encargado (pantalla «Reconocimiento de ruta»).
   return { ok: true, envio, texto, proponeCierre: efecto.proponeCierre };
 }
 
 /** Una persona confirma el cierre que propuso un examen no apto. */
-export async function cerrarPorExamenes(procesoId: string, actor: ActorProceso): Promise<{ ok: boolean; error?: string }> {
+export async function cerrarPorExamenes(procesoId: string, actor: ActorProceso, decision?: string | null): Promise<{ ok: boolean; error?: string }> {
   const examenes = await examenesDeProceso(procesoId);
   const noApto = examenes?.find((e) => e.resultado === "no_apto");
   if (!noApto) return { ok: false, error: "Este proceso no tiene un examen no apto." };
-  await cambiarEstadoProceso(procesoId, "cierre", { actor, causa: CAUSA_EXAMENES, detalle: { motivo: noApto.observacion, fase: noApto.fase } });
+  const nota = String(decision ?? "").trim().slice(0, 1000) || null;
+  await cambiarEstadoProceso(procesoId, "cierre", { actor, causa: CAUSA_EXAMENES, detalle: { motivo: noApto.observacion, fase: noApto.fase, ...(nota ? { decision: nota } : {}) } });
   return { ok: true };
+}
+
+/**
+ * Revisión manual de un no apto (24-nov-2026). El no apto queda marcado en el
+ * tablero; una persona revisa por qué y decide:
+ *  - «sigue»: el examen queda apto con la decisión anotada y el proceso avanza
+ *    como con un apto (fase 1: cita y mensaje de la fase 2, y la orden al
+ *    laboratorio; fase 2: reconocimiento de ruta);
+ *  - «no sigue»: se cierra con «Exámenes médicos».
+ * La decisión (por qué) es obligatoria y queda en el historial. Mientras se
+ * decide, el aspirante sigue en el reconocimiento de ruta.
+ */
+export async function decidirNoApto(procesoId: string, sigue: boolean, decision: string, actor: ActorProceso): Promise<ResultadoRegistroExamen> {
+  const nota = String(decision ?? "").trim().slice(0, 1000);
+  if (nota.length < 5) return { ok: false, error: "Escriba qué se decidió y por qué (queda en el historial)." };
+  const { data: p } = await createAdminClient().from("procesos_contratacion").select("estado").eq("id", procesoId).maybeSingle();
+  if (!p) return { ok: false, error: "El proceso no existe." };
+  if (p.estado === "cierre" || p.estado === "contratado") return { ok: false, error: "El proceso ya está cerrado o contratado: ya se decidió." };
+  const examenes = await examenesDeProceso(procesoId);
+  if (examenes == null) return { ok: false, error: "Falta aplicar la migración de la entrega 3 de selección." };
+  const noApto = examenes.find((e) => e.resultado === "no_apto");
+  if (!noApto) return { ok: false, error: "Este proceso no tiene un examen no apto por revisar." };
+  if (!sigue) {
+    const r = await cerrarPorExamenes(procesoId, actor, nota);
+    return r.ok ? { ok: true } : r;
+  }
+  const observacion = `Revisión manual: sigue pese al no apto del laboratorio${noApto.observacion ? ` («${noApto.observacion.slice(0, 300)}»)` : ""}. Decisión: ${nota}`;
+  const r = await registrarExamen(procesoId, { fase: noApto.fase, resultado: "apto", observacion }, actor);
+  if (!r.ok) return r;
+  // Ya no es lo que propuso el laboratorio: lo decidió una persona.
+  await createAdminClient().from("seleccion_examenes").update({ propuesto_por_laboratorio: false }).eq("proceso_id", procesoId).eq("fase", noApto.fase);
+  await registrarEvento(procesoId, { tipo: "dato", detalle: { revision_no_apto: "sigue", fase: noApto.fase, decision: nota } }, actor);
+  return r;
+}
+
+/** No aptos sin decidir y aplazados de esos procesos (para marcarlos en el tablero). */
+export async function examenesPorRevisar(procesoIds: readonly string[]): Promise<Map<string, { fase: FaseExamen; resultado: "no_apto" | "aplazado"; observacion: string | null }>> {
+  const mapa = new Map<string, { fase: FaseExamen; resultado: "no_apto" | "aplazado"; observacion: string | null }>();
+  if (!procesoIds.length) return mapa;
+  const db = createAdminClient();
+  for (let i = 0; i < procesoIds.length; i += 200) {
+    const { data, error } = await db.from("seleccion_examenes").select("proceso_id, fase, resultado, observacion").in("resultado", ["no_apto", "aplazado"]).in("proceso_id", procesoIds.slice(i, i + 200));
+    if (error) return mapa;
+    for (const f of data ?? []) {
+      const previo = mapa.get(f.proceso_id as string);
+      // El no apto (hay que decidir) pesa más que un aplazado.
+      if (previo?.resultado === "no_apto") continue;
+      mapa.set(f.proceso_id as string, { fase: f.fase as FaseExamen, resultado: f.resultado as "no_apto" | "aplazado", observacion: (f.observacion as string | null) ?? null });
+    }
+  }
+  return mapa;
 }

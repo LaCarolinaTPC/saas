@@ -6,9 +6,7 @@ import { getCandidate } from "@/lib/actions";
 import { formatDateBogota, timeAgoBogota } from "@/lib/utils";
 import { EditarCandidato } from "./editar-candidato";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getCurrentPermissions, puedeEditarEn, tienePermiso } from "@/lib/permissions";
-import { pruebasDeCandidato } from "@/lib/psicosensotecnica/servidor";
-import { TarjetaPsicoCandidato } from "@/components/psicosensotecnica/tarjeta-candidato";
+import { getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { etapaDePostulacion as etapaDe, type ProcesoContratacion } from "@/lib/contratacion/constants";
 import { ProcesoDelCandidato } from "@/components/seleccion/proceso-del-candidato";
 
@@ -52,10 +50,6 @@ export default async function CandidateProfilePage({
     getCurrentPermissions(),
   ]);
   const proceso = ((procesos ?? [])[0] as ProcesoContratacion | undefined) ?? null;
-
-  // Prueba psicosensotécnica: los puntajes solo viajan para quien tiene el módulo.
-  const verPsico = tienePermiso(perms, "psicosensotecnica.ver");
-  const pruebasPsico = await pruebasDeCandidato(id, candidate.document_number ?? null, verPsico);
 
   const currentApplication = applications[0];
   const etapa = proceso ? etapaDe(proceso.estado) : currentApplication ? etapaDe(currentApplication.current_stage) : null;
@@ -122,20 +116,6 @@ export default async function CandidateProfilePage({
           <p className="rounded-lg border border-[#F1F5F9] bg-white p-5 text-sm text-gray-500">
             Este candidato no tiene proceso de contratación.
           </p>
-        )}
-
-        {/* Sin la migración del módulo `pruebasPsico` es null y la tarjeta no sale. */}
-        {pruebasPsico && (
-          <div className="mt-6">
-            <TarjetaPsicoCandidato
-              candidateId={id}
-              cedula={candidate.document_number ?? null}
-              nombre={candidate.full_name ?? ""}
-              pruebas={pruebasPsico}
-              puedeAsignar={puedeEditarEn(perms, "candidatos", "psicosensotecnica")}
-              verDetalle={verPsico}
-            />
-          </div>
         )}
 
         {applications.length > 0 && (

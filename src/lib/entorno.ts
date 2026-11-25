@@ -8,6 +8,11 @@
  *
  * Con `next dev` y sin GESTIVO_ENTORNO=desarrollo se muestra una franja roja:
  * es el caso peligroso de trabajar en local contra la base real.
+ *
+ * Desde el 24-nov-2026 el fondo del panel y del menú también cambia de color
+ * fuera de producción (crema en desarrollo, rosado en local contra
+ * producción), para no confundirlos. GESTIVO_COLOR_FONDO (#rrggbb) cambia el
+ * tono; en producción no se usa.
  */
 
 export type TipoEntorno = "desarrollo" | "local-produccion";
@@ -20,6 +25,17 @@ export interface Entorno {
   prefijoTitulo: string;
   /** Host de Supabase al que apunta la app, para que se vea a qué base se escribe. */
   baseDatos: string | null;
+  /** Fondo del panel y del menú lateral, para distinguirlo de producción. */
+  fondo: string;
+  fondoMenu: string;
+}
+
+const HEX = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
+
+/** El color de GESTIVO_COLOR_FONDO si es un #hex válido. */
+function colorDeEntorno(): string | null {
+  const v = process.env.GESTIVO_COLOR_FONDO?.trim();
+  return v && HEX.test(v) ? v : null;
 }
 
 function hostSupabase(): string | null {
@@ -40,9 +56,12 @@ export function entornoActual(): Entorno | null {
   if (valor === "desarrollo") {
     return {
       tipo: "desarrollo",
-      etiqueta: "DESARROLLO · copia de producción · WhatsApp y correo simulados",
+      etiqueta: "DESARROLLO · copia de producción · WhatsApp y correo solo a destinos de prueba",
       prefijoTitulo: "[DEV] ",
       baseDatos,
+      // Crema: se nota que no es producción sin cansar la vista.
+      fondo: colorDeEntorno() ?? "#FFF8E6",
+      fondoMenu: colorDeEntorno() ?? "#FDF1D6",
     };
   }
 
@@ -55,6 +74,8 @@ export function entornoActual(): Entorno | null {
           : "LOCAL · GESTIVO_ENTORNO sin definir: ¿base de producción?",
       prefijoTitulo: "[PROD LOCAL] ",
       baseDatos,
+      fondo: colorDeEntorno() ?? "#FFF1F2",
+      fondoMenu: colorDeEntorno() ?? "#FFE4E6",
     };
   }
 

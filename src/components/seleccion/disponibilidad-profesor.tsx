@@ -5,6 +5,11 @@
  * el profesor desde su pantalla o Gestión Humana desde la Agenda (si se
  * enfermó y no puede entrar). Si ese día ya tiene citas, ofrece moverlas al
  * siguiente cupo y avisar a cada aspirante; no les cuenta como reprogramación.
+ *
+ * El profesor solo puede cambiar las citas de HOY por un imprevisto
+ * (enfermedad u otro), explicándolo, y con tiempo para avisar a los aspirantes
+ * (ajuste cambio_mismo_dia_minutos; lo revisa el servidor). Gestión Humana, desde la
+ * Agenda, no tiene esa restricción (24-nov-2026).
  */
 import { useCallback, useEffect, useState } from "react";
 import { CalendarOff, Loader2, Trash2 } from "lucide-react";
@@ -13,10 +18,13 @@ import { avisarPrueba, textoEnvio, type AccionesDisponibilidad } from "./profeso
 
 const MOTIVOS = [
   ["enfermedad", "Enfermedad"],
+  ["imprevisto", "Imprevisto"],
   ["permiso", "Permiso"],
   ["otro", "Otro motivo"],
 ] as const;
-const MOTIVO: Record<string, string> = { enfermedad: "Enfermedad", permiso: "Permiso", otra_hora: "Otra hora", otro: "Otro motivo" };
+const MOTIVO: Record<string, string> = { enfermedad: "Enfermedad", imprevisto: "Imprevisto", permiso: "Permiso", otra_hora: "Otra hora", otro: "Otro motivo" };
+/** Hoy solo valen estos (un permiso se pide con anticipación). */
+const MOTIVOS_HOY = new Set(["enfermedad", "imprevisto"]);
 
 const hoyBogota = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date());
 const enDias = (fecha: string, n: number) => {
@@ -31,9 +39,12 @@ export function DisponibilidadProfesor({
   fechaInicial,
   aviso,
   onCambio,
+  reglaMismoDia = false,
 }: {
   acciones: AccionesDisponibilidad;
   puedeEditar: boolean;
+  /** Es el profesor: hoy solo por un imprevisto y con tiempo para avisar. */
+  reglaMismoDia?: boolean;
   fechaInicial?: string;
   /** Nota bajo el título (por ejemplo, en el modo de prueba). */
   aviso?: string;
@@ -61,11 +72,19 @@ export function DisponibilidadProfesor({
 
   async function guardar() {
     if (ocupado) return;
+    // Hoy, un permiso u «otro motivo» no valen: se pasa a «Imprevisto».
+    if (reglaMismoDia && fecha === hoyBogota() && tipo === "no_puede" && !MOTIVOS_HOY.has(motivo)) setMotivo("imprevisto");
     setOcupado("guardar");
     setError(null);
     setResultado(null);
     const r = await acciones
-      .guardar({ fecha, disponible: tipo === "otra_hora", hora: tipo === "otra_hora" ? hora : null, motivo: tipo === "otra_hora" ? "otra_hora" : motivo, nota })
+      .guardar({
+        fecha,
+        disponible: tipo === "otra_hora",
+        hora: tipo === "otra_hora" ? hora : null,
+        motivo: tipo === "otra_hora" ? "otra_hora" : reglaMismoDia && fecha === hoyBogota() && !MOTIVOS_HOY.has(motivo) ? "imprevisto" : motivo,
+        nota,
+      })
       .catch((e: Error) => ({ ok: false as const, error: e.message, afectadas: [] }));
     setOcupado(null);
     if (!r.ok) return setError(r.error ?? "No se pudo guardar.");
@@ -105,6 +124,8 @@ export function DisponibilidadProfesor({
     onCambio?.();
   }
 
+  const esHoy = reglaMismoDia && fecha === hoyBogota();
+  const motivosVisibles = esHoy ? MOTIVOS.filter(([v]) => MOTIVOS_HOY.has(v)) : MOTIVOS;
   const boton = (activo: boolean) =>
     `min-h-12 rounded-lg border px-3 py-2 text-left text-base font-medium ${activo ? "border-[#4F46E5] bg-[#EEF2FF] text-[#4338CA]" : "border-[#E2E8F0] bg-white text-gray-700"}`;
 
@@ -137,9 +158,15 @@ export function DisponibilidadProfesor({
               Puede a otra hora
             </button>
           </div>
+          {esHoy && (
+            <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              Hoy solo se pueden cambiar las citas por un imprevisto (enfermedad u otro), escribiendo qué pasó, y con tiempo para avisar a los aspirantes antes de su
+              cita. Si ya no hay tiempo, comuníquese con Gestión Humana.
+            </p>
+          )}
           {tipo === "no_puede" ? (
-            <div className="grid grid-cols-3 gap-2">
-              {MOTIVOS.map(([v, t]) => (
+            <div className={`grid gap-2 ${esHoy ? "grid-cols-2" : "grid-cols-2 sm:grid-cols-4"}`}>
+              {motivosVisibles.map(([v, t]) => (
                 <button key={v} type="button" onClick={() => setMotivo(v)} className={`${boton(motivo === v)} text-center text-sm`}>
                   {t}
                 </button>
@@ -160,7 +187,7 @@ export function DisponibilidadProfesor({
             value={nota}
             onChange={(e) => setNota(e.target.value)}
             maxLength={300}
-            placeholder="Nota (opcional)"
+            placeholder={esHoy ? "¿Qué pasó? (obligatorio para cambiar las citas de hoy)" : "Nota (opcional)"}
             className="h-12 w-full rounded-lg border border-[#E2E8F0] px-3 text-base outline-none focus:border-[#4F46E5]"
           />
           <button

@@ -14,6 +14,13 @@
  * en las estándar, texto dentro de bloques que no se limpian), modo tapado: el
  * párrafo original queda debajo de un rectángulo blanco.
  *
+ * Bloque de firma (24-nov-2026): el nombre y el cargo de quien firma, la firma
+ * y el sello de la empresa se configuran en Selección › Laboratorios. Con las
+ * marcas {firmante}, {firmante_cargo}, {firma} y {sello} van donde estén; sin
+ * ellas, se busca el bloque de la firma (el renglón después del espacio grande
+ * que sigue a «Atentamente»): su nombre y cargo se cambian por los
+ * configurados y la firma y el sello se ponen en ese espacio.
+ *
  * La letra de cada fragmento sale del nombre de la fuente del PDF
  * («TimesNewRomanPS-BoldItalicMT» → Times negrita cursiva). Si el PDF no lo
  * dice, se averigua por el ancho (con cuidado: en un párrafo justificado el
@@ -149,6 +156,75 @@ function partir(palabras: Palabra[], anchoMax: number, tam: number, espacio: num
   }
   if (actual.length) out.push(actual);
   return out;
+}
+
+/** Quién firma la carta y las imágenes de la firma y el sello (PNG o JPG). */
+export interface FirmaCarta {
+  nombre?: string | null;
+  cargo?: string | null;
+  firma?: Uint8Array | null;
+  sello?: Uint8Array | null;
+}
+
+interface ImagenFirma {
+  clave: "firma" | "sello";
+  x: number;
+  /** Borde de abajo. */
+  y: number;
+  /** Alto máximo; el ancho sale de la proporción de la imagen (con tope). */
+  alto: number;
+  anchoMax: number;
+}
+
+/** Marcas que se vuelven imagen: en el texto quedan vacías. */
+const MARCAS_IMAGEN = new Set(["firma", "sello", "imagen_firma", "imagen_sello"]);
+
+/**
+ * Prepara el bloque de firma en los fragmentos de la página: deja las marcas
+ * {firmante}/{firmante_cargo} en el nombre y el cargo de la plantilla (si no
+ * las trae y hay nombre o cargo configurados) y devuelve dónde van la firma y
+ * el sello. Cambia los fragmentos en su sitio. PURO.
+ */
+export function prepararFirma(fragmentos: Fragmento[], firma: FirmaCarta | null | undefined): ImagenFirma[] {
+  if (!firma) return [];
+  const imagenes: ImagenFirma[] = [];
+  // Marcas explícitas de imagen: quedan como marcas vacías (así el modo tapado también las borra).
+  for (const f of fragmentos) {
+    for (const clave of ["firma", "sello"] as const) {
+      if (!f.str.includes(`{${clave}}`)) continue;
+      const tieneImagen = clave === "firma" ? !!firma.firma : !!firma.sello;
+      if (tieneImagen) imagenes.push({ clave, x: f.x, y: f.y - 2, alto: clave === "firma" ? 55 : 80, anchoMax: clave === "firma" ? 170 : 90 });
+      f.str = f.str.replace(`{${clave}}`, `{imagen_${clave}}`);
+    }
+  }
+  const tieneMarcaNombre = fragmentos.some((f) => f.str.includes("{firmante}"));
+  const tieneMarcaCargo = fragmentos.some((f) => f.str.includes("{firmante_cargo}"));
+  const faltaAuto = (!!firma.nombre && !tieneMarcaNombre) || (!!firma.cargo && !tieneMarcaCargo) || (!!firma.firma && !imagenes.some((i) => i.clave === "firma")) || (!!firma.sello && !imagenes.some((i) => i.clave === "sello"));
+  if (!faltaAuto) return imagenes;
+
+  // El bloque de la firma: después de «Atentamente», el primer renglón tras un espacio grande.
+  const lineas = renglones(fragmentos);
+  const i = lineas.findIndex((l) => /\b(atentamente|cordialmente|cordial saludo)\b/i.test(l.fragmentos.map((f) => f.str).join(" ")));
+  if (i < 0) return imagenes;
+  const despedida = lineas[i];
+  const j = lineas.findIndex((l, k) => k > i && despedida.y - l.y > despedida.tam * 3);
+  if (j < 0) return imagenes;
+  const nombre = lineas[j];
+  const cargo = lineas[j + 1] && nombre.y - lineas[j + 1].y < nombre.tam * 1.7 ? lineas[j + 1] : null;
+  const poner = (l: Linea, marca: string) => {
+    const [primero, ...resto] = l.fragmentos;
+    primero.str = `{${marca}}`;
+    for (const r of resto) r.str = "";
+  };
+  if (firma.nombre && !tieneMarcaNombre) poner(nombre, "firmante");
+  if (firma.cargo && !tieneMarcaCargo && cargo) poner(cargo, "firmante_cargo");
+  // La firma y el sello, en el espacio entre la despedida y el nombre.
+  const abajo = nombre.y + nombre.tam * 1.1;
+  const arriba = despedida.y - despedida.tam * 0.5;
+  const espacio = Math.max(20, arriba - abajo);
+  if (firma.firma && !imagenes.some((x) => x.clave === "firma")) imagenes.push({ clave: "firma", x: nombre.izquierda, y: abajo, alto: Math.min(65, espacio * 0.85), anchoMax: 180 });
+  if (firma.sello && !imagenes.some((x) => x.clave === "sello")) imagenes.push({ clave: "sello", x: nombre.izquierda + 190, y: abajo - nombre.tam * 0.5, alto: Math.min(90, espacio * 0.95), anchoMax: 110 });
+  return imagenes;
 }
 
 export interface ResultadoPdf {
@@ -379,8 +455,22 @@ function planPagina(
 }
 
 /** Escribe el plan sobre la base: la plantilla (tapado) o la plantilla sin texto (limpio). */
-async function escribir(base: Uint8Array, paginas: PaginaLeida[], valores: Record<string, string>, limpio: boolean): Promise<ResultadoPdf | null> {
+async function escribir(
+  base: Uint8Array,
+  paginas: PaginaLeida[],
+  valores: Record<string, string>,
+  limpio: boolean,
+  imagenes: Map<number, ImagenFirma[]> = new Map(),
+  firma?: FirmaCarta | null
+): Promise<ResultadoPdf | null> {
   const doc = await PDFDocument.load(base);
+  // La firma y el sello, una sola vez por documento (PNG o JPG).
+  const incrustar = async (bytes: Uint8Array | null | undefined) => {
+    if (!bytes?.length) return null;
+    const png = bytes[0] === 0x89 && bytes[1] === 0x50;
+    return (png ? doc.embedPng(bytes) : doc.embedJpg(bytes)).catch(() => null);
+  };
+  const graficos = { firma: await incrustar(firma?.firma), sello: await incrustar(firma?.sello) };
   const familias: Familias = {
     times: await Promise.all(FAMILIAS.times.map((f) => doc.embedFont(f))),
     helvetica: await Promise.all(FAMILIAS.helvetica.map((f) => doc.embedFont(f))),
@@ -395,6 +485,13 @@ async function escribir(base: Uint8Array, paginas: PaginaLeida[], valores: Recor
     // Primero se tapa todo y después se escribe: si no, tapar un bloque en su sitio original cortaría el de arriba que ya bajó.
     for (const t of plan.tapas) pagina.drawRectangle({ x: t.x, y: t.y, width: t.w, height: t.h, color: rgb(1, 1, 1) });
     for (const t of plan.trazos) pagina.drawText(t.texto, { x: t.x, y: t.y, size: t.tam, font: t.fuente, color: rgb(0, 0, 0) });
+    for (const im of imagenes.get(p.indice) ?? []) {
+      const g = graficos[im.clave];
+      if (!g) continue;
+      // Del alto disponible, sin pasarse del ancho máximo; se conserva la proporción.
+      const escala = Math.min(im.alto / g.height, im.anchoMax / g.width);
+      pagina.drawImage(g, { x: im.x, y: im.y, width: g.width * escala, height: g.height * escala });
+    }
   }
   return { pdf: await doc.save(), usadas: [...usadas], faltan: [...faltan], modo: limpio ? "limpio" : "tapado" };
 }
@@ -404,13 +501,29 @@ async function escribir(base: Uint8Array, paginas: PaginaLeida[], valores: Recor
  * intenta el modo limpio (sin texto de la plantilla, todo reescrito) y, si no se
  * puede, el tapado. `modo` fuerza uno (pruebas).
  */
-export async function rellenarPdf(plantilla: Uint8Array, valores: Record<string, string>, opciones: { modo?: "limpio" | "tapado" } = {}): Promise<ResultadoPdf> {
+export async function rellenarPdf(
+  plantilla: Uint8Array,
+  valores: Record<string, string>,
+  opciones: { modo?: "limpio" | "tapado"; firma?: FirmaCarta | null } = {}
+): Promise<ResultadoPdf> {
   const paginas = await leerPaginas(plantilla);
   if (!paginas.length) return { pdf: plantilla, usadas: [], faltan: [], modo: "limpio" };
+  // El bloque de firma va en la última página con marcas.
+  const imagenes = new Map<number, ImagenFirma[]>();
+  const ultima = paginas[paginas.length - 1];
+  imagenes.set(ultima.indice, prepararFirma(ultima.fragmentos, opciones.firma));
+  const conFirma = {
+    ...valores,
+    ...(opciones.firma?.nombre ? { firmante: opciones.firma.nombre } : {}),
+    ...(opciones.firma?.cargo ? { firmante_cargo: opciones.firma.cargo } : {}),
+    imagen_firma: "",
+    imagen_sello: "",
+  };
+  const fin = (r: ResultadoPdf): ResultadoPdf => ({ ...r, usadas: r.usadas.filter((m) => !MARCAS_IMAGEN.has(m)), faltan: r.faltan.filter((m) => !MARCAS_IMAGEN.has(m)) });
   if (opciones.modo !== "tapado" && !paginas.some((p) => p.girada)) {
     const base = await sinTexto(plantilla, paginas.map((p) => p.indice));
-    const r = base ? await escribir(base, paginas, valores, true) : null;
-    if (r) return r;
+    const r = base ? await escribir(base, paginas, conFirma, true, imagenes, opciones.firma) : null;
+    if (r) return fin(r);
   }
-  return (await escribir(plantilla, paginas, valores, false))!;
+  return fin((await escribir(plantilla, paginas, conFirma, false, imagenes, opciones.firma))!);
 }

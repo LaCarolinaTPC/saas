@@ -12,7 +12,7 @@ import { aprobarContratacion, condicionesDeProceso } from "@/lib/seleccion/contr
 import { gastoDelMes, registrarConsumo } from "@/lib/seleccion/consumos-servidor";
 import { conversacionesDeLaboratorio, esConversacionDeLaboratorio, marcarTipoContacto } from "@/lib/seleccion/laboratorio-servidor";
 import { citasDeProceso } from "@/lib/seleccion/agenda-servidor";
-import { confirmarAviso, procesarMensajeLaboratorio } from "@/lib/seleccion/laboratorio-lectura";
+import { procesarMensajeLaboratorio } from "@/lib/seleccion/laboratorio-lectura";
 
 const db = createAdminClient();
 const actor: ActorProceso = { tipo: "usuario", userId: null, userEmail: "prueba-e3@gestivo.test" };
@@ -264,12 +264,14 @@ try {
   const leidos = await procesarMensajeLaboratorio(conv!.id as string, msj!.id as string);
   const { data: avisos } = await db.from("seleccion_avisos_laboratorio").select("*").eq("wa_mensaje_id", msj!.id);
   const aviso = (avisos ?? [])[0];
-  revisar("queda un aviso para confirmar", leidos === 1 && !!aviso && aviso.estado === "pendiente", { leidos, aviso });
+  // Regla de la fase 1 (24-nov-2026): apto solo con la frase acordada («Sí, puede pasar a fase 2»)
+  // o una variante; cualquier otro resultado, como este «APTO» suelto, se registra solo como no apto.
+  revisar("queda un aviso, resuelto solo por la regla de la fase 1", leidos === 1 && !!aviso && aviso.estado === "confirmado", { leidos, aviso });
   revisar("asociado al aspirante por la cédula", aviso?.proceso_id === enLab, aviso?.proceso_id);
-  revisar("con el resultado y la fase leídos", aviso?.resultado_propuesto === "apto" && aviso?.fase === 1, { resultado: aviso?.resultado_propuesto, fase: aviso?.fase });
-  revisar("el proceso no cambia hasta confirmar", (await proceso(enLab)).estado === "en_examenes");
-  const conf = await confirmarAviso(aviso!.id as string, { procesoId: enLab, fase: 1, resultado: "apto" }, actor);
-  revisar("al confirmar se registra el examen y pasa a fase 2", conf.ok && (await proceso(enLab)).estado === "en_examenes_fase2", conf);
+  revisar("«APTO» sin la frase acordada: no apto, fase 1", aviso?.resultado_propuesto === "no_apto" && aviso?.fase === 1, { resultado: aviso?.resultado_propuesto, fase: aviso?.fase });
+  revisar("no apto no avanza: sigue en fase 1 (el cierre lo confirma una persona)", (await proceso(enLab)).estado === "en_examenes");
+  const conf = await registrarExamen(enLab, { fase: 1, resultado: "apto", observacion: "Corregido a mano" }, actor);
+  revisar("una persona puede corregirlo a apto y pasa a fase 2", conf.ok && (await proceso(enLab)).estado === "en_examenes_fase2", conf);
   const { data: saludo } = await db.from("wa_mensajes").insert({ conversacion_id: conv!.id, direccion: "entrante", contenido: "Buenos días, ¿a qué hora abren mañana?", timestamp: new Date().toISOString() }).select("id").single();
   revisar("un saludo sin resultados no deja aviso", (await procesarMensajeLaboratorio(conv!.id as string, saludo!.id as string)) === 0);
 

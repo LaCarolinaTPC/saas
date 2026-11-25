@@ -76,6 +76,12 @@ export interface AjustesAgenda {
   rutasMinimas: number;
   /** Hora de cada salida de reconocimiento de ruta (21-nov-2026). */
   reconocimientoHora: string;
+  /**
+   * Cambio de las citas del mismo día por el profesor (24-nov-2026): solo por un
+   * imprevisto y con al menos estos minutos antes de la primera cita afectada
+   * (y de la hora nueva), para alcanzar a avisar a los aspirantes.
+   */
+  cambioMismoDiaMinutos: number;
 }
 
 /** Valores de la reunión con GH (2026-11-10); se cambian en seleccion_ajustes. */
@@ -92,6 +98,7 @@ export const AJUSTES_AGENDA_POR_DEFECTO: AjustesAgenda = {
   laboratorioHora: "06:30",
   rutasMinimas: 2,
   reconocimientoHora: "09:00",
+  cambioMismoDiaMinutos: 120,
 };
 
 const HORA_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -124,7 +131,56 @@ export function ajustesAgenda(filas: { clave: string; valor: unknown }[]): Ajust
     laboratorioHora: hora("laboratorio_hora", d.laboratorioHora),
     rutasMinimas: num("rutas_minimas", d.rutasMinimas) || d.rutasMinimas,
     reconocimientoHora: hora("reconocimiento_hora", d.reconocimientoHora),
+    cambioMismoDiaMinutos: num("cambio_mismo_dia_minutos", d.cambioMismoDiaMinutos),
   };
+}
+
+/** Motivos que permiten cambiar las citas de hoy: algo que no se podía prever. */
+export const MOTIVOS_MISMO_DIA = ["enfermedad", "imprevisto"] as const;
+
+/**
+ * ¿Puede el profesor cambiar las citas de hoy? (24-nov-2026). Otro día, sí.
+ * Hoy, solo si el motivo es un imprevisto (enfermedad o imprevisto, no un
+ * permiso ni «otra hora» sin explicar), con la explicación escrita, y con al
+ * menos `minutos` antes de la primera cita afectada y de la hora nueva: si no,
+ * los aspirantes no alcanzan a enterarse. Devuelve el motivo del rechazo, o
+ * null si se puede. PURO.
+ */
+export function validarCambioMismoDia(
+  d: {
+    fecha: string;
+    hoy: string;
+    /** Hora actual en Bogotá, «HH:MM». */
+    ahora: string;
+    disponible: boolean;
+    hora?: string | null;
+    motivo?: string | null;
+    nota?: string | null;
+    /** Horas de las citas de ese día que el cambio mueve. */
+    afectadas: string[];
+  },
+  minutos: number
+): string | null {
+  if (d.fecha !== d.hoy || !d.afectadas.length) return null;
+  const aMin = (h: string) => {
+    const [hh, mm] = hhmm(h).split(":").map(Number);
+    return hh * 60 + mm;
+  };
+  const ahora = aMin(d.ahora);
+  const nota = String(d.nota ?? "").trim();
+  if (!d.disponible && !(MOTIVOS_MISMO_DIA as readonly string[]).includes(String(d.motivo ?? ""))) {
+    return "Las citas de hoy solo se pueden cambiar por un imprevisto (enfermedad u otro imprevisto). Un permiso se pide con anticipación.";
+  }
+  if (nota.length < 10) return "Para cambiar las citas de hoy, escriba qué pasó (el imprevisto) en la nota.";
+  const primera = Math.min(...d.afectadas.map(aMin));
+  const plazo = (m: number) => (m >= 60 ? `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ""}` : `${m} min`);
+  if (primera - ahora < minutos) {
+    return `Ya no se puede cambiar: la primera cita de hoy es a las ${hhmm(d.afectadas.find((h) => aMin(h) === primera)!)} y el cambio se hace con al menos ${plazo(minutos)} de anticipación, para avisar a los aspirantes. Comuníquese con Gestión Humana.`;
+  }
+  if (d.disponible && d.hora && aMin(d.hora) - ahora < minutos) {
+    return `La hora nueva debe ser al menos ${plazo(minutos)} después de ahora, para que los aspirantes alcancen a llegar.`;
+  }
+  return null;
 }
 
 /**
@@ -287,7 +343,8 @@ export function superaReprogramaciones(citas: Pick<Cita, "tipo" | "estado" | "re
  */
 export function citasAfectadas<T extends Pick<Cita, "tipo" | "estado" | "fecha" | "hora">>(citas: T[], ex: ExcepcionProfesor): T[] {
   return citas.filter((c) => {
-    if (!TIPOS_CON_SEGUIMIENTO.includes(c.tipo) || c.fecha !== ex.fecha || !citaVigente(c)) return false;
+    // El reconocimiento de ruta ya no depende del profesor (24-nov-2026): solo la prueba de manejo.
+    if (c.tipo !== "prueba_manejo" || c.fecha !== ex.fecha || !citaVigente(c)) return false;
     if (!ex.disponible) return true;
     return c.tipo === "prueba_manejo" && Boolean(ex.hora) && hhmm(c.hora) !== hhmm(ex.hora);
   });

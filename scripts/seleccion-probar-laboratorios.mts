@@ -15,7 +15,7 @@ async function textoPdf(b: Buffer): Promise<string> {
 import type { ActorProceso } from "@/lib/contratacion/servidor";
 import { avisarProceso, crearCitaSimple } from "@/lib/seleccion/agenda-servidor";
 import { registrarExamen } from "@/lib/seleccion/examenes-servidor";
-import { confirmarAviso, leerYGuardarAvisos } from "@/lib/seleccion/laboratorio-lectura";
+import { leerYGuardarAvisos } from "@/lib/seleccion/laboratorio-lectura";
 import {
   asegurarLaboratorio, asignarLaboratorio, documentosAspirante, enviarDocumentosAspirante, enviarOrdenLaboratorio, leerLaboratorios,
   hiloLaboratorio, pendientesPrueba, planFase1, subirPlantillaCarta, subirPlantillaOrden, vistaOrden,
@@ -84,7 +84,9 @@ try {
   revisar("hay laboratorios (migración aplicada)", labs.length >= 2, labs.map((l) => l.nombre));
   const biobac = labs.find((l) => /biobac/i.test(l.nombre))!;
   const rescate = labs.find((l) => /rescate/i.test(l.nombre))!;
-  revisar("Biobac por correo a recepción y comercial, predeterminado", biobac?.canal === "correo" && biobac.correos.includes("recepcion@biobacips.com") && biobac.correos.includes("comercial2@biobacips.com") && biobac.predeterminado, biobac);
+  // En desarrollo los correos de Biobac pueden estar cambiados por la lista de pruebas (soporte).
+  const biobacDePrueba = !!biobac && !biobac.correos.some((c) => /biobacips/i.test(c));
+  revisar(biobacDePrueba ? "Biobac por correo (en desarrollo, a la lista de pruebas), predeterminado" : "Biobac por correo a recepción y comercial, predeterminado", biobac?.canal === "correo" && (biobacDePrueba || (biobac.correos.includes("recepcion@biobacips.com") && biobac.correos.includes("comercial2@biobacips.com"))) && biobac.predeterminado, biobac);
   revisar("Rescate por WhatsApp", rescate?.canal === "whatsapp", rescate);
   const orden = arg("orden");
   const carta = arg("carta");
@@ -147,7 +149,7 @@ try {
   const cita1 = await crearCitaSimple(p1, "examen_f1", cuando, actor);
   revisar("se crea la cita de la fase 1", cita1);
   const aviso = await avisarProceso(p1, "examenes_fase1", cuando);
-  revisar("el mensaje dice el laboratorio del aspirante, la fecha y que no es en ayunas", /BIOBAC/i.test(aviso.texto) && /no es en ayunas/i.test(aviso.texto) && !/Mañana/.test(aviso.texto), aviso.texto);
+  revisar("el mensaje dice el laboratorio del aspirante, la fecha y pregunta por el Banco de Bogotá", /BIOBAC/i.test(aviso.texto) && /Fecha:/.test(aviso.texto) && /Banco de Bogot/i.test(aviso.texto) && !/Mañana/.test(aviso.texto), aviso.texto);
   const docs = await documentosAspirante(p1, cuando);
   const ordenDoc = docs.documentos.find((d) => d.tipo === "orden");
   const cartaDoc = docs.documentos.find((d) => d.tipo === "carta");
@@ -176,11 +178,12 @@ try {
 
   titulo("Orden al laboratorio por correo (Biobac)");
   const v = await vistaOrden(biobac.id, cuando.fecha, { incluirPrueba: true });
-  revisar("la vista previa trae el correo a los dos destinatarios con el aspirante", v?.correo?.para.length === 2 && v.correo.texto.includes("NIXON ALEXANDER LEAL GARCIA") && v.correo.adjuntos.some((a) => a.includes(`${PREFIJO}01`)), v?.correo);
+  revisar("la vista previa trae el correo a los destinatarios del laboratorio con el aspirante", v?.correo?.para.length === biobac.correos.length && v.correo.texto.includes("NIXON ALEXANDER LEAL GARCIA") && v.correo.adjuntos.some((a) => a.includes(`${PREFIJO}01`)), v?.correo);
   const sim = await enviarOrdenLaboratorio(biobac.id, cuando.fecha, actor, { simular: true });
   revisar("simular no envía nada", sim.ok && sim.simulado, sim);
   const real = await enviarOrdenLaboratorio(biobac.id, cuando.fecha, actor);
-  revisar("«Enviar» con solo candidatos de prueba tampoco sale, pero los marca", real.ok && real.simulado, real);
+  // 24-nov-2026: con el laboratorio apuntando a un correo de la lista de pruebas, la de los candidatos de prueba sale de verdad.
+  revisar(`«Enviar» con solo candidatos de prueba: ${real.simulado ? "simulada" : "sale al destino de prueba"} y los marca`, real.ok, real);
   const { data: c1b } = await db.from("seleccion_citas").select("orden_laboratorio_at").eq("id", cita1!).maybeSingle();
   revisar("la cita queda con la orden enviada (no se repite)", c1b?.orden_laboratorio_at);
   const hilo1 = await hiloLaboratorio(biobac.id, { soloPrueba: true });
@@ -207,13 +210,16 @@ try {
   const { data: av } = await db.from("seleccion_avisos_laboratorio").select("proceso_id, fase, resultado_propuesto, simulado, laboratorio_id").in("id", r.ids);
   revisar("asociado al aspirante, fase 1 apto, marcado como simulado y del laboratorio", av?.some((a) => a.proceso_id === p1 && a.fase === 1 && a.resultado_propuesto === "apto" && a.simulado && a.laboratorio_id === biobac.id), av);
   const hilo3 = await hiloLaboratorio(biobac.id, { soloPrueba: true });
-  revisar("la respuesta aparece en la conversación con Biobac después de la orden", hilo3.at(-1)?.direccion === "entrante" && hilo3.at(-1)?.aviso?.procesoId === p1, hilo3.at(-1));
+  // Después de la respuesta puede venir la orden de la fase 2 (sale sola al registrarse la fase 1 apta).
+  const iOrden = hilo3.findIndex((m) => m.direccion === "saliente" && m.adjuntos?.some((a) => a.procesoId === p1));
+  const iResp = hilo3.findIndex((m) => m.direccion === "entrante" && m.aviso?.procesoId === p1);
+  revisar("la respuesta aparece en la conversación con Biobac después de la orden", iOrden >= 0 && iResp > iOrden, { iOrden, iResp });
 
   titulo("Fase 2 en el mismo laboratorio y «aplazado»");
-  // Se confirma desde la conversación (como en el chat de prueba): registra el examen y trae el mensaje de fase 2.
-  const avisoP1 = r.ids[0];
-  const f1 = await confirmarAviso(avisoP1, { procesoId: p1, fase: 1, resultado: "apto" }, actor);
-  revisar("confirmar el aviso: fase 1 apta, pasa a fase 2 y trae el mensaje para el aspirante", f1.ok && /ayunas/i.test(f1.texto ?? "") && /BIOBAC/i.test(f1.texto ?? ""), f1);
+  // «Puede continuar a segunda fase» es una variante de la frase acordada (24-nov-2026): se registra sola
+  // y trae el mensaje de la fase 2 para el aspirante.
+  const f1 = r.confirmados.find((c) => c.procesoId === p1);
+  revisar("la variante de la frase registra sola la fase 1 apta y trae el mensaje de la fase 2", f1?.resultado === "apto" && /ayuno/i.test(f1.texto ?? "") && /BIOBAC/i.test(f1.texto ?? ""), r.confirmados);
   const { data: citas2 } = await db.from("seleccion_citas").select("tipo, hora").eq("proceso_id", p1).eq("tipo", "examen_f2");
   revisar("queda citado a la fase 2 a las 6:30", citas2?.length === 1 && String(citas2[0].hora).startsWith("06:30"), citas2);
   const { data: proc } = await db.from("procesos_contratacion").select("estado, laboratorio_id").eq("id", p1).maybeSingle();

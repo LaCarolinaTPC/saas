@@ -173,7 +173,8 @@ export async function disponibilidadDelProfesor(desde: string, hasta: string): P
 
 export async function guardarMiDisponibilidad(ex: DatosDisponibilidad): Promise<ResultadoDisponibilidad> {
   try {
-    const r = await guardarDisponibilidad(ex, await exigirProfesor());
+    // El profesor: las citas de hoy solo por un imprevisto y con tiempo para avisar (24-nov-2026).
+    const r = await guardarDisponibilidad(ex, await exigirProfesor(), { reglaMismoDia: true });
     refrescar();
     return r;
   } catch (e) {
@@ -194,7 +195,7 @@ export async function quitarMiDisponibilidad(fecha: string): Promise<{ ok: boole
 
 export async function reprogramarMiDia(fecha: string): Promise<ResultadoReprogramarDia> {
   try {
-    const r = await reprogramarCitasDelDia(fecha, await exigirProfesor());
+    const r = await reprogramarCitasDelDia(fecha, await exigirProfesor(), { reglaMismoDia: true });
     refrescar();
     return r;
   } catch (e) {

@@ -7,6 +7,7 @@
  * (con la configuración del formulario, solo administradores) y Candidatos ›
  * Selección › Probar el asistente (con la configuración guardada).
  */
+import { siCromaActivo } from "@/lib/verificacion/pausa";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPermissions, puedeEditarEn, tienePermiso } from "@/lib/permissions";
 import { getAgenteConClaves } from "@/lib/comunicaciones/agente/config";
@@ -357,7 +358,7 @@ export async function consultarCromaPrueba(cedula: string, autorizado: boolean):
   const limpia = String(cedula ?? "").replace(/\D/g, "");
   if (!autorizado) return { ok: false, error: "En la conversación de prueba el aspirante todavía no ha autorizado el tratamiento de datos." };
   if (limpia.length < 5) return { ok: false, error: "No hay una cédula válida en la conversación." };
-  const proveedor = proveedorSimit();
+  const proveedor = await siCromaActivo(proveedorSimit());
   if (!proveedor) return { ok: false, error: "Croma no está configurado (falta CROMA_API_KEY)." };
   const r = await proveedor.consultarSimit(limpia);
   const crudo = r.crudo as { fines?: unknown[]; payment_agreements?: unknown[] } | null;
@@ -403,7 +404,7 @@ export async function consultarRuntPrueba(
   const limpia = String(cedula ?? "").replace(/\D/g, "");
   if (!autorizado) return { ok: false, error: "En la conversación de prueba el aspirante todavía no ha autorizado el tratamiento de datos." };
   if (limpia.length < 5) return { ok: false, error: "No hay una cédula válida en la conversación." };
-  const proveedor = proveedorRunt();
+  const proveedor = await siCromaActivo(proveedorRunt());
   if (!proveedor) return { ok: false, error: "Croma no está configurado (falta CROMA_API_KEY)." };
   // Igual que el flujo real: con el nombre del RNMC se consulta con su primer apellido.
   // Llega el primer apellido escrito o los apellidos de la foto: vale el primero.
@@ -663,7 +664,7 @@ export async function consultarRnmcPrueba(
   const limpia = String(cedula ?? "").replace(/\D/g, "");
   if (!autorizado) return { ok: false, error: "En la conversación de prueba el aspirante todavía no ha autorizado el tratamiento de datos." };
   if (limpia.length < 5 || !/^\d{4}-\d{2}-\d{2}$/.test(fechaExpedicion ?? "")) return { ok: false, error: "Faltan la cédula o la fecha de expedición." };
-  const proveedor = proveedorRnmc();
+  const proveedor = await siCromaActivo(proveedorRnmc());
   if (!proveedor) return { ok: false, error: "Croma no está configurado (falta CROMA_API_KEY)." };
   // La fuente de la Policía puede tardar hasta 45 s (Croma, 18-nov-2026, recomienda esperar 60 s).
   let r = await proveedor.consultarRnmc(limpia, fechaExpedicion, { esperaSegundos: 55, timeoutMs: 75_000 });

@@ -335,7 +335,7 @@ export async function disponibilidadPrueba(desde: string, hasta: string): Promis
 export async function guardarDisponibilidadPrueba(ex: DatosDisponibilidad): Promise<ResultadoDisponibilidad> {
   try {
     const actor = await exigirPrueba();
-    const r = await guardarDisponibilidad(ex, actor);
+    const r = await guardarDisponibilidad(ex, actor, { reglaMismoDia: true });
     if (!r.ok) return r;
     // Solo se muestran (y se mueven) las citas de candidatos de prueba.
     const { data } = await createAdminClient().from("seleccion_citas").select("id, procesos_contratacion!inner(origen)").in("id", r.afectadas.map((c) => c.id).concat("00000000-0000-0000-0000-000000000000"));
@@ -363,7 +363,7 @@ export async function quitarDisponibilidadPrueba(fecha: string): Promise<{ ok: b
 export async function reprogramarDiaPrueba(fecha: string): Promise<ResultadoReprogramarDia> {
   try {
     const actor = await exigirPrueba();
-    return await reprogramarCitasDelDia(fecha, actor, { soloPrueba: true });
+    return await reprogramarCitasDelDia(fecha, actor, { soloPrueba: true, reglaMismoDia: true });
   } catch (e) {
     return { ...mal(e), movidas: [] };
   }

@@ -127,10 +127,28 @@ export interface ReglasSeleccion {
   /** Cita a la prueba de manejo que sigue en pie (entrega 2): el asistente responde cuándo y dónde es. */
   cita?: CitaAsistente | null;
   /**
+   * El RUNT no respondió (Croma caído o en pausa) y no tenemos su licencia:
+   * el asistente le pide la categoría y una foto de la licencia (24-nov-2026).
+   */
+  pedirLicencia?: boolean;
+  /**
+   * La pregunta del mensaje de exámenes que espera respuesta (24-nov-2026):
+   * «banco» (¿tiene cuenta de ahorros en el Banco de Bogotá?) o «rutas»
+   * (¿cuántas rutas lleva aprendidas?). Un sí/no o un número los atiende
+   * Gestivo sin el asistente; esto es para lo demás.
+   */
+  preguntaExamen?: "banco" | "rutas" | null;
+  /**
    * La persona vuelve a escribir y su proceso se había cerrado solo (no pasó la
    * preselección o quedó incomunicada): el asistente retoma con ella.
    */
   regreso?: MotivoRegreso | null;
+  /**
+   * Correo para la prueba psicosensotécnica (24-nov-2026): en qué va. El
+   * correo que escribe y el sí o el no los atiende Gestivo sin el asistente;
+   * esto es para lo demás que pregunte.
+   */
+  correoPsico?: { estado: "pedido" | "por_confirmar" | "enviado" | "validado" | "inscrito"; correo: string | null } | null;
   /**
    * Saludo del catálogo de mensajes («bienvenida», editable por Gestión
    * Humana). Solo se pasa en la primera respuesta a la persona (sin mensajes
@@ -150,6 +168,38 @@ export interface ReglasSeleccion {
 export type MotivoRegreso = "incomunicado" | "residencia" | "licencia" | "edad" | "autorizacion";
 
 /** Quien vuelve después de un cierre automático: se retoma el proceso y se vuelve a preguntar lo que lo descartó. */
+/** La pregunta del mensaje de exámenes que espera respuesta. */
+export function reglasPreguntaExamen(p: ReglasSeleccion["preguntaExamen"]): string[] {
+  if (p === "banco")
+    return [
+      "",
+      "Pregunta pendiente del mensaje de exámenes (fase 1):",
+      "- Le preguntamos si actualmente tiene cuenta de ahorros en el Banco de Bogotá, para indicarle cómo gestionar su cuenta de nómina. Si su respuesta no es clara (por ejemplo, dice que tiene cuenta en otro banco), responde lo que pregunte y pídele que confirme con un sí o un no si tiene cuenta de ahorros en el Banco de Bogotá. No le expliques todavía el trámite del banco.",
+    ];
+  if (p === "rutas")
+    return [
+      "",
+      "Pregunta pendiente del reconocimiento de ruta:",
+      "- Le avisamos que debe hacer el reconocimiento de las rutas de la empresa y le preguntamos cuántas rutas conoce. Si su respuesta no es clara, responde lo que pregunte y pídele que te diga el número de rutas que ya conoce (por ejemplo: 0, 1, 2…). La citación al reconocimiento se la envía la persona encargada: no le des fechas ni horas.",
+    ];
+  return [];
+}
+
+/** Lo que sabe el asistente del correo para la psicosensotécnica. */
+export function reglasCorreoPsico(c: ReglasSeleccion["correoPsico"]): string[] {
+  if (!c) return [];
+  const correo = c.correo ? `«${c.correo}»` : "su correo";
+  const base = "La prueba psicosensotécnica se presenta en una plataforma en internet y la información para presentarla le llega por correo electrónico; es necesaria para continuar el proceso. No inventes cuándo, cómo ni dónde es la prueba.";
+  const porEstado: Record<NonNullable<ReglasSeleccion["correoPsico"]>["estado"], string> = {
+    pedido: "Le pedimos su correo electrónico y todavía no lo ha escrito. Responde lo que pregunte y, al final, recuérdale con amabilidad que nos escriba su correo por aquí. Si pregunta para qué es, explícale lo de arriba.",
+    por_confirmar: `Escribió el correo ${correo} y le preguntamos si está bien escrito. Responde lo que pregunte y vuelve a preguntarle si ${correo} es correcto (que responda sí o no), o que escriba el correcto.`,
+    enviado: `Le enviamos un correo a ${correo} con un enlace para confirmarlo. Si pregunta, dile que lo busque (también en spam o correo no deseado), lo abra y toque «Sí, es mi correo»; si el correo está mal, que nos escriba el correcto por aquí.`,
+    validado: `Su correo ${correo} ya está confirmado. Si pregunta por la prueba, dile que Gestión Humana lo inscribe en la plataforma y le avisamos; la información le llega a ese correo.`,
+    inscrito: `Ya lo inscribimos en la plataforma de la prueba: la información le llega a ${correo}. Si no la ve, que revise spam o correo no deseado; si no le llegó, dile que Gestión Humana lo revisa.`,
+  };
+  return ["", "Correo para la prueba psicosensotécnica:", `- ${base}`, `- ${porEstado[c.estado]}`];
+}
+
 function reglasRegreso(motivo: MotivoRegreso | null | undefined, ciudades: string[], licencias: string[]): string[] {
   if (!motivo) return [];
   const que: Record<MotivoRegreso, string> = {
@@ -655,7 +705,9 @@ export function construirSistema(
         "- Pide una o dos cosas por mensaje, nunca más de dos datos aunque te falten varios (la cédula con su primer apellido y su fecha de expedición, fecha de nacimiento, ciudad, tiempo manejando y tipo de vehículo, y desde cuándo puede empezar cuentan cada uno como un dato), y los documentos de a uno (primero la hoja de vida). No vuelvas a preguntar lo que ya respondió ni a pedir lo que ya envió. Las respuestas cortas cuentan: «c2» es la licencia, «15/03/1985» es la fecha de nacimiento, «2 años» es la experiencia. Un número de 6 a 10 cifras (con o sin puntos) es la cédula aunque lo mande sin que se la hayas pedido; si es de 10 cifras y empieza por 3 puede ser un celular: en ese caso pregúntale si es su cédula.",
         "- Orden de las preguntas (pedido de Gestión Humana): 1) en qué ciudad vive y, si vive en otra, si puede trasladarse y cuándo estaría en la ciudad; 2) su edad (fecha de nacimiento o edad); 3) el número de cédula con el primer apellido y la fecha de expedición (o la foto por ambos lados), para revisar su licencia; 4) apenas los tenga, si viene recomendado por alguien que trabaja en la empresa, y enseguida la autorización; 5) cuánto tiempo lleva manejando y en qué vehículos; 6) desde cuándo podría empezar a trabajar. Después, la hoja de vida y los demás documentos. La ciudad la preguntas desde tu primer mensaje, junto con el saludo. Si te da algo antes de tiempo, recíbelo y no lo vuelvas a preguntar.",
         `- Recomendación (pedido de Gestión Humana, 21-nov-2026): apenas tengas la cédula, el primer apellido y la fecha de expedición (escritos, o leídos en la foto y confirmados), en el mensaje en que le agradeces pregúntale si viene recomendado por alguien que trabaja en la empresa, con una pregunta de sí o no (por ejemplo: «¡Gracias! Antes de seguir: ¿vienes recomendado por alguien que trabaja en Transportes La Carolina?»). Termina ese mensaje con ${MARCA_SI_NO}: el sistema la cambia por los botones «Sí» y «No». En ese mensaje no hagas ninguna otra pregunta ni pidas otro dato (tampoco la autorización: un «sí» quedaría sin saber a qué responde). La autorización va en tu siguiente mensaje, apenas responda. Pregúntalo una sola vez: si ya lo preguntaste, o la persona ya lo dijo por su cuenta («vengo referido por…», «me recomendó un conductor»), no lo repitas y pide directamente la autorización. Responda que sí o que no, agradécele y pide la autorización. No le preguntes quién lo recomendó: eso lo completa Gestión Humana (si lo cuenta por su cuenta, agradécele y sigue). Si respondió que no y después dice que sí venía recomendado, no lo cambies tú ni le prometas nada: dile que Gestión Humana lo revisará y sigue con lo que falte. Si en vez de sí o no responde con otra cosa, no supongas que viene recomendado ni que un nombre que dé es el de quien lo recomendó: recibe lo que dijo y pide la autorización, sin volver a preguntarlo. Venir recomendado no es un requisito ni cambia el proceso: no prometas nada por eso ni digas que tiene ventaja. Si la conversación ya pasó la autorización y nunca se le preguntó, pregúntaselo una sola vez, en un mensaje solo para eso, antes de pedir lo siguiente que falte (nunca en el mensaje en que le pides esperar la consulta de sus datos). No uses ${MARCA_SI_NO} en ninguna otra pregunta.`,
-        "- La licencia no se pregunta: la categoría y la vigencia las consultamos en el RUNT con su cédula, igual que las multas y los antecedentes. No le preguntes qué licencia tiene; si lo cuenta, agradécele y sigue.",
+        seleccion.pedirLicencia
+          ? "- La licencia: en este momento no pudimos consultarla con su cédula. Pídele (como un dato, después de la cédula) qué categoría de licencia tiene y que envíe una foto de la licencia por ambos lados, para que Gestión Humana la revise. No le digas que un sistema está caído ni que hubo un error; si pregunta, dile que así avanzamos más rápido. Si ya la dijo o la envió, no la vuelvas a pedir."
+          : "- La licencia no se pregunta: la categoría y la vigencia las consultamos en el RUNT con su cédula, igual que las multas y los antecedentes. No le preguntes qué licencia tiene; si lo cuenta, agradécele y sigue.",
         "- El número de cédula, el primer apellido y la fecha de expedición van juntos y cuentan como un dato: pídelos después de la edad (aunque el saludo o las instrucciones de la empresa pidan solo la cédula, o la cédula y la fecha, sin el primer apellido: pide siempre los tres, porque sin el primer apellido no podemos revisar su licencia). Si los manda antes, recíbelos y sigue con lo que falte en el orden de arriba. Dile que si prefiere puede enviar una foto de su cédula por ambos lados (frente y reverso) en lugar de escribirlos, y explica que con ellos revisamos enseguida su licencia. Cada vez que se los vuelvas a pedir, recuérdale en pocas palabras que también puede mandar la foto. Son necesarios para seguir con el proceso. Si falta alguno, pídeselo (del apellido, solo el primero, como aparece en la cédula; la fecha de expedición está debajo de la firma o al reverso). Si mandó la foto de un solo lado, pídele la del otro lado (o que te escriba lo que falta): así no hay que pedirle nada después. Si no quiere darlos, explícale con amabilidad que son necesarios para continuar con su proceso (con ellos verificamos su licencia) y vuelve a pedirlos; si aun así se niega, dile que sin esos datos no podemos seguir con su proceso y que puede escribirnos cuando quiera darlos. No pases la conversación a una persona por eso.",
         "- No preguntes si ha trabajado antes en La Carolina: lo revisamos con su cédula en nuestros registros. Si lo cuenta, agradécele y sigue.",
         "- No preguntes el nombre: lo tomamos del registro oficial con la cédula. Si la persona lo dice, agradécele y sigue. El apellido que te da es para la consulta, no para dirigirte a ella.",
@@ -761,6 +813,8 @@ export function construirSistema(
     ...saludo,
     ...cita,
     ...regreso,
+    ...reglasPreguntaExamen(seleccion.preguntaExamen),
+    ...reglasCorreoPsico(seleccion.correoPsico),
     ...(yaTrabaja
       ? [
           "",

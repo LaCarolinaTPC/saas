@@ -45,6 +45,8 @@ const RANGO_UNIDAD: Record<string, [number, number]> = {
   minutos: [0, 1440],
   numero: [0, 1000],
   pesos: [0, 1_000_000_000],
+  // 24-nov-2026: umbrales de las alertas y cortes de la psicosensotécnica.
+  porcentaje: [0, 100],
 };
 
 /**
@@ -74,7 +76,7 @@ export const OPCIONES_AJUSTE: Record<string, Record<string, string>> = {
 };
 
 /** Listas que pueden quedar vacías (lo normal es que una lista vacía sea un error). */
-const LISTAS_OPCIONALES = new Set(["ant_rnmc_palabras_revision"]);
+const LISTAS_OPCIONALES = new Set(["ant_rnmc_palabras_revision", "correos_prueba_desarrollo", "whatsapp_prueba_desarrollo", "alerta_servicios_correos", "alerta_servicios_copia"]);
 
 export type ValidacionAjuste = { ok: true; valor: unknown } | { ok: false; error: string };
 
@@ -110,6 +112,25 @@ export function validarAjuste(a: Pick<AjusteSeleccion, "clave" | "unidad" | "nom
         const malas = lista.filter((l) => !/^[ABC][123]$/i.test(l));
         if (malas.length) return { ok: false, error: `Categorías no válidas: ${malas.join(", ")}. Use A1, A2, B1, B2, B3, C1, C2 o C3.` };
         return { ok: true, valor: [...new Set(lista.map((l) => l.toUpperCase()))] };
+      }
+      if (a.clave === "whatsapp_prueba_desarrollo") {
+        const numeros = lista.map((l) => {
+          const d = l.replace(/\D/g, "");
+          return d.length === 10 ? `57${d}` : d;
+        });
+        const malos = lista.filter((_, i) => numeros[i].length < 11 || numeros[i].length > 15);
+        if (malos.length) return { ok: false, error: `Números no válidos: ${malos.join(", ")}. Escriba el celular (3001234567) o con indicativo (573001234567).` };
+        return { ok: true, valor: [...new Set(numeros)] };
+      }
+      if (a.clave === "alerta_servicios_correos" || a.clave === "alerta_servicios_copia") {
+        const malos = lista.filter((l) => !/^[^\s@]+@[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/i.test(l));
+        if (malos.length) return { ok: false, error: `Correos no válidos: ${malos.join(", ")}.` };
+        return { ok: true, valor: [...new Set(lista.map((l) => l.toLowerCase()))] };
+      }
+      if (a.clave === "correos_prueba_desarrollo") {
+        const malos = lista.filter((l) => !/^([^\s@]+@)?@?[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/i.test(l) || !l.includes("@"));
+        if (malos.length) return { ok: false, error: `Correos no válidos: ${malos.join(", ")}. Escriba correos (pruebas@empresa.com) o dominios con @ (@empresa.com).` };
+        return { ok: true, valor: [...new Set(lista.map((l) => l.toLowerCase()))] };
       }
       return { ok: true, valor: [...new Set(lista)] };
     }
@@ -163,6 +184,8 @@ export function mostrarValor(unidad: string, valor: unknown): string {
       return `${valor} minutos`;
     case "pesos":
       return `$${Number(valor).toLocaleString("es-CO")}`;
+    case "porcentaje":
+      return `${valor} %`;
     case "lista":
       return Array.isArray(valor) ? valor.join(", ") || "—" : String(valor);
     default:

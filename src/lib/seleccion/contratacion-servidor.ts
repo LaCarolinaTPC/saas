@@ -30,7 +30,7 @@ export interface CondicionesProceso {
 /** Qué cumple y qué le falta al proceso para contratarlo. */
 export async function condicionesDeProceso(procesoId: string): Promise<CondicionesProceso> {
   const db = createAdminClient();
-  const [ajustes, agenda, examenes, items, carpeta, salidas, proc, obligatorias, evaluacion, guardado] = await Promise.all([
+  const [ajustes, agenda, examenes, items, carpeta, salidas, proc, reco, obligatorias, evaluacion, guardado] = await Promise.all([
     leerAjustes().catch(() => []),
     leerAjustesAgenda(),
     examenesDeProceso(procesoId),
@@ -38,6 +38,8 @@ export async function condicionesDeProceso(procesoId: string): Promise<Condicion
     estadosCarpeta(procesoId),
     db.from("seleccion_reconocimientos_ruta").select("ruta, resultado").eq("proceso_id", procesoId),
     db.from("procesos_contratacion").select("cedula, reingreso, aprobacion_contratacion_at, aprobacion_contratacion_por").eq("id", procesoId).maybeSingle(),
+    // Aparte: sin la migración 20261124203802 no existe y no debe tumbar lo demás.
+    db.from("procesos_contratacion").select("reconocimiento_estado").eq("id", procesoId).maybeSingle(),
     rutasObligatorias(),
     // Antecedentes con las reglas vigentes; si falla, lo guardado en el proceso.
     evaluarAntecedentesProceso(procesoId).catch(() => null),
@@ -49,7 +51,7 @@ export async function condicionesDeProceso(procesoId: string): Promise<Condicion
   const exigePsicotecnica = valorAjuste<unknown>(ajustes, "contratar_exige_psicotecnica", false) === true;
   const p = proc.data as { cedula: string; reingreso: boolean | null; aprobacion_contratacion_at: string | null; aprobacion_contratacion_por: string | null } | null;
   // La de Gestivo con concepto de la psicóloga o la de una IPS: vale la más reciente (entrega 4).
-  const psico = exigePsicotecnica && p ? (await psicotecnicaDeProceso(procesoId, p.cedula)).vigente : null;
+  const psico = exigePsicotecnica && p ? (await psicotecnicaDeProceso(procesoId)).vigente : null;
   const g = (guardado.error ? null : guardado.data) as { antecedentes: string | null; antecedentes_resultado: string | null; antecedentes_decision: string | null } | null;
   const hayConsultas = !!evaluacion?.fuentes.some((f) => f.estado !== "sin_consultar");
   const antecedentes = {
@@ -64,6 +66,7 @@ export async function condicionesDeProceso(procesoId: string): Promise<Condicion
     rutasMinimas: agenda.rutasMinimas,
     rutas: avanceRutas(rutasAprendidas((salidas.data ?? []) as { ruta: string; resultado: string }[]), agenda.rutasMinimas, obligatorias),
     reingreso: p?.reingreso === true,
+    reconocimientoFinalizado: !reco.error && reco.data?.reconocimiento_estado === "finalizado",
     itemsCarpeta: items,
     carpeta,
     aprobada: !!p?.aprobacion_contratacion_at,

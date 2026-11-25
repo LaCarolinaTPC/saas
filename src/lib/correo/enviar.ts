@@ -13,6 +13,12 @@
  * laboratorios y aspirantes son reales: nada sale a sus correos. Con
  * CORREO_DESVIO_DESARROLLO (una bandeja de prueba) todo va ahí, con los
  * destinatarios originales en el asunto; sin ella, no se envía (23-nov-2026).
+ * Desde el 24-nov-2026, la lista de correos de prueba (ajuste
+ * correos_prueba_desarrollo, en Selección › Tiempos y reglas › Entorno de
+ * pruebas, más CORREO_PERMITIDOS_DESARROLLO si está) deja salir tal cual lo
+ * que va a esas direcciones: por ejemplo, un laboratorio con un correo de prueba.
+ * Las demás direcciones del mismo correo se quitan. Y el correo para que el
+ * aspirante confirme su dirección sale siempre (salirEnDesarrollo).
  */
 import nodemailer from "nodemailer";
 
@@ -29,6 +35,12 @@ export interface CorreoSaliente {
   texto: string;
   html?: string;
   adjuntos?: AdjuntoCorreo[];
+  /**
+   * También sale en desarrollo, a su destinatario real (24-nov-2026): solo el
+   * correo para que el aspirante confirme su dirección, que se prueba con
+   * correos de verdad. Lo demás (las órdenes a los laboratorios) sigue sin salir.
+   */
+  salirEnDesarrollo?: boolean;
 }
 
 export function correoConfigurado(): boolean {
@@ -40,25 +52,57 @@ export function correoConfigurado(): boolean {
  * (recibe el entorno) para poder probarlo.
  */
 export function destinoEnDesarrollo(
-  c: Pick<CorreoSaliente, "para" | "copia" | "asunto">,
-  env: { entorno?: string; desvio?: string }
-): { desviar: false } | { desviar: true; para: string[]; asunto: string } | { desviar: true; bloqueado: string } {
-  if (env.entorno?.trim().toLowerCase() !== "desarrollo") return { desviar: false };
+  c: Pick<CorreoSaliente, "para" | "copia" | "asunto" | "salirEnDesarrollo">,
+  env: { entorno?: string; desvio?: string; permitidos?: string }
+): { desviar: false } | { desviar: true; para: string[]; copia?: string[]; asunto: string } | { desviar: true; bloqueado: string } {
+  if (env.entorno?.trim().toLowerCase() !== "desarrollo" || c.salirEnDesarrollo) return { desviar: false };
+  // Direcciones de prueba permitidas: sale a ellas; las demás se quitan.
+  const lista = (env.permitidos ?? "")
+    .split(/[,;\s]+/)
+    .map((x) => x.trim().toLowerCase())
+    .filter(Boolean);
+  const permitida = (d: string) => {
+    const x = d.trim().toLowerCase();
+    return lista.some((l) => (l.startsWith("@") ? x.endsWith(l) : x === l));
+  };
+  const paraOk = c.para.filter(permitida);
+  if (lista.length && paraOk.length) {
+    const quitados = [...c.para, ...(c.copia ?? [])].filter((d) => !permitida(d));
+    return {
+      desviar: true,
+      para: paraOk,
+      copia: (c.copia ?? []).filter(permitida),
+      asunto: quitados.length ? `[DESARROLLO, sin ${quitados.join(", ")}] ${c.asunto}` : `[DESARROLLO] ${c.asunto}`,
+    };
+  }
   const desvio = env.desvio?.trim();
   if (!desvio) {
-    return { desviar: true, bloqueado: "En desarrollo los correos no salen a destinatarios reales. Defina CORREO_DESVIO_DESARROLLO con una bandeja de prueba para recibirlos ahí." };
+    return { desviar: true, bloqueado: "En desarrollo los correos no salen a destinatarios reales. Ponga un correo de prueba en CORREO_PERMITIDOS_DESARROLLO (y en el destinatario, por ejemplo el laboratorio) o defina CORREO_DESVIO_DESARROLLO para recibirlos todos en una bandeja." };
   }
   const originales = [...c.para, ...(c.copia ?? [])].join(", ");
   return { desviar: true, para: [desvio], asunto: `[DESARROLLO → ${originales}] ${c.asunto}` };
+}
+
+/**
+ * Correos de prueba permitidos en desarrollo: la variable de entorno y el
+ * ajuste editable de Selección. Fuera de desarrollo no se lee nada.
+ */
+async function correosDePrueba(): Promise<string> {
+  const { listasDePrueba } = await import("@/lib/entorno-pruebas");
+  return (await listasDePrueba()).correos.join(",");
 }
 
 /** Envía el correo. No lanza: devuelve el error para mostrarlo. */
 export async function enviarCorreo(c: CorreoSaliente): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   if (!correoConfigurado()) return { ok: false, error: "El correo de salida no está configurado (SMTP_HOST, SMTP_USER, SMTP_PASS y SMTP_FROM)." };
   if (!c.para.length) return { ok: false, error: "El correo no tiene destinatarios." };
-  const dev = destinoEnDesarrollo(c, { entorno: process.env.GESTIVO_ENTORNO, desvio: process.env.CORREO_DESVIO_DESARROLLO });
+  const dev = destinoEnDesarrollo(c, {
+    entorno: process.env.GESTIVO_ENTORNO,
+    desvio: process.env.CORREO_DESVIO_DESARROLLO,
+    permitidos: await correosDePrueba(),
+  });
   if (dev.desviar && "bloqueado" in dev) return { ok: false, error: dev.bloqueado };
-  if (dev.desviar) c = { ...c, para: dev.para, copia: undefined, asunto: dev.asunto };
+  if (dev.desviar) c = { ...c, para: dev.para, copia: dev.copia, asunto: dev.asunto };
   try {
     const puerto = Number(process.env.SMTP_PORT || 587);
     const transporte = nodemailer.createTransport({

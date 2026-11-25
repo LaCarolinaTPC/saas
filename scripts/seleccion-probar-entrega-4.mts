@@ -9,7 +9,6 @@ import type { ActorProceso } from "@/lib/contratacion/servidor";
 import { leerIndicadoresSeleccion } from "@/lib/seleccion/indicadores-servidor";
 import { rangoUltimosDias } from "@/lib/comunicaciones/indicadores";
 import {
-  citarPsicotecnica,
   diaContratacionDeProceso,
   registrarEntrevista,
   registrarInduccion,
@@ -157,7 +156,7 @@ try {
   titulo("2. Día de contratación");
   const dia = await crear("reconocimiento_ruta");
   const v0 = await diaContratacionDeProceso(dia);
-  revisar("sin nada registrado: sin concepto de psicología", v0.disponible && v0.psicotecnica.vigente.resultado === null);
+  revisar("sin nada registrado: sin resultado de psicotécnica", v0.disponible && v0.psicotecnica.vigente.resultado === null);
   const cond0 = await condicionesDeProceso(dia);
   const psic0 = cond0.condiciones.find((c) => c.id === "psicotecnica");
   revisar("la psicotécnica es condición para contratar (ajuste encendido) y falta", psic0 && !psic0.cumple, cond0.condiciones.map((c) => c.id));
@@ -169,17 +168,11 @@ try {
   revisar("apto con observaciones cumple la condición y dice de dónde salió", psic1?.cumple && /IPS de prueba/.test(psic1.detalle), psic1);
   revisar("se registra la entrevista con nota", (await registrarEntrevista(dia, { cuando: "2026-11-21T09:30", nota: "Buena actitud" }, actor)).ok);
   revisar("se registra la inducción (ahora)", (await registrarInduccion(dia, "", actor)).ok);
-  const manana = new Date(Date.now() + 19 * 3_600_000).toISOString().slice(0, 10);
-  revisar("se cita a la psicotécnica con lugar", (await citarPsicotecnica(dia, { fecha: manana, hora: "07:00", lugar: "IPS de prueba, calle 1" }, actor)).ok);
-  revisar("una fecha pasada no se cita", !(await citarPsicotecnica(dia, { fecha: "2020-01-01", hora: "07:00" }, actor)).ok);
   const v1 = await diaContratacionDeProceso(dia);
-  revisar("la ficha lo muestra todo", !!v1.entrevista.at && v1.entrevista.nota === "Buena actitud" && !!v1.induccion.at && v1.cita?.lugar === "IPS de prueba, calle 1", {
+  revisar("la ficha lo muestra todo", !!v1.entrevista.at && v1.entrevista.nota === "Buena actitud" && !!v1.induccion.at, {
     entrevista: v1.entrevista,
     induccion: v1.induccion,
-    cita: v1.cita?.lugar,
   });
-  revisar("al volver a citar queda una sola cita en pie", (await citarPsicotecnica(dia, { fecha: manana, hora: "08:00" }, actor)).ok &&
-    (await db.from("seleccion_citas").select("id").eq("proceso_id", dia).eq("tipo", "psicotecnica").in("estado", ["programada", "confirmada"])).data?.length === 1);
   revisar("borrar el resultado de la IPS vuelve a dejar la condición sin cumplir", (await registrarPsicotecnicaExterna(dia, null, actor)).ok &&
     !(await condicionesDeProceso(dia)).condiciones.find((c) => c.id === "psicotecnica")?.cumple);
 

@@ -10,7 +10,7 @@ import { revalidatePath } from "next/cache";
 import { canAccess, getCurrentPermissions, puedeEditarEn, tienePermiso } from "@/lib/permissions";
 import { actorUsuario, cambiarEstadoProceso } from "@/lib/contratacion/servidor";
 import { rutasParaReconocimiento, registrarReconocimiento, type ResultadoRuta } from "@/lib/seleccion/profesor-servidor";
-import { cerrarPorExamenes, examenesDeProceso, registrarExamen, type ExamenVista } from "@/lib/seleccion/examenes-servidor";
+import { cerrarPorExamenes, decidirNoApto, examenesDeProceso, registrarExamen, type ExamenVista } from "@/lib/seleccion/examenes-servidor";
 import {
   agregarReferencia, anularAdjuntoSeleccion, carpetaDeProceso, marcarItemCarpeta, validarReferencia, type CarpetaVista,
 } from "@/lib/seleccion/carpeta-servidor";
@@ -77,6 +77,21 @@ export async function cerrarPorExamenesFicha(procesoId: string): Promise<Resulta
   try {
     const perms = await exigirEdicion();
     const r = await cerrarPorExamenes(procesoId, actorUsuario(perms));
+    refrescar();
+    return r;
+  } catch (e) {
+    return fallo(e);
+  }
+}
+
+/**
+ * Revisión manual de un no apto (24-nov-2026): sigue (pasa a la siguiente fase y se
+ * le envía el mensaje) o no sigue (se cierra). La decisión, con el porqué, es obligatoria.
+ */
+export async function decidirNoAptoFicha(procesoId: string, sigue: boolean, decision: string): Promise<Resultado & { texto?: string; envio?: string }> {
+  try {
+    const perms = await exigirEdicion();
+    const r = await decidirNoApto(String(procesoId), sigue === true, String(decision ?? ""), actorUsuario(perms));
     refrescar();
     return r;
   } catch (e) {

@@ -132,10 +132,33 @@ export function camposDeDocumento(doc: Pick<DocumentoModelo, "clase" | "campos" 
   const nacimiento = valor("fecha_nacimiento");
   const edad = edadDe(nacimiento, ctx.hoy);
   if (edad != null) out.push(campo({ campo: "edad", valor: edad, calculado: true, confianza: out.find((c) => c.campo === "fecha_nacimiento")!.confianza }));
-  const ced = doc.clase === "cedula" ? valor("numero") : doc.clase === "hoja_vida" ? valor("cedula") : undefined;
+  const ced = doc.clase === "cedula" ? valor("numero") : doc.clase === "hoja_vida" || doc.clase === "certificado_bancario" ? valor("cedula") : undefined;
   const coincide = compararCedula(ced, ctx.cedulaProceso);
   if (coincide != null) {
     out.push(campo({ campo: "cedula_coincide", valor: coincide ? "sí" : "no", calculado: true, nota: coincide ? null : `La leída (${digitos(ced)}) no es la del proceso (${digitos(ctx.cedulaProceso)})` }));
+  }
+  if (doc.clase === "certificado_bancario") out.push(...revisionCertificado(valor("banco"), valor("estado_cuenta"), out));
+  return out;
+}
+
+/**
+ * El certificado bancario (24-nov-2026): la cuenta tiene que ser del Banco de
+ * Bogotá (ahí se pagan los salarios) y estar vigente. Se marca para quien lo valida.
+ */
+export function revisionCertificado(banco: unknown, estado: unknown, leidos: readonly CampoLeido[] = []): CampoLeido[] {
+  const norm = (v: unknown) => String(v ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const conf = (k: string) => leidos.find((c) => c.campo === k)?.confianza ?? "media";
+  const out: CampoLeido[] = [];
+  if (banco != null && String(banco).trim()) {
+    const esBogota = /bogota/.test(norm(banco));
+    out.push(campo({ campo: "banco_bogota", valor: esBogota ? "sí" : "no", calculado: true, confianza: conf("banco"), nota: esBogota ? null : `Es de «${String(banco).trim()}», no del Banco de Bogotá` }));
+  }
+  if (estado != null && String(estado).trim()) {
+    const e = norm(estado);
+    const vigente = /cancelad|inactiv|cerrad|bloquead|embargad/.test(e) ? false : /vigente|activ|abierta/.test(e) ? true : null;
+    if (vigente != null) {
+      out.push(campo({ campo: "cuenta_vigente", valor: vigente ? "sí" : "no", calculado: true, confianza: conf("estado_cuenta"), nota: vigente ? null : `El certificado dice «${String(estado).trim()}»` }));
+    }
   }
   return out;
 }
@@ -192,6 +215,10 @@ export function resumenParaAsistente(d: Pick<DocumentoLeido, "clase" | "estado" 
     if (v("cargo")) partes.push(`cargo: ${v("cargo")}`);
   } else if (d.clase === "cedula" && v("numero")) {
     partes.push(`número ${v("numero")}`);
+  } else if (d.clase === "certificado_bancario") {
+    if (v("banco")) partes.push(`de ${v("banco")}`);
+    if (v("banco_bogota") === "no") partes.push("no es del Banco de Bogotá: pídele con amabilidad el certificado de su cuenta del Banco de Bogotá (ahí se pagan los salarios)");
+    if (v("cuenta_vigente") === "no") partes.push("la cuenta no aparece vigente: pídele un certificado de una cuenta activa");
   }
   if (v("cedula_coincide") === "no") partes.push("la cédula no coincide con la que dio");
   partes.push("pendiente de revisión por Gestión Humana: no le confirmes datos que él no haya dicho");
@@ -283,6 +310,7 @@ export function itemDeClase(clase: ClaseDocumento, items: readonly string[]): st
     licencia: /licencia/,
     hoja_vida: /hoja de vida/,
     carta_laboral: /carta laboral|certificado laboral/,
+    certificado_bancario: /certificado bancario|certificacion bancaria|bancari/,
   };
   const re = clave[clase];
   return re ? (items.find((i) => re.test(norm(i))) ?? null) : null;

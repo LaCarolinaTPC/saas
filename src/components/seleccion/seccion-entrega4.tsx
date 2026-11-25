@@ -5,15 +5,12 @@
  * (psicotécnica, entrevista, inducción). Solo registro: no cambia la etapa.
  */
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
-import { Brain, CalendarCheck, ExternalLink, MessagesSquare, ScanText, UserCheck } from "lucide-react";
+import { Brain, ExternalLink, MessagesSquare, ScanText, UserCheck } from "lucide-react";
 import {
   cambiarClaseDocumento,
-  citarPsicotecnicaFicha,
   datosDiaContratacion,
   documentosLeidos,
   revisarDocumentoLeido,
-  marcarAsistenciaPsicoFicha,
   registrarEntrevistaFicha,
   registrarInduccionFicha,
   registrarPsicoExternaFicha,
@@ -23,8 +20,8 @@ import type { DiaContratacion } from "@/lib/seleccion/dia-contratacion-servidor"
 import type { DocumentoLeidoVista } from "@/lib/seleccion/lectura/revision-servidor";
 import { CLASES, NOMBRE_CLASE, etiquetaCampo } from "@/lib/seleccion/lectura/esquema";
 import { RESULTADOS_PSICO_EXTERNA } from "@/lib/seleccion/dia-contratacion";
-import { ESTADO_CITA_LABEL, citaVigente, hhmm } from "@/lib/seleccion/agenda";
 import { BotonSubir, ListaArchivos, botonPri, botonSec, campo, fechaHora, useAccion, useEntrega3 } from "./seccion-entrega3";
+import { CorreoPsicoFicha } from "./correo-psico-ficha";
 
 /** Campo de ancho fijo: sin el w-full del estilo base, que gana sobre w-40/w-56. */
 const campoCorto = campo.replace("w-full ", "");
@@ -52,7 +49,8 @@ function useDiaContratacion(procesoId: string, version: number) {
   return { datos, recargar };
 }
 
-export function SeccionDiaContratacion({ procesoId, abierto, version }: { procesoId: string; abierto: boolean; version: number }) {
+// `abierto` lo pasa el panel; desde que se quitó la cita psicosensotécnica (24-nov-2026) no se usa aquí.
+export function SeccionDiaContratacion({ procesoId, version }: { procesoId: string; abierto: boolean; version: number }) {
   const { datos, recargar } = useDiaContratacion(procesoId, version);
   const e3 = useEntrega3(procesoId, version);
   const recargarE3 = e3.recargar;
@@ -61,7 +59,6 @@ export function SeccionDiaContratacion({ procesoId, abierto, version }: { proces
     recargarE3();
   }, [recargar, recargarE3]);
   const { mensaje, ocupado, correr } = useAccion(recargarTodo);
-  const [cita, setCita] = useState({ fecha: "", hora: "08:00", lugar: "" });
   const [externa, setExterna] = useState({ resultado: "apto", fecha: "", puntaje: "", entidad: "" });
   const [verExterna, setVerExterna] = useState(false);
   const [entrevista, setEntrevista] = useState({ cuando: "", nota: "" });
@@ -95,76 +92,11 @@ export function SeccionDiaContratacion({ procesoId, abierto, version }: { proces
         </div>
 
         <div className="space-y-2 text-sm">
-          {ps.gestivo ? (
-            <p className="text-gray-700">
-              Prueba de Gestivo: <strong>{ps.gestivo.concepto === "apto" ? "apto" : "no apto"}</strong>
-              {ps.gestivo.puntaje != null ? ` · puntaje ${ps.gestivo.puntaje}` : ""}
-              {ps.gestivo.por ? ` · concepto de ${ps.gestivo.por}` : ""}
-              {ps.gestivo.en ? ` el ${fechaHora(ps.gestivo.en)}` : ""}{" "}
-              <Link href={`/psicosensotecnica/${ps.gestivo.intentoId}`} className="inline-flex items-center gap-0.5 text-[#4F46E5] hover:underline">
-                ver informe <ExternalLink className="h-3 w-3" />
-              </Link>
-            </p>
-          ) : ps.gestivoPorRevisar ? (
-            <p className="text-amber-700">
-              Hizo la prueba de Gestivo y espera el concepto de la psicóloga.{" "}
-              <Link href={`/psicosensotecnica/${ps.gestivoPorRevisar}`} className="inline-flex items-center gap-0.5 text-[#4F46E5] hover:underline">
-                revisar <ExternalLink className="h-3 w-3" />
-              </Link>
-            </p>
-          ) : (
-            <p className="text-gray-500">No ha hecho la prueba de Gestivo. Se asigna en la tarjeta «Prueba psicosensotécnica» de esta ficha.</p>
-          )}
-
-          {/* Cita */}
-          {datos.cita && (
-            <div className="flex flex-wrap items-center gap-2 rounded-md bg-gray-50 px-2 py-1.5 text-xs text-gray-700">
-              <CalendarCheck className="h-3.5 w-3.5" />
-              Cita: {fechaCorta(datos.cita.fecha)} a las {hhmm(datos.cita.hora)}
-              {datos.cita.lugar ? ` · ${datos.cita.lugar}` : " · en la sede"} · {ESTADO_CITA_LABEL[datos.cita.estado]}
-              {datos.cita.recordatorio_at ? " · recordatorio enviado" : ""}
-              {editar && citaVigente(datos.cita) && (
-                <>
-                  <button type="button" className="text-emerald-700 underline" disabled={ocupado} onClick={() => correr(() => marcarAsistenciaPsicoFicha(datos.cita!.id, true), "Registrado: llegó.")}>
-                    llegó
-                  </button>
-                  <button type="button" className="text-red-700 underline" disabled={ocupado} onClick={() => correr(() => marcarAsistenciaPsicoFicha(datos.cita!.id, false), "Registrado: no asistió.")}>
-                    no asistió
-                  </button>
-                </>
-              )}
-            </div>
-          )}
-          {editar && abierto && (
-            <form
-              className="flex flex-wrap items-end gap-2"
-              onSubmit={(e) => {
-                e.preventDefault();
-                correr(() => citarPsicotecnicaFicha(procesoId, cita.fecha, cita.hora, cita.lugar), "Cita creada. El recordatorio sale el mismo día.");
-              }}
-            >
-              <label className="text-xs text-gray-500">
-                {datos.cita && citaVigente(datos.cita) ? "Mover la cita" : "Citar"}
-                <input type="date" required min={hoyBogota()} value={cita.fecha} onChange={(e) => setCita({ ...cita, fecha: e.target.value })} className={`${campoCorto} mt-0.5 w-40`} />
-              </label>
-              <label className="text-xs text-gray-500">
-                Hora
-                <input type="time" required value={cita.hora} onChange={(e) => setCita({ ...cita, hora: e.target.value })} className={`${campoCorto} mt-0.5 w-28`} />
-              </label>
-              <label className="min-w-[12rem] flex-1 text-xs text-gray-500">
-                Lugar (vacío = la sede)
-                <input value={cita.lugar} maxLength={200} onChange={(e) => setCita({ ...cita, lugar: e.target.value })} placeholder="IPS, dirección…" className={`${campo} mt-0.5`} />
-              </label>
-              <button type="submit" className={botonSec} disabled={ocupado}>
-                Guardar cita
-              </button>
-            </form>
-          )}
-
+          <CorreoPsicoFicha procesoId={procesoId} />
           {/* Resultado de una IPS */}
           {ps.externa ? (
             <div className="text-gray-700">
-              Resultado de IPS: <strong>{RESULTADOS_PSICO_EXTERNA[ps.externa.resultado]}</strong>
+              Resultado: <strong>{RESULTADOS_PSICO_EXTERNA[ps.externa.resultado]}</strong>
               {ps.externa.entidad ? ` · ${ps.externa.entidad}` : ""}
               {ps.externa.fecha ? ` · ${fechaCorta(ps.externa.fecha)}` : ""}
               {ps.externa.puntaje != null ? ` · puntaje ${ps.externa.puntaje}` : ""}

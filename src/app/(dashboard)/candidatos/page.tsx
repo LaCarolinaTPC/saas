@@ -1,9 +1,11 @@
 import { getCandidatesPipeline, getAllCandidates, getActiveVacancies } from "@/lib/actions";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
-import { ESTADOS_EN_CURSO, ESTADOS_REVISION_REINGRESO, FILTRO_ANTECEDENTES, FILTRO_APADRINADOS, FILTRO_REINGRESOS, campoFecha, type ProcesoContratacion } from "@/lib/contratacion/constants";
+import { ESTADOS_EN_CURSO, ESTADOS_REVISION_REINGRESO, FILTRO_ANTECEDENTES, FILTRO_APADRINADOS, FILTRO_PSICO_INSCRIBIR, FILTRO_REINGRESOS, campoFecha, type ProcesoContratacion } from "@/lib/contratacion/constants";
 import { idsApadrinadosSinPadrino } from "@/lib/padrino/datos";
+import { examenesPorRevisar } from "@/lib/seleccion/examenes-servidor";
 import { CandidatosClient } from "./client";
+import { AvisoServicios } from "@/components/estado-servicios/aviso-servicios";
 
 export const dynamic = "force-dynamic";
 
@@ -57,6 +59,8 @@ function applyFilters(query: Filterable, f: Filters, apadrinados: string[] = [])
   else if (f.estado === FILTRO_ANTECEDENTES) q = q.in("antecedentes_resultado", ["revision", "descarta"]).or("antecedentes_decision.is.null").in("estado", ESTADOS_EN_CURSO);
   // «Apadrinados sin padrino»: dijeron venir recomendados y Gestión Humana no les ha asignado padrino.
   else if (f.estado === FILTRO_APADRINADOS) q = q.in("id", apadrinados.length ? apadrinados : [ID_NINGUNO]);
+  // «Psicosensotécnica: por inscribir»: confirmaron el correo y falta inscribirlos en la plataforma.
+  else if (f.estado === FILTRO_PSICO_INSCRIBIR) q = q.eq("correo_estado", "validado").in("estado", ESTADOS_EN_CURSO);
   else if (f.estado && f.estado !== "todos") q = q.eq("estado", f.estado);
   if (f.medio && f.medio !== "todos") q = q.eq("medio_postulacion", f.medio);
   const col = campoFecha(f.campo).columna;
@@ -117,13 +121,20 @@ export default async function CandidatosPage({
     .or(`estado.not.in.(contratado,cierre),updated_at.gte.${hace30}`)
     .order("updated_at", { ascending: false })
     .limit(1000);
+  // 24-nov-2026: el no apto de los exámenes queda marcado en la tarjeta para revisarlo a mano (y el aplazado).
+  const enExamenes = (tablero ?? []).filter((p) => ["en_examenes", "en_examenes_fase2", "reconocimiento_ruta"].includes(p.estado as string)).map((p) => p.id as string);
+  const porRevisar = await examenesPorRevisar(enExamenes).catch(() => new Map());
+  const tableroMarcado = (tablero ?? []).map((p) => (porRevisar.has(p.id as string) ? { ...p, revision_examen: porRevisar.get(p.id as string) } : p));
 
   return (
+    <>
+    {/* Un servicio externo fallando (Croma, IA, WhatsApp, correo) o Croma en pausa (24-nov-2026). */}
+    <AvisoServicios className="px-4 pt-4 sm:px-6 lg:px-8" />
     <CandidatosClient
       pipeline={pipeline}
       allCandidates={allCandidates}
       vacancies={vacancies}
-      tablero={(tablero ?? []) as ProcesoContratacion[]}
+      tablero={tableroMarcado as ProcesoContratacion[]}
       procesos={{
         vacancies: (vacancies as { id: string; title: string }[]).map((v) => ({ id: v.id, title: v.title })),
         rows: (rowsRes.data ?? []) as ProcesoContratacion[],
@@ -149,5 +160,6 @@ export default async function CandidatosPage({
         apadrinadosSinPadrino: sinPadrino,
       }}
     />
+    </>
   );
 }

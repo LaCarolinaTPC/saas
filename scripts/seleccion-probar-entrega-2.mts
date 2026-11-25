@@ -323,14 +323,15 @@ try {
   const p9 = await crear("en_examenes_fase2");
   await registrarReconocimiento(p9, { ruta: "A1", resultado: "no_continua", observacion: "Se pierde" }, actor);
   revisar("salida «No continúa»: cierra con «No pasó reconocimiento de ruta»", (await proceso(p9)).causa_no_contrato === "No pasó reconocimiento de ruta");
-  // Rutas del día en un solo guardado (23-nov-2026): un solo mensaje y una sola cita.
+  // Rutas del día en un solo guardado (23-nov-2026). Desde el 24-nov-2026 no se cita sola la
+  // siguiente salida: la cita la envía la encargada del reconocimiento (pantalla propia).
   const pr2 = await crear("reconocimiento_ruta");
   const reconoc = async () => (await citasDeProceso(pr2)).filter((c) => c.tipo === "reconocimiento");
   revisar("rutas del día: sin rutas o sin elegir la ruta se rechaza", !(await registrarReconocimientos(pr2, { salidas: [] }, actor)).ok && !(await registrarReconocimientos(pr2, { salidas: [{ ruta: " ", resultado: "aprendida" }] }, actor)).ok);
   const dia1 = await registrarReconocimientos(pr2, { salidas: [{ ruta: "A1", resultado: "repetir" }, { ruta: "A1", resultado: "aprendida" }], observacion: "Bien" }, actor);
-  revisar("dos salidas en un guardado: un solo mensaje y una sola cita a la siguiente salida", dia1.ok && dia1.claveMensaje === "reconocimiento_siguiente" && (await reconoc()).length === 1, { dia1, citas: (await reconoc()).length });
+  revisar("dos salidas en un guardado: sin cita automática (la cita la envía la encargada)", dia1.ok && (await reconoc()).length === 0, { dia1, citas: (await reconoc()).length });
   revisar("quedan las dos salidas en lo registrado", (await historialProfesor(pr2)).registros.filter((r) => r.tipo === "ruta").length === 2);
-  revisar("con la cita ya creada, esas salidas no se pueden deshacer", !(await historialProfesor(pr2)).registros.some((r) => r.tipo === "ruta" && r.deshacible));
+  revisar("y quedan en curso", (await proceso(pr2)).reconocimiento_estado === "en_curso");
   const dia2 = await registrarReconocimientos(pr2, { salidas: [{ ruta: "B2", resultado: "aprendida" }, { ruta: "C3", resultado: "aprendida" }] }, actor);
   revisar("las que completan: «rutas completas», sin mensaje, y la cita pendiente se cancela", dia2.ok && dia2.rutasCompletas === true && !dia2.texto && !(await reconoc()).some((c) => ["programada", "confirmada"].includes(c.estado)), { dia2, citas: await reconoc() });
 
@@ -342,7 +343,7 @@ try {
   await citarProceso(pa, { fecha: dias[5], hora: H }, actor);
   const pend = await pendientesDelProfesor(dias[5], { soloPrueba: true });
   revisar("ve al citado de ese día", pend.citas.some((c) => c.proceso_id === pa));
-  revisar("ve a los que están en escuela y en reconocimiento de ruta", pend.escuela.some((x) => x.procesoId === pb) && pend.rutas.some((x) => x.procesoId === pc));
+  revisar("ve a los que están en escuela; el reconocimiento de ruta ya no es suyo", pend.escuela.some((x) => x.procesoId === pb) && !pend.rutas.some((x) => x.procesoId === pc));
   revisar("la vista real (/profesor) no muestra candidatos de prueba", !(await pendientesDelProfesor(dias[5])).citas.some((c) => c.proceso_id === pa));
   revisar("la agenda real tampoco", !(await citasDelDia(dias[5])).some((c) => c.proceso_id === pa));
 

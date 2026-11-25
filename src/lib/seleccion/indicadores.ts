@@ -89,6 +89,8 @@ export interface IndicadoresSeleccion {
   contratados: number;
   cerrados: number;
   enCurso: number;
+  /** Contratados en el periodo (cualquiera que sea el día en que empezó su proceso). */
+  contratadosEnPeriodo: number;
   /** Los cinco prometidos a la junta. */
   clave: {
     hojaVida: { base: number; n: number; pct: number | null };
@@ -146,7 +148,7 @@ export function origenConsulta(v: VerificacionInd): OrigenConsulta {
 }
 
 /** ¿La cobra Croma? Las que respondieron, sin reutilizar (como en consumos-servidor). */
-function consultaCobrada(v: VerificacionInd): boolean {
+export function consultaCobrada(v: VerificacionInd): boolean {
   const o = origenConsulta(v);
   return v.proveedor === "croma" && (o === "automatica" || o === "persona") && ["ok", "hallazgo", "reiniciada"].includes(v.estado ?? "");
 }
@@ -331,6 +333,7 @@ export function calcularIndicadoresSeleccion(e: EntradaIndicadoresSeleccion): In
     contratados,
     cerrados,
     enCurso: aspirantes - contratados - cerrados,
+    contratadosEnPeriodo: e.contrataciones.length,
     clave: {
       hojaVida: { base: delChat.length, n: conHoja, pct: pct(conHoja, delChat.length) },
       asistencia: {

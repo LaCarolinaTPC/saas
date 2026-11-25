@@ -202,7 +202,30 @@ test("reconocimiento de ruta: reprogramaciones aparte y solo lo afecta un día s
   assert.equal(reprogramacionesDe(citas, "reconocimiento"), 2);
   assert.equal(superaReprogramaciones(citas, A, "reconocimiento"), false);
   const ruta = cita({ tipo: "reconocimiento", fecha: "2026-11-20", hora: "09:00:00" });
-  assert.equal(citasAfectadas([ruta], { fecha: "2026-11-20", disponible: false, hora: null }).length, 1);
+  // Desde el 24-nov-2026 el reconocimiento no depende del profesor: nunca lo afecta su día.
+  assert.equal(citasAfectadas([ruta], { fecha: "2026-11-20", disponible: false, hora: null }).length, 0);
   // El profesor cambió la hora de la prueba: la salida de reconocimiento sigue a su hora.
   assert.equal(citasAfectadas([ruta], { fecha: "2026-11-20", disponible: true, hora: "15:00" }).length, 0);
+});
+
+test("agenda: el profesor cambia las citas de hoy solo por un imprevisto y con tiempo para avisar", async () => {
+  const { validarCambioMismoDia } = await import("./agenda");
+  const base = { fecha: "2026-11-24", hoy: "2026-11-24", ahora: "09:00", disponible: false, motivo: "enfermedad", nota: "Amanecí con fiebre alta", afectadas: ["13:00"] };
+  // Otro día, o sin citas que mover: libre.
+  assert.equal(validarCambioMismoDia({ ...base, fecha: "2026-11-25", motivo: "permiso", nota: "" }, 120), null);
+  assert.equal(validarCambioMismoDia({ ...base, afectadas: [] }, 120), null);
+  // Hoy, por enfermedad, con la nota y 4 horas antes: sí.
+  assert.equal(validarCambioMismoDia(base, 120), null);
+  assert.equal(validarCambioMismoDia({ ...base, motivo: "imprevisto", nota: "Se varó el carro en la vía" }, 120), null);
+  // Un permiso u «otro» no: se pide con anticipación.
+  assert.match(validarCambioMismoDia({ ...base, motivo: "permiso" }, 120)!, /imprevisto/);
+  assert.match(validarCambioMismoDia({ ...base, motivo: "otro" }, 120)!, /imprevisto/);
+  // Sin explicar qué pasó, no.
+  assert.match(validarCambioMismoDia({ ...base, nota: "x" }, 120)!, /qué pasó/);
+  // Muy tarde: la cita es a la 1:00 p. m. y son las 11:30 (faltan 90 min de 120).
+  assert.match(validarCambioMismoDia({ ...base, ahora: "11:30" }, 120)!, /Ya no se puede cambiar.*13:00.*2 h/);
+  // «Otra hora» hoy: la hora nueva también con tiempo para llegar.
+  const otraHora = { ...base, disponible: true, motivo: "otra_hora", hora: "10:00" };
+  assert.match(validarCambioMismoDia(otraHora, 120)!, /hora nueva/);
+  assert.equal(validarCambioMismoDia({ ...otraHora, hora: "15:00" }, 120), null);
 });

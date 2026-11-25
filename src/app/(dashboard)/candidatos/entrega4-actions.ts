@@ -9,9 +9,7 @@ import { revalidatePath } from "next/cache";
 import { canAccess, getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { actorUsuario } from "@/lib/contratacion/servidor";
 import {
-  citarPsicotecnica,
   diaContratacionDeProceso,
-  marcarAsistenciaPsicotecnica,
   registrarEntrevista,
   registrarInduccion,
   registrarPsicotecnicaExterna,
@@ -93,16 +91,6 @@ export async function registrarPsicoExternaFicha(
   }
 }
 
-export async function citarPsicotecnicaFicha(procesoId: string, fecha: string, hora: string, lugar: string): Promise<Resultado> {
-  try {
-    const perms = await exigirEdicion();
-    const r = await citarPsicotecnica(procesoId, { fecha, hora, lugar }, actorUsuario(perms));
-    refrescar();
-    return r;
-  } catch (e) {
-    return fallo(e);
-  }
-}
 
 // ── Experiencia y referencias ────────────────────────────────────────────────
 
@@ -180,13 +168,3 @@ export async function cambiarClaseDocumento(procesoId: string, lecturaId: string
   }
 }
 
-export async function marcarAsistenciaPsicoFicha(citaId: string, asistio: boolean): Promise<Resultado> {
-  try {
-    const perms = await exigirEdicion();
-    const r = await marcarAsistenciaPsicotecnica(citaId, asistio, actorUsuario(perms));
-    refrescar();
-    return r;
-  } catch (e) {
-    return fallo(e);
-  }
-}

@@ -30,7 +30,8 @@ export default async function DashboardLayout({
         />
         {/* min-w-0: sin esto el flex item se estira al ancho de su contenido (min-width:auto),
             y una tabla ancha se sale del contenedor `overflow-hidden` sin generar scroll. */}
-        <main className="flex min-w-0 flex-1 flex-col overflow-auto bg-[#F8FAFC]">
+        {/* --fondo-panel: crema en el entorno de pruebas (src/components/layout/indicador-entorno.tsx). */}
+        <main className="flex min-w-0 flex-1 flex-col overflow-auto bg-[var(--fondo-panel,#F8FAFC)]">
           <PermisosProvider permisos={permisos} superUsuario={perms.isAdmin}>
             {children}
           </PermisosProvider>

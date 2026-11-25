@@ -5,6 +5,7 @@
  * del asistente, dentro del mismo webhook, y nunca debe hacer fallar esa
  * respuesta: cualquier error se registra y se sigue.
  */
+import { siCromaActivo } from "@/lib/verificacion/pausa";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { AgenteClaves, AgenteConfig } from "@/lib/comunicaciones/agente/config";
 import { modeloSolicitado } from "@/lib/comunicaciones/agente/config";
@@ -23,6 +24,7 @@ import {
   consultarAntecedentesProceso,
   consultarPoliciaProceso,
   consultarRuntProceso,
+  puedeReintentarRunt,
   consultarSimitProceso,
   fechaExpedicionRechazada,
   nombreParaRunt,
@@ -443,7 +445,7 @@ export async function registrarAspirante(p: RegistroAspirante): Promise<{ proces
   const tiempo = p.tiempoMs ?? TIEMPO_WEBHOOK_MS;
   const fin = Date.now() + tiempo;
   const queda = () => fin - Date.now();
-  const conCroma = Boolean(proveedorRunt());
+  const conCroma = Boolean(await siCromaActivo(proveedorRunt()));
 
   const cedulaLimpia = (datos.cedula ?? "").replace(/\D/g, "");
   const foto = p.fotoCedula ?? (cedulaLimpia ? await cedulaLeidaDeProceso(procesoId, cedulaLimpia).catch(() => null) : null);
@@ -460,9 +462,11 @@ export async function registrarAspirante(p: RegistroAspirante): Promise<{ proces
   let policia: Promise<void> | null = null;
   // Si se acabó el tiempo del turno, el RUNT y el SIMIT los termina el cron
   // (consultarRuntFaltantes) y el asistente le avisa con el resultado.
-  const sinTiempo = !esperaNombre && reeval?.consultarRunt && queda() < TIEMPO_RUNT_MS;
+  // Croma caído: no se insiste en cada mensaje (freno de reintentos del RUNT, 24-nov-2026); lo retoma el cron.
+  const runtFrenado = reeval?.consultarRunt ? !(await puedeReintentarRunt(procesoId)) : false;
+  const sinTiempo = !esperaNombre && !runtFrenado && reeval?.consultarRunt && queda() < TIEMPO_RUNT_MS;
   if (sinTiempo) console.warn(`[seleccion] sin tiempo para el RUNT en este turno (proceso ${procesoId}): lo termina el cron.`);
-  if (reeval?.consultarRunt && !esperaNombre && !sinTiempo) {
+  if (reeval?.consultarRunt && !esperaNombre && !sinTiempo && !runtFrenado) {
     const runt = await consultarRuntProceso(procesoId, ACTOR_AGENTE, { nombreRegistro: nombre.nombre, apellido: nombre.apellido, seguirMs: SEGUIR_EN_TURNO_MS }).catch((e) => {
       console.error("[seleccion] RUNT:", e);
       return null;

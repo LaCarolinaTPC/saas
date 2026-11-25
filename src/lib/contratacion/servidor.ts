@@ -27,7 +27,8 @@ export function actorUsuario(perms: { userId: string | null; userEmail: string |
 export interface EventoProceso {
   /**
    * «cita» y «prueba» (profesor) llegan con la entrega 2 de selección;
-   * «examen», con la prueba psicosensotécnica (src/lib/psicosensotecnica).
+   * «examen» lo usó la prueba psicosensotécnica propia (quitada el 24-nov-2026):
+   * queda para leer el historial.
    */
   tipo: "creado" | "estado" | "preseleccion" | "autorizacion" | "dato" | "cita" | "prueba" | "examen" | "examen_medico" | "carpeta" | "recomendado" | "laboratorio";
   estadoAnterior?: string | null;

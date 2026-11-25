@@ -13,11 +13,13 @@ import {
   FILTRO_REINGRESOS,
   FILTRO_ANTECEDENTES,
   FILTRO_APADRINADOS,
+  FILTRO_PSICO_INSCRIBIR,
 } from "@/lib/contratacion/constants";
 import { createProceso, updateProceso, updateProcesoEstado, deleteProceso, exportarProcesos, type ProcesoInput } from "@/lib/contratacion/actions";
 import { toast } from "sonner";
 import { usePermisos } from "@/components/permisos/permisos-provider";
 import { PanelSeleccion } from "@/components/seleccion/panel-seleccion";
+import { movimientoAlSoltar, type EtapaConPaso } from "@/lib/seleccion/mover-tablero";
 import { SemaforoPuntos } from "@/components/seleccion/semaforo";
 import { requiereLentes } from "@/lib/seleccion/preseleccion";
 
@@ -78,6 +80,10 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
   const pathname = usePathname();
   const [search, setSearch] = useState(filters.q);
   const [editing, setEditing] = useState<ProcesoContratacion | null>(null);
+  // Elegido en el selector de la lista: hacia adelante, la ficha con lo que pide esa etapa;
+  // «Cierre», la ficha con el estado ya puesto (y el real para no confundirlo al guardar).
+  const [destinoLista, setDestinoLista] = useState<EtapaConPaso | null>(null);
+  const [estadoReal, setEstadoReal] = useState<string | undefined>(undefined);
   const [creating, setCreating] = useState(false);
   const [exportando, setExportando] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -278,6 +284,7 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
             <option value={FILTRO_REINGRESOS}>Reingresos por revisar</option>
             <option value={FILTRO_ANTECEDENTES}>Antecedentes por revisar</option>
             <option value={FILTRO_APADRINADOS}>Apadrinados sin padrino</option>
+            <option value={FILTRO_PSICO_INSCRIBIR}>Psicosensotécnica: por inscribir</option>
             {PROCESO_ESTADOS.map((e) => (
               <option key={e.value} value={e.value}>{e.label}</option>
             ))}
@@ -443,7 +450,14 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
                         {canEdit ? (
                           <EstadoSelect
                             proceso={r}
-                            onCierre={() => setEditing({ ...r, estado: "cierre", causa_no_contrato: r.causa_no_contrato ?? r.requisito_incumplido ?? null })}
+                            onCierre={() => {
+                              setEstadoReal(r.estado);
+                              setEditing({ ...r, estado: "cierre", causa_no_contrato: r.causa_no_contrato ?? r.requisito_incumplido ?? null });
+                            }}
+                            onAvanzar={(d) => {
+                              setDestinoLista(d);
+                              setEditing(r);
+                            }}
                           />
                         ) : est ? (
                           <span
@@ -560,9 +574,13 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
         <ProcesoFormDialog
           proceso={editing}
           vacancies={vacancies}
+          destino={destinoLista}
+          estadoAlAbrir={estadoReal}
           onClose={() => {
             setCreating(false);
             setEditing(null);
+            setDestinoLista(null);
+            setEstadoReal(undefined);
           }}
         />
       )}
@@ -593,17 +611,22 @@ function Stat({ label, value, color = "#0F172A" }: { label: string; value: numbe
 
 /**
  * Selector de estado inline con estilo de badge. Pasar a "Cierre de proceso"
- * abre el formulario para capturar la causa; los demás estados se guardan al
- * instante.
+ * abre el formulario para capturar la causa; hacia adelante abre la ficha con lo
+ * que pide esa etapa (24-nov-2026, como el tablero); hacia atrás se guarda al instante.
  */
-function EstadoSelect({ proceso, onCierre }: { proceso: ProcesoContratacion; onCierre: () => void }) {
+function EstadoSelect({ proceso, onCierre, onAvanzar }: { proceso: ProcesoContratacion; onCierre: () => void; onAvanzar: (destino: EtapaConPaso) => void }) {
   const [isPending, startTransition] = useTransition();
   const est = estadoInfo(proceso.estado);
 
   function handleChange(estado: string) {
-    if (estado === proceso.estado) return;
-    if (estado === "cierre") {
+    const mov = movimientoAlSoltar(proceso.estado, estado);
+    if (mov.tipo === "nada") return;
+    if (mov.tipo === "cierre") {
       onCierre();
+      return;
+    }
+    if (mov.tipo === "ficha") {
+      onAvanzar(mov.destino);
       return;
     }
     startTransition(async () => {
@@ -691,6 +714,8 @@ export function ProcesoFormDialog({
   inicial,
   onCreado,
   titulo,
+  destino,
+  estadoAlAbrir,
 }: {
   proceso: ProcesoContratacion | null;
   vacancies: VacanteOption[];
@@ -698,6 +723,10 @@ export function ProcesoFormDialog({
   inicial?: Partial<ProcesoInput>;
   onCreado?: (id: string) => void;
   titulo?: string;
+  /** Se abrió al arrastrar la tarjeta hacia adelante en el tablero (24-nov-2026). */
+  destino?: EtapaConPaso | null;
+  /** El estado real cuando la ficha se abre con otro ya elegido (p. ej. «Cierre» desde la lista). */
+  estadoAlAbrir?: string;
 }) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -747,13 +776,17 @@ export function ProcesoFormDialog({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // Lo que mostraba el formulario al abrir: al guardar solo va lo que la persona cambió
+  // (una acción del panel pudo cambiar el estado o las fechas mientras tanto).
+  const [formAlAbrir] = useState(() => (estadoAlAbrir ? { ...form, estado: estadoAlAbrir } : form));
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     startTransition(async () => {
       try {
         if (proceso) {
-          const r = await updateProceso(proceso.id, form);
+          const r = await updateProceso(proceso.id, form, formAlAbrir);
           if (!r.ok) return setError(r.error);
         } else {
           const r = await createProceso(form);
@@ -770,18 +803,37 @@ export function ProcesoFormDialog({
   const showDeuda = form.simit === "deuda" || form.simit === "acuerdo_pago";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 sm:p-8">
-      <form onSubmit={handleSubmit} className="w-full max-w-2xl rounded-xl bg-white p-6 shadow-xl">
-        <div className="mb-5 flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-gray-900">
-            {titulo ?? (proceso ? "Editar proceso" : "Nuevo proceso de contratación")}
-          </h3>
-          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-2 sm:p-4">
+      {/* 24-nov-2026: con un proceso, en pantalla ancha, dos columnas que se desplazan por separado
+          (datos a la izquierda, selección a la derecha) y encabezado y botones siempre a la vista. */}
+      <form
+        onSubmit={handleSubmit}
+        className={`flex w-full flex-col rounded-xl bg-white shadow-xl ${proceso ? "max-w-[1400px] lg:h-[calc(100vh-2rem)]" : "max-w-2xl"}`}
+      >
+        <div className="flex items-center justify-between gap-3 border-b border-[#F1F5F9] px-5 py-3">
+          <div className="min-w-0">
+            <h3 className="truncate text-lg font-semibold text-gray-900">
+              {titulo ?? (proceso ? proceso.nombre || "Editar proceso" : "Nuevo proceso de contratación")}
+            </h3>
+            {proceso && (
+              <p className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                <span>CC {proceso.cedula}</span>
+                {estadoInfo(proceso.estado) && (
+                  <span className="rounded-full px-2 py-0.5 font-medium" style={{ backgroundColor: estadoInfo(proceso.estado)!.bg, color: estadoInfo(proceso.estado)!.color }}>
+                    {estadoInfo(proceso.estado)!.label}
+                  </span>
+                )}
+              </p>
+            )}
+          </div>
+          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600" aria-label="Cerrar">
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className={proceso ? "grid min-h-0 flex-1 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]" : ""}>
+        <div className={`p-5 ${proceso ? "min-h-0 lg:overflow-y-auto lg:border-r lg:border-[#F1F5F9]" : ""}`}>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Nombre completo *">
             <input
               required
@@ -968,7 +1020,7 @@ export function ProcesoFormDialog({
 
           <div className="sm:col-span-2 rounded-lg border border-[#F1F5F9] bg-[#F8FAFC] p-3">
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Prefiltro</p>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className={`grid grid-cols-2 gap-3 ${proceso ? "xl:grid-cols-4" : "sm:grid-cols-4"}`}>
               <Field label="Edad">
                 <input
                   type="number"
@@ -1042,26 +1094,39 @@ export function ProcesoFormDialog({
             )}
           </div>
 
-          <Field label="Fecha de citación">
-            <input type="date" value={form.fecha_citacion ?? ""} onChange={(e) => set("fecha_citacion", e.target.value)} className={inputCls} />
-          </Field>
-          <Field label="Citación exámenes médicos · fase 1">
-            <input type="date" value={form.fecha_examenes ?? ""} onChange={(e) => set("fecha_examenes", e.target.value)} className={inputCls} />
-          </Field>
-          <Field label="Citación exámenes médicos · fase 2">
-            <input type="date" value={form.fecha_examenes_fase2 ?? ""} onChange={(e) => set("fecha_examenes_fase2", e.target.value)} className={inputCls} />
-          </Field>
-          <Field label="Fecha prueba de manejo">
-            <input type="date" value={form.fecha_prueba_manejo ?? ""} onChange={(e) => set("fecha_prueba_manejo", e.target.value)} className={inputCls} />
-          </Field>
-          <Field label="Fecha de contrato">
-            <input type="date" value={form.fecha_contrato ?? ""} onChange={(e) => set("fecha_contrato", e.target.value)} className={inputCls} />
-          </Field>
+          {/* Las fechas casi siempre las llena el sistema (citar, exámenes, contratar): plegadas para no alargar la ficha. */}
+          <details className="group sm:col-span-2 rounded-lg border border-[#F1F5F9] p-3" open={!proceso}>
+            <summary className="cursor-pointer select-none text-xs font-semibold uppercase tracking-wide text-gray-500">
+              Fechas del proceso
+              {proceso && (
+                <span className="ml-2 font-normal normal-case tracking-normal text-gray-400">
+                  {[form.fecha_citacion, form.fecha_prueba_manejo, form.fecha_examenes, form.fecha_examenes_fase2, form.fecha_contrato].filter(Boolean).length} de 5 con fecha
+                </span>
+              )}
+            </summary>
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              <Field label="Fecha de citación">
+                <input type="date" value={form.fecha_citacion ?? ""} onChange={(e) => set("fecha_citacion", e.target.value)} className={inputCls} />
+              </Field>
+              <Field label="Fecha prueba de manejo">
+                <input type="date" value={form.fecha_prueba_manejo ?? ""} onChange={(e) => set("fecha_prueba_manejo", e.target.value)} className={inputCls} />
+              </Field>
+              <Field label="Exámenes · fase 1">
+                <input type="date" value={form.fecha_examenes ?? ""} onChange={(e) => set("fecha_examenes", e.target.value)} className={inputCls} />
+              </Field>
+              <Field label="Exámenes · fase 2">
+                <input type="date" value={form.fecha_examenes_fase2 ?? ""} onChange={(e) => set("fecha_examenes_fase2", e.target.value)} className={inputCls} />
+              </Field>
+              <Field label="Fecha de contrato">
+                <input type="date" value={form.fecha_contrato ?? ""} onChange={(e) => set("fecha_contrato", e.target.value)} className={inputCls} />
+              </Field>
+            </div>
+          </details>
 
           <div className="sm:col-span-2">
             <Field label="Observación">
               <textarea
-                rows={3}
+                rows={2}
                 value={form.observacion ?? ""}
                 onChange={(e) => set("observacion", e.target.value)}
                 className={`${inputCls} h-auto py-2`}
@@ -1071,11 +1136,18 @@ export function ProcesoFormDialog({
           </div>
         </div>
 
-        {proceso && <PanelSeleccion proceso={proceso} puedeEditar={puedeEditar} onCerrado={onClose} />}
+        </div>
 
-        {error && <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
+        {proceso && (
+          <div className="min-h-0 border-t border-[#F1F5F9] p-5 lg:overflow-y-auto lg:border-t-0">
+            <PanelSeleccion proceso={proceso} puedeEditar={puedeEditar} onCerrado={onClose} destino={destino} lateral />
+          </div>
+        )}
+        </div>
 
-        <div className="mt-6 flex justify-end gap-2">
+        {error && <p className="mx-5 mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
+
+        <div className="flex justify-end gap-2 border-t border-[#F1F5F9] px-5 py-3">
           <Button type="button" variant="outline" onClick={onClose} disabled={isPending}>
             Cancelar
           </Button>

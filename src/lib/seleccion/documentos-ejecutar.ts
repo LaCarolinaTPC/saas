@@ -12,6 +12,7 @@ import { avisarProceso } from "./agenda-servidor";
 import { estadosCarpeta, itemsCarpeta } from "./carpeta-servidor";
 import { topeAlcanzado } from "./consumos-servidor";
 import { leerAjustes, valorAjuste } from "./servidor";
+import { ITEM_CERTIFICADO } from "./certificado-banco";
 
 const ESTADOS = ["en_escuela", "en_examenes", "en_examenes_fase2", "reconocimiento_ruta"];
 const MAX_POR_CORRIDA = 30;
@@ -37,7 +38,10 @@ export async function ejecutarDocumentosPendientes(ahora: Date = new Date()): Pr
     .limit(200);
   // Sin la migración de la entrega 3 no existe documentos_recordatorio_at.
   if (error) return { ...r, omitida: `consulta: ${error.message}` };
-  const items = await itemsCarpeta();
+  // El certificado bancario tiene su propio recordatorio (24-nov-2026): no se repite aquí.
+  const { leerAjustesCertificado } = await import("./certificado-banco-servidor");
+  const conRecordatorioPropio = (await leerAjustesCertificado()).activo;
+  const items = (await itemsCarpeta()).filter((i) => !(conRecordatorioPropio && i === ITEM_CERTIFICADO));
   const hoy = fechaBogota(ahora.toISOString());
 
   for (const p of data ?? []) {

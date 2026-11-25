@@ -10,7 +10,8 @@
  */
 import { z } from "zod";
 
-export const CLASES = ["cedula", "licencia", "hoja_vida", "carta_laboral", "otro"] as const;
+// 24-nov-2026: el certificado bancario (cuenta en el Banco de Bogotá para recibir los pagos).
+export const CLASES = ["cedula", "licencia", "hoja_vida", "carta_laboral", "certificado_bancario", "otro"] as const;
 export type ClaseDocumento = (typeof CLASES)[number];
 
 export const NOMBRE_CLASE: Record<ClaseDocumento, string> = {
@@ -18,6 +19,7 @@ export const NOMBRE_CLASE: Record<ClaseDocumento, string> = {
   licencia: "Licencia de conducción",
   hoja_vida: "Hoja de vida",
   carta_laboral: "Carta laboral",
+  certificado_bancario: "Certificado bancario",
   otro: "Otro documento",
 };
 
@@ -55,6 +57,15 @@ export const CAMPOS_POR_CLASE: Record<ClaseDocumento, { campo: string; etiqueta:
     { campo: "telefono_empresa", etiqueta: "Teléfono de la empresa" },
     { campo: "firmante", etiqueta: "Quién firma" },
   ],
+  certificado_bancario: [
+    { campo: "banco", etiqueta: "Banco" },
+    { campo: "titular", etiqueta: "Titular" },
+    { campo: "cedula", etiqueta: "Cédula del titular" },
+    { campo: "tipo_cuenta", etiqueta: "Tipo de cuenta" },
+    { campo: "numero_cuenta", etiqueta: "Número de cuenta" },
+    { campo: "estado_cuenta", etiqueta: "Estado de la cuenta" },
+    { campo: "fecha_expedicion", etiqueta: "Fecha de expedición" },
+  ],
   otro: [],
 };
 
@@ -65,6 +76,8 @@ export const ETIQUETA_CAMPO_EXTRA: Record<string, string> = {
   experiencia_conduccion_meses: "Meses de experiencia en conducción",
   edad: "Edad",
   cedula_coincide: "¿La cédula coincide con la del proceso?",
+  banco_bogota: "¿Es del Banco de Bogotá?",
+  cuenta_vigente: "¿La cuenta está vigente?",
 };
 
 export function etiquetaCampo(clase: ClaseDocumento, campo: string): string {
@@ -156,7 +169,7 @@ export interface CampoLeido {
 
 // ── Prompt ───────────────────────────────────────────────────────────────────
 
-export const SISTEMA_LECTURA = `Lees documentos que envía por WhatsApp un aspirante a conductor de bus en Colombia: fotos o PDF de su cédula, su licencia de conducción, su hoja de vida o una carta laboral; a veces el texto sacado de un documento de Word, con las imágenes que traía pegadas. Respondes solo con JSON válido, sin texto antes ni después.
+export const SISTEMA_LECTURA = `Lees documentos que envía por WhatsApp un aspirante a conductor de bus en Colombia: fotos o PDF de su cédula, su licencia de conducción, su hoja de vida, una carta laboral o un certificado bancario; a veces el texto sacado de un documento de Word, con las imágenes que traía pegadas. Respondes solo con JSON válido, sin texto antes ni después.
 
 Reglas:
 - Copia lo que ves; no inventes ni completes datos. Si un campo no se ve, no lo incluyas.
@@ -169,12 +182,13 @@ Reglas:
 
 export function instruccionLectura(nArchivos: number): string {
   return `Hay ${nArchivos} ${nArchivos === 1 ? "archivo" : "archivos"} (numerados desde 1). Clasifica cada uno y extrae los datos. Responde con este JSON:
-{"documentos":[{"archivos":[1],"clase":"cedula|licencia|hoja_vida|carta_laboral|otro","legible":true,"motivo":null,"resumen":"una frase con lo principal","campos":[{"campo":"...","valor":"...","confianza":"alta|media|baja","evidencia":"...","pagina":1}],"experiencias":[],"referencias":[]}]}
+{"documentos":[{"archivos":[1],"clase":"cedula|licencia|hoja_vida|carta_laboral|certificado_bancario|otro","legible":true,"motivo":null,"resumen":"una frase con lo principal","campos":[{"campo":"...","valor":"...","confianza":"alta|media|baja","evidencia":"...","pagina":1}],"experiencias":[],"referencias":[]}]}
 
 Campos por clase:
 - cedula: numero (solo dígitos), nombres, apellidos, fecha_nacimiento, fecha_expedicion, lugar_expedicion.
 - licencia: numero, nombre, categorias (texto: cada categoría con su vencimiento, p. ej. «C2 vence 2029-03-14; B1 vence 2029-03-14»), restricciones (p. ej. «usar lentes»; vacío si no tiene).
 - hoja_vida: nombre, cedula, telefono, ciudad, fecha_nacimiento. Además «experiencias»: [{"empresa","cargo","desde":"AAAA-MM","hasta":"AAAA-MM|actual","vehiculo","conduccion":true solo si el cargo era manejar vehículos de cuatro ruedas o más (bus, buseta, microbús, camión, volqueta, taxi, carro, ambulancia); false para moto o bicicleta (mensajero, domiciliario) y si no manejaba}] y «referencias»: [{"nombre","telefono","tipo":"laboral|personal","empresa"}].
 - carta_laboral: empresa, nombre (del trabajador), cargo, desde, hasta, telefono_empresa, firmante. Si la carta da un teléfono de contacto, ponlo también en «referencias» como laboral.
+- certificado_bancario (constancia de un banco de que la persona tiene una cuenta): banco, titular (a nombre de quién está la cuenta), cedula (solo dígitos), tipo_cuenta (ahorros o corriente), numero_cuenta, estado_cuenta (lo que diga: «vigente», «activa», «cancelada»…), fecha_expedicion. La foto puede venir girada o al revés.
 - otro: solo el resumen.`;
 }

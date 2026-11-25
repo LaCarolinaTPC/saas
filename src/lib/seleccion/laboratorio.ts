@@ -31,6 +31,8 @@ export interface LecturaLaboratorio {
   fase: 1 | 2 | null;
   resultado: ResultadoLaboratorio | null;
   observacion: string | null;
+  /** La IA vio la frase acordada de apto (o una variante con el mismo sentido) para esta persona. */
+  frase?: boolean;
 }
 
 /** El arreglo JSON de la respuesta del modelo, validado. null si no se entiende. */
@@ -57,6 +59,7 @@ export function interpretarLecturaLaboratorio(texto: string): LecturaLaboratorio
         fase: fase === 1 || fase === 2 ? (fase as 1 | 2) : null,
         resultado: x.resultado === "apto" || x.resultado === "no_apto" || x.resultado === "aplazado" ? (x.resultado as ResultadoLaboratorio) : null,
         observacion: txt(x.observacion, 500),
+        ...(x.frase === true ? { frase: true } : {}),
       };
     })
     .filter((l) => l.nombre || l.cedula);
@@ -97,3 +100,124 @@ export function asociarProceso(l: LecturaLaboratorio, procesos: readonly Proceso
 
 /** Fase que corresponde al estado del aspirante cuando el laboratorio no la dice. */
 export const faseDeEstado = (estado: string): 1 | 2 | null => (estado === "en_examenes" ? 1 : estado === "en_examenes_fase2" ? 2 : null);
+
+// ── Frases acordadas con el laboratorio (24-nov-2026) ───────────────────────
+
+export interface FrasesLaboratorio {
+  apto?: string | null;
+  no_apto?: string | null;
+  aplazado?: string | null;
+}
+
+/** La respuesta de apto mientras no se acuerde otra con el laboratorio (Gestión Humana, 24-nov-2026). */
+export const FRASE_APTO_POR_DEFECTO = "Sí, puede pasar a fase 2";
+
+/** Las frases del laboratorio, con la de apto por defecto si no tiene. */
+export function frasesConDefecto(f: FrasesLaboratorio | null | undefined): FrasesLaboratorio {
+  return { apto: f?.apto?.trim() || FRASE_APTO_POR_DEFECTO, no_apto: f?.no_apto?.trim() || null, aplazado: f?.aplazado?.trim() || null };
+}
+
+/**
+ * Las instrucciones de lectura con las frases acordadas: la IA marca
+ * "frase": true cuando ve la de apto o una variante con el mismo sentido.
+ */
+export function sistemaLaboratorio(frases: FrasesLaboratorio | null | undefined): string {
+  const f = frasesConDefecto(frases);
+  return [
+    SISTEMA_LABORATORIO,
+    `Con este laboratorio se acordó que, en la primera fase, la respuesta de apto es «${f.apto}». Para cada persona agrega "frase": true si el mensaje dice esa frase o una variante con el mismo sentido (por ejemplo, con otras palabras, con «la segunda fase», sin el «sí» o con faltas de ortografía), y "frase": false si no. Una negación («no puede pasar») no es la frase.`,
+    ...(f.no_apto ? [`La respuesta acordada de no apto es «${f.no_apto}».`] : []),
+    ...(f.aplazado ? [`La respuesta acordada de aplazado es «${f.aplazado}».`] : []),
+  ].join("\n");
+}
+
+/**
+ * El resultado y si se registra solo (24-nov-2026). Con la frase acordada
+ * exacta, ese. En la fase 1, si no: la frase de apto o una variante (según la
+ * IA) es apto; «aplazado» especificado es aplazado; cualquier otro resultado
+ * es no apto. Sin resultado (un saludo, «pendiente») no se decide. En la fase
+ * 2 solo cuentan las frases exactas de no apto y aplazado (la de apto es de la
+ * fase 1); lo demás lo confirma una persona.
+ */
+export function decidirResultado(
+  texto: string,
+  l: LecturaLaboratorio,
+  variasPersonas: boolean,
+  frases: FrasesLaboratorio | null | undefined,
+  faseEsperada: 1 | 2 | null,
+  opciones: { soloArchivo?: boolean } = {}
+): { resultado: ResultadoLaboratorio | null; automatico: boolean } {
+  const f = frasesConDefecto(frases);
+  const fase = l.fase ?? faseEsperada;
+  const exacta = resultadoPorFrase(texto, l, variasPersonas, f);
+  // La frase de apto es la de la fase 1 («puede pasar a fase 2»): repetida con el
+  // aspirante ya en la fase 2 no aprueba la fase 2; eso lo confirma una persona.
+  if (exacta === "apto" && fase === 2) return { resultado: l.resultado, automatico: false };
+  if (exacta) return { resultado: exacta, automatico: true };
+  if (fase !== 1 || !l.resultado) return { resultado: l.resultado, automatico: false };
+  if (l.resultado === "aplazado") return { resultado: "aplazado", automatico: true };
+  if (l.resultado === "apto" && l.frase) return { resultado: "apto", automatico: true };
+  // Un archivo solo (la radiografía, un informe «normal»): lo que la IA lea como apto
+  // sin la frase no se vuelve no apto solo; lo confirma una persona.
+  if (l.resultado === "apto" && opciones.soloArchivo) return { resultado: "apto", automatico: false };
+  return { resultado: "no_apto", automatico: true };
+}
+
+/** ¿El laboratorio tiene alguna frase acordada? */
+export function tieneFrases(f: FrasesLaboratorio | null | undefined): boolean {
+  return !!f && [f.apto, f.no_apto, f.aplazado].some((x) => normalizarTexto(x ?? "").length >= 3);
+}
+
+/** Las veces que aparece la frase sin un «no» justo antes («no puede continuar» no es «puede continuar»). */
+function aparece(texto: string, frase: string): boolean {
+  let i = texto.indexOf(frase);
+  while (i >= 0) {
+    const antes = texto.slice(0, i).trimEnd().split(" ").pop() ?? "";
+    const limiteIzq = i === 0 || texto[i - 1] === " ";
+    const fin = i + frase.length;
+    const limiteDer = fin === texto.length || texto[fin] === " ";
+    if (limiteIzq && limiteDer && !["no", "sin", "tampoco", "ni"].includes(antes)) return true;
+    i = texto.indexOf(frase, i + 1);
+  }
+  return false;
+}
+
+/**
+ * El resultado según la frase acordada, para la persona de la lectura. Si el
+ * mensaje habla de varias personas, solo cuentan las líneas donde está su
+ * cédula o su nombre. Gana la frase más larga que aparezca (así «no puede
+ * continuar» le gana a «puede continuar»); si aparecen dos resultados
+ * distintos, no se decide (null) y queda para una persona.
+ */
+export function resultadoPorFrase(
+  texto: string,
+  l: Pick<LecturaLaboratorio, "nombre" | "cedula">,
+  variasPersonas: boolean,
+  frases: FrasesLaboratorio | null | undefined
+): ResultadoLaboratorio | null {
+  if (!frases) return null;
+  const pares = (Object.entries(frases) as [ResultadoLaboratorio, string | null | undefined][])
+    .filter(([r]) => r === "apto" || r === "no_apto" || r === "aplazado")
+    .map(([r, f]) => [r, normalizarTexto(f ?? "").replace(/^(si|claro) /, "")] as const)
+    .filter(([, f]) => f.length >= 3);
+  if (!pares.length) return null;
+  let segmento = texto;
+  if (variasPersonas) {
+    const palabras = l.nombre ? normalizarTexto(l.nombre).split(" ").filter((p) => p.length > 2).slice(0, 2) : [];
+    segmento = texto
+      .split(/\n|;/)
+      .filter((linea) => {
+        const n = normalizarTexto(linea);
+        return (l.cedula && linea.replace(/\D/g, "").includes(l.cedula)) || (palabras.length === 2 && palabras.every((p) => n.includes(p)));
+      })
+      .join("\n");
+  }
+  const t = normalizarTexto(segmento);
+  if (!t) return null;
+  const hallados = pares.filter(([, f]) => aparece(t, f)).sort((a, b) => b[1].length - a[1].length);
+  if (!hallados.length) return null;
+  const [r0, f0] = hallados[0];
+  // Otra frase de otro resultado que no está dentro de la ganadora: ambiguo.
+  if (hallados.some(([r, f]) => r !== r0 && !f0.includes(f))) return null;
+  return r0;
+}

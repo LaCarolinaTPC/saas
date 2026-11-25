@@ -3,6 +3,7 @@
  * preselección guardado en el proceso y avance automático a antecedentes.
  * Sin sesión: lo usan la pantalla, el asistente de WhatsApp y las tareas.
  */
+import { cromaPausado, siCromaActivo } from "@/lib/verificacion/pausa";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { CAUSA_ANTECEDENTES, type ResultadoPreseleccionGuardado } from "@/lib/contratacion/constants";
 import { ACTOR_SISTEMA, cambiarEstadoProceso, registrarEvento } from "@/lib/contratacion/servidor";
@@ -19,6 +20,7 @@ import {
   reglasDesdeAjustes,
   type ReglasPreseleccion,
 } from "./preseleccion";
+import { procesoTerminado } from "./actualizacion-chat";
 
 /**
  * ¿Dijo que renueva la licencia vencida? null si no se sabe o si falta la
@@ -186,7 +188,9 @@ export async function reevaluarPreseleccion(procesoId: string): Promise<Reevalua
   // SIMIT opcional (ajuste `simit_obligatorio` en «no»): si ya se intentó y Croma
   // no respondió, no detiene al aspirante; pasa con la observación de que falta.
   const sinSimit = estado === "pendiente" && faltaSoloSimit(resultado) && !(await simitObligatorio()) && (await simitSinRespuesta(procesoId));
-  if (debeAvanzarAAntecedentes({ estado, autorizacion_datos: p.autorizacion_datos as string | null }, resultado, sinSimit)) {
+  // RUNT obligatorio (24-nov-2026): sin el RUNT ni una revisión a mano, la licencia que dice el aspirante no basta.
+  const esperaRunt = estado === "pendiente" && !p.licencia_runt && !p.licencia_verificada_runt && (await runtObligatorio());
+  if (!esperaRunt && debeAvanzarAAntecedentes({ estado, autorizacion_datos: p.autorizacion_datos as string | null }, resultado, sinSimit)) {
     const r = await cambiarEstadoProceso(procesoId, "antecedentes", {
       actor: ACTOR_SISTEMA,
       detalle:
@@ -302,12 +306,63 @@ export function runtConsultadoPara(runt: ResumenRunt | null, cedula: string | nu
  * (migración 20261118221044); sin el ajuste, sí.
  */
 export async function simitObligatorio(): Promise<boolean> {
+  // Con Croma en pausa nada es obligatorio: queda para revisar a mano (24-nov-2026).
+  if (await cromaPausado()) return false;
   const fila = (await leerAjustes().catch(() => [])).find((a) => a.clave === "simit_obligatorio");
   return fila ? fila.valor !== false : true;
 }
 
-/** ¿Ya se intentó el SIMIT de este proceso y Croma no ha respondido (en curso o con error)? */
+/**
+ * ¿El RUNT es obligatorio para pasar a antecedentes? Ajuste `runt_obligatorio`
+ * (migración 20261124185739, 24-nov-2026); sin el ajuste, no (como antes: sin
+ * el RUNT vale la licencia que dice el aspirante, con la observación). En «sí»,
+ * sin el RUNT ni una revisión a mano, la licencia declarada no basta para avanzar.
+ */
+export async function runtObligatorio(): Promise<boolean> {
+  if (await cromaPausado()) return false;
+  const fila = (await leerAjustes().catch(() => [])).find((a) => a.clave === "runt_obligatorio");
+  return fila?.valor === true;
+}
+
+/**
+ * ¿El RUNT de este proceso no respondió? Su última consulta falló, o Croma está
+ * en pausa. Entonces el asistente le pide la licencia (categoría y foto) y una
+ * persona la puede validar a mano (24-nov-2026).
+ */
+export async function runtSinRespuesta(procesoId: string): Promise<boolean> {
+  if (await cromaPausado()) return true;
+  const { data, error } = await createAdminClient()
+    .from("verificaciones_externas")
+    .select("estado")
+    .eq("proceso_id", procesoId)
+    .eq("fuente", "runt")
+    .neq("estado", "reiniciada")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return !error && data?.estado === "error";
+}
+
+/**
+ * Para el asistente: hay que pedirle la licencia porque el RUNT no respondió
+ * (y todavía no la tenemos ni verificada ni dicha). Solo con la cédula ya dada.
+ */
+export async function pedirLicenciaDeConversacion(conversacionId: string): Promise<boolean> {
+  const db = createAdminClient();
+  const { data: conv } = await db.from("wa_conversaciones").select("proceso_id").eq("id", conversacionId).maybeSingle();
+  if (!conv?.proceso_id) return false;
+  const { data: p } = await db
+    .from("procesos_contratacion")
+    .select("estado, cedula, licencia_runt, licencia_verificada_runt, licencia_categoria")
+    .eq("id", conv.proceso_id)
+    .maybeSingle();
+  if (!p || p.estado !== "pendiente" || !p.cedula || p.licencia_runt || p.licencia_verificada_runt || String(p.licencia_categoria ?? "").trim()) return false;
+  return runtSinRespuesta(conv.proceso_id as string);
+}
+
+/** ¿Ya se intentó el SIMIT de este proceso y Croma no ha respondido (en curso o con error)? Con Croma en pausa, sí. */
 async function simitSinRespuesta(procesoId: string): Promise<boolean> {
+  if (await cromaPausado()) return true;
   const { data, error } = await createAdminClient()
     .from("verificaciones_externas")
     .select("estado")
@@ -449,15 +504,19 @@ export async function marcarListoParaCitar(procesoId: string, datos?: DatosPrefi
   let faltaRnmc = false;
   // Lo que Croma no respondió y hay que revisar a mano (fuentes opcionales, SIMIT, RUNT).
   const faltan: string[] = [];
-  if (proveedorAntecedentes()) {
+  if (await siCromaActivo(proveedorAntecedentes())) {
     if (p.estado !== "antecedentes") return false;
     const ev = await evaluarAntecedentesProceso(procesoId);
     // Limpio, con hallazgos que las reglas toleran, o aprobado por una persona.
     if (!ev?.permite) return false;
     faltaRnmc = ev.faltaRnmc === true;
     faltan.push(...(ev.faltan ?? []));
-    // Sin el RUNT el semáforo usó la licencia que dijo el aspirante: falta verificarla.
-    if (!p.licencia_runt) faltan.push("runt");
+    // Sin el RUNT el semáforo usó la licencia que dijo el aspirante: falta verificarla (o que una persona la revise).
+    if (!p.licencia_runt && !p.licencia_verificada_runt) faltan.push("runt");
+  } else if (await cromaPausado()) {
+    // Croma en pausa: no se consultó nada; queda todo para revisar a mano y no se cita solo.
+    faltan.push("antecedentes");
+    if (!p.licencia_runt && !p.licencia_verificada_runt) faltan.push("runt");
   }
   const { data: ya } = await db
     .from("procesos_contratacion_eventos")
@@ -717,15 +776,27 @@ export async function avisarCierrePorAntecedentes(procesoId: string): Promise<"e
   return aviso;
 }
 
-/** ¿El proceso de la conversación se cerró por antecedentes? (el asistente no debe decir el motivo) */
+/**
+ * ¿El proceso de la conversación terminó? (el asistente le dice con amabilidad
+ * que no continúa, sin el motivo, y no le pide nada más). Ver procesoTerminado.
+ */
 export async function cerradoPorAntecedentesDeConversacion(conversacionId: string): Promise<boolean> {
   const db = createAdminClient();
   const { data: conv } = await db.from("wa_conversaciones").select("proceso_id").eq("id", conversacionId).maybeSingle();
   return conv?.proceso_id ? cerradoPorAntecedentesDeProceso(conv.proceso_id as string) : false;
 }
 
-/** ¿El proceso se cerró por antecedentes? (también para el chat de prueba, que no tiene conversación) */
+/**
+ * ¿El proceso terminó? Desde el 24-nov-2026 no solo por antecedentes: también
+ * cuando lo cierra una persona por cualquier causa (también para el chat de
+ * prueba, que no tiene conversación). El nombre se conserva por quienes lo usan.
+ */
 export async function cerradoPorAntecedentesDeProceso(procesoId: string): Promise<boolean> {
-  const { data: p } = await createAdminClient().from("procesos_contratacion").select("estado, causa_no_contrato").eq("id", procesoId).maybeSingle();
-  return p?.estado === "cierre" && p.causa_no_contrato === CAUSA_ANTECEDENTES;
+  const db = createAdminClient();
+  const [{ data: p }, { data: ev }] = await Promise.all([
+    db.from("procesos_contratacion").select("estado, causa_no_contrato").eq("id", procesoId).maybeSingle(),
+    db.from("procesos_contratacion_eventos").select("actor, estado_nuevo").eq("proceso_id", procesoId).eq("tipo", "estado").order("created_at", { ascending: false }).limit(1).maybeSingle(),
+  ]);
+  if (p?.estado === "cierre" && p.causa_no_contrato === CAUSA_ANTECEDENTES) return true;
+  return procesoTerminado(p?.estado as string | undefined, p?.causa_no_contrato as string | null, ev?.estado_nuevo === "cierre" ? (ev.actor as string | null) : null);
 }

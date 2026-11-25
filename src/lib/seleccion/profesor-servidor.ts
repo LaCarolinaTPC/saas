@@ -14,7 +14,6 @@ import { horaDelDia, rutasAprendidas, siguienteDiaHabil, type ExcepcionProfesor 
 import {
   avisarProceso,
   cancelarReconocimientos,
-  citarReconocimiento,
   reconocimientoDeHoy,
   citaVigenteDeProceso,
   citasDelDia,
@@ -25,9 +24,10 @@ import {
   type CitaDelDia,
   type EnvioAgenda,
 } from "./agenda-servidor";
-import { asegurarLaboratorio, enviarDocumentosAspirante, enviarOrdenAlCitar, laboratorioQueLeToca, planFase1 } from "./laboratorios-servidor";
+import { asegurarLaboratorio, enviarOrdenAlCitar, laboratorioQueLeToca, planFase1 } from "./laboratorios-servidor";
 import { avanceRutas, obligatoriasDe } from "./rutas";
 import { leerRutasReconocimiento, rutasObligatorias } from "./rutas-servidor";
+import { marcarBancoPreguntado } from "./respuestas-examenes-servidor";
 
 export type ResultadoPrueba = "aprobo" | "escuela" | "no_continua";
 export type ResultadoClase = "sigue" | "listo" | "no_continua";
@@ -105,11 +105,14 @@ async function pasarAExamenes(procesoId: string, actor: ActorProceso, motivo: st
   await asegurarLaboratorio(procesoId, actor, cuando.fecha).catch((e) => console.error("[seleccion] laboratorio del aspirante:", e));
   const citaId = await crearCitaSimple(procesoId, "examen_f1", cuando, actor);
   const { envio, texto: t } = await avisarProceso(procesoId, "examenes_fase1", cuando);
-  // Después del mensaje, la orden de exámenes y la carta del banco (Salud Ocupacional, 21-nov-2026).
-  const docs = citaId ? await enviarDocumentosAspirante(citaId).catch((e) => (console.error("[seleccion] documentos del aspirante:", e), null)) : null;
+  // El mensaje pregunta si ya tiene cuenta en el Banco de Bogotá (24-nov-2026): la carta
+  // del banco sale solo si responde que no (respuestas-examenes-servidor).
+  if (envio === "enviado" || envio === "prueba" || envio === "borrador") await marcarBancoPreguntado(procesoId).catch(() => undefined);
   // Y la orden al laboratorio, si el envío es automático (23-nov-2026).
   await enviarOrdenAlCitar(citaId, actor);
-  return { envio, texto: t, claveMensaje: "examenes_fase1", documentos: docs?.documentos.map((d) => d.nombre) ?? [] };
+  // El correo para la prueba psicosensotécnica se pide después de la respuesta del banco
+  // (o, si no responde, a las 24 horas, en la revisión periódica): una pregunta a la vez.
+  return { envio, texto: t, claveMensaje: "examenes_fase1", documentos: [] };
 }
 
 /** Resultado de la prueba de manejo. Si no se había marcado la llegada, la marca. */
@@ -290,11 +293,8 @@ export async function registrarReconocimientos(
     await cancelarReconocimientos(procesoId, actor, "Completó las rutas");
     return { ok: true, rutasCompletas };
   }
-  // Le faltan rutas y ya pasó los exámenes: se cita a la siguiente salida (hasta que las aprenda).
-  if (!ahora.completas && p.estado === "reconocimiento_ruta" && !p.reingreso) {
-    const r = await citarReconocimiento(procesoId, "reconocimiento_siguiente", actor, { rutas: String(ahora.necesarias), aprendidas: String(ahora.aprendidas.length) });
-    return { ok: true, rutasCompletas, texto: r.texto || undefined, envio: r.envio, claveMensaje: r.texto ? "reconocimiento_siguiente" : undefined };
-  }
+  // Desde el 24-nov-2026 la siguiente salida no se cita sola: la cita el encargado del reconocimiento.
+  await createAdminClient().from("procesos_contratacion").update({ reconocimiento_estado: "en_curso" }).eq("id", procesoId).or("reconocimiento_estado.is.null,reconocimiento_estado.in.(pendiente,por_verificar)");
   return { ok: true, rutasCompletas };
 }
 
@@ -551,9 +551,8 @@ const ESTADOS_PROFESOR = ["prueba_manejo", "en_escuela", ...ESTADOS_RUTA];
  */
 export async function pendientesDelProfesor(fecha: string, opciones: { soloPrueba?: boolean } = {}): Promise<PendientesProfesor> {
   const db = createAdminClient();
-  const [citas, reconocimientos, a, excepciones, procesos, obligatorias] = await Promise.all([
+  const [citas, a, excepciones, procesos, obligatorias] = await Promise.all([
     citasDelDia(fecha, opciones),
-    citasDelDia(fecha, { ...opciones, tipos: ["reconocimiento"] }),
     leerAjustesAgenda(),
     leerDisponibilidad(fecha, fecha),
     db
@@ -616,12 +615,12 @@ export async function pendientesDelProfesor(fecha: string, opciones: { soloPrueb
     horaPrueba: horaDelDia(fecha, a, excepciones),
     excepcion: excepciones.find((e) => e.fecha === fecha) ?? null,
     citas,
-    reconocimientos,
+    reconocimientos: [],
     porCalificar: filas.filter((f) => f.estado === "prueba_manejo" && !porEnviar(f)).map(aspirante),
     escuela: filas.filter((f) => f.estado === "en_escuela" && !porEnviar(f)).map(aspirante),
     porEnviarExamenes: filas.filter(porEnviar).map(aspirante),
-    // El reconocimiento de ruta puede empezar mientras salen los exámenes (entrega 3).
-    rutas: filas.filter((f) => ESTADOS_RUTA.includes(f.estado)).map(aspirante),
+    // Desde el 24-nov-2026 el reconocimiento de ruta no es del profesor: tiene su propia pantalla.
+    rutas: [],
     rutasMinimas: avanceRutas([], a.rutasMinimas, obligatorias).necesarias,
     rutasObligatorias: obligatorias,
   };

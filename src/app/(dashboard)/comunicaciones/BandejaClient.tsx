@@ -210,6 +210,7 @@ export default function BandejaClient({
   ficha,
   vacantes,
   agenteActivo,
+  aviso: avisoServicios,
 }: {
   conversaciones: ConversacionResumen[];
   /** Totales de TODAS las conversaciones (la lista trae solo un lote). */
@@ -226,6 +227,8 @@ export default function BandejaClient({
   vacantes: VacanteOption[];
   /** El agente de IA está encendido para todo el canal. */
   agenteActivo: boolean;
+  /** Aviso de un servicio externo que está fallando (24-nov-2026), del servidor. */
+  aviso?: React.ReactNode;
 }) {
   const router = useRouter();
   // Citar exige `candidatos.editar` (también en el servidor).
@@ -548,6 +551,7 @@ export default function BandejaClient({
 
   return (
     <div className="flex h-full min-h-0 flex-col p-4 pb-20 sm:p-6 sm:pb-20 md:pb-6 lg:p-8">
+      {avisoServicios && <div className="mb-3 shrink-0">{avisoServicios}</div>}
       <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2">
         <div className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 sm:flex">
           <MessageCircle className="h-5 w-5 text-primary" />

@@ -1,13 +1,20 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { ArrowLeft, BarChart3 } from "lucide-react";
 import { canAccess, getCurrentPermissions } from "@/lib/permissions";
 import { PERIODOS, diaBogota, formatoDuracion, porcentaje, resolverPeriodo, type Indicadores, type Rango } from "@/lib/comunicaciones/indicadores";
-import { leerIndicadoresComparados } from "@/lib/comunicaciones/indicadores-servidor";
+import { leerIndicadoresDelPeriodo } from "@/lib/comunicaciones/indicadores-servidor";
 import { leerIndicadoresRespuesta, leerIndicadoresSeleccion } from "@/lib/seleccion/indicadores-servidor";
 import { duracionLegible, type IndicadoresSeleccion } from "@/lib/seleccion/indicadores";
 import type { IndicadoresRespuesta } from "@/lib/seleccion/indicadores-respuesta";
-import type { GastoDelMes } from "@/lib/seleccion/consumos-servidor";
+import { resolverRangoCostos } from "@/lib/seleccion/costos";
+import { leerCostosSeleccion } from "@/lib/seleccion/costos-servidor";
+import { CostoSeccion } from "./costo-seccion";
+import { configReporteDiario } from "./reporte-actions";
+import { ReporteDiarioConfig } from "./reporte-diario-config";
+import { evaluarAlertas, umbralesAlertas } from "@/lib/seleccion/alertas-indicadores";
+import { leerAjustes, valorAjuste } from "@/lib/seleccion/servidor";
 import { BarrasConPorcentaje, BarrasPorDia, type FilaBarra } from "@/components/graficos/graficos-comunicaciones";
 import { PestanasIndicadores, periodoDeLaUrl } from "./pestanas-indicadores";
 
@@ -35,12 +42,19 @@ export default async function IndicadoresSeleccionPage({ searchParams }: { searc
 
   const sp = await searchParams;
   const periodo = resolverPeriodo({ dias: primero(sp.dias), desde: primero(sp.desde), hasta: primero(sp.hasta) });
-  const [{ ind, gasto }, resp, chat] = await Promise.all([
-    leerIndicadoresSeleccion(periodo.rango),
-    leerIndicadoresRespuesta(periodo.rango),
-    // Asistente de IA y preselección: se calculan con las conversaciones del periodo.
-    leerIndicadoresComparados({ rango: periodo.rango }).then((r) => r.actual).catch(() => null),
-  ]);
+  // El costo tiene su propio periodo (el mes en curso por defecto); cada filtro conserva el del otro.
+  const urlCosto = { costo_desde: primero(sp.costo_desde), costo_hasta: primero(sp.costo_hasta) };
+  const periodoCosto = resolverRangoCostos({ desde: urlCosto.costo_desde, hasta: urlCosto.costo_hasta });
+  const periodoPagina = { dias: primero(sp.dias), desde: primero(sp.desde), hasta: primero(sp.hasta) };
+  // 24-nov-2026: no se espera todo antes de mostrar la página. Las lecturas arrancan a la
+  // vez y cada grupo de secciones aparece cuando llegan sus datos (<Suspense>).
+  const selP = leerIndicadoresSeleccion(periodo.rango);
+  const respP = leerIndicadoresRespuesta(periodo.rango);
+  // Asistente de IA y preselección: se calculan con las conversaciones del periodo.
+  const chatP = leerIndicadoresDelPeriodo(periodo.rango.desde, periodo.rango.hasta).catch(() => null);
+  const costosP = leerCostosSeleccion(periodoCosto.rango);
+  const reporteP = configReporteDiario().catch(() => null);
+  const dias = Math.round((new Date(`${periodo.rango.hasta}T12:00:00Z`).getTime() - new Date(`${periodo.rango.desde}T12:00:00Z`).getTime()) / 86_400_000) + 1;
 
   return (
     <div className="mx-auto w-full max-w-6xl p-4 pb-20 sm:p-6 md:pb-6 lg:p-8">
@@ -55,36 +69,176 @@ export default async function IndicadoresSeleccionPage({ searchParams }: { searc
         <div className="min-w-0 flex-1 basis-60">
           <h1 className="text-xl font-bold tracking-tight text-text-primary sm:text-2xl">Indicadores de selección</h1>
           <p className="mt-1 text-sm text-text-tertiary">
-            Aspirantes cuyo proceso empezó del {fechaLarga(ind.rango.desde)} al {fechaLarga(ind.rango.hasta)} ({ind.rango.dias}{" "}
-            {ind.rango.dias === 1 ? "día" : "días"}). Sin los del chat de prueba.
+            Aspirantes cuyo proceso empezó del {fechaLarga(periodo.rango.desde)} al {fechaLarga(periodo.rango.hasta)} ({dias} {dias === 1 ? "día" : "días"}). Sin
+            los del chat de prueba.
           </p>
         </div>
       </div>
 
       <PestanasIndicadores actual="seleccion" periodo={periodoDeLaUrl(sp)} />
 
-      <Filtros dias={periodo.dias} rango={periodo.rango} />
+      <Filtros dias={periodo.dias} rango={periodo.rango} costo={urlCosto} />
 
       {periodo.aviso && <Aviso>{periodo.aviso}</Aviso>}
+
+      <div className="space-y-6">
+        <Suspense fallback={<Cargando titulos={["Alertas"]} />}>
+          <GrupoAlertas selP={selP} chatP={chatP} respP={respP} />
+        </Suspense>
+        <Suspense fallback={<Cargando titulos={["Los cinco indicadores", "Embudo"]} />}>
+          <GrupoPrincipal selP={selP} />
+        </Suspense>
+        <Suspense fallback={<Cargando titulos={["Mensajes de WhatsApp", "Preselección del asistente"]} />}>
+          <GrupoChat chatP={chatP} selP={selP} />
+        </Suspense>
+        <Suspense fallback={<Cargando titulos={["¿Responden los aspirantes?"]} />}>
+          <GrupoRespuesta respP={respP} />
+        </Suspense>
+        <Suspense fallback={<Cargando titulos={["Cuánto tardan en cada etapa", "Por qué se cerraron"]} />}>
+          <GrupoDetalle selP={selP} chatP={chatP} />
+        </Suspense>
+        <Suspense fallback={<Cargando titulos={["Costo"]} />}>
+          <GrupoCosto
+            costosP={costosP}
+            selP={selP}
+            aviso={periodoCosto.aviso}
+            periodoPagina={periodoPagina}
+            elegido={!!(urlCosto.costo_desde || urlCosto.costo_hasta) && !periodoCosto.aviso}
+          />
+        </Suspense>
+        <Suspense fallback={null}>
+          <GrupoReporte reporteP={reporteP} />
+        </Suspense>
+      </div>
+    </div>
+  );
+}
+
+// ── Grupos que se muestran a medida que llegan sus datos ─────────────────────
+
+type SelP = ReturnType<typeof leerIndicadoresSeleccion>;
+type ChatP = Promise<Indicadores | null>;
+
+/**
+ * Alertas (24-nov-2026): los mismos umbrales del reporte diario, con el periodo
+ * de la página. Las de «ayer» solo van en el correo.
+ */
+async function GrupoAlertas({ selP, chatP, respP }: { selP: SelP; chatP: ChatP; respP: Promise<IndicadoresRespuesta | null> }) {
+  const [{ ind }, chat, resp, ajustes] = await Promise.all([selP, chatP, respP, leerAjustes().catch(() => [])]);
+  const alertas = evaluarAlertas({ ind, chat, resp }, umbralesAlertas((k) => valorAjuste<unknown>(ajustes, k, undefined)));
+  return (
+    <section className={`rounded-2xl border p-4 sm:p-5 ${alertas.length ? "border-red-200 bg-red-50" : "border-emerald-200 bg-emerald-50"}`}>
+      <h2 className={`text-base font-semibold ${alertas.length ? "text-red-800" : "text-emerald-800"}`}>
+        {alertas.length ? `⚠ ${alertas.length} ${alertas.length === 1 ? "alerta" : "alertas"} para revisar` : "Sin alertas"}
+      </h2>
+      <p className={`mt-0.5 text-xs ${alertas.length ? "text-red-700" : "text-emerald-700"}`}>
+        Indicadores del periodo fuera de los umbrales (Selección › Tiempos y reglas › «Alertas del reporte diario»). Son las mismas del correo diario a Gestión Humana.
+      </p>
+      {alertas.length > 0 && (
+        <ul className="mt-3 divide-y divide-red-200">
+          {alertas.map((a) => (
+            <li key={a.clave} className="py-2">
+              <p className="text-sm font-semibold text-red-900">
+                {a.titulo}: {a.valor} <span className="font-normal text-red-700">({a.umbral})</span>
+              </p>
+              <p className="text-xs text-red-800">{a.accion}</p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+async function GrupoPrincipal({ selP }: { selP: SelP }) {
+  const { ind } = await selP;
+  return (
+    <>
       {ind.faltantes.length > 0 && (
         <Aviso>Algunos datos aún no están disponibles en esta instalación ({ind.faltantes.join(", ")}). Se muestra el resto.</Aviso>
       )}
+      <CincoIndicadores ind={ind} />
+      <Embudo ind={ind} />
+    </>
+  );
+}
 
-      <div className="space-y-6">
-        <CincoIndicadores ind={ind} />
-        <Embudo ind={ind} />
-        {chat && <Preseleccion c={chat} />}
-        {resp && <Respuesta r={resp} />}
-        {resp && <Recordatorios r={resp} />}
-        {resp && <Recomendados r={resp} />}
-        <Tiempos ind={ind} />
-        <Cierres ind={ind} />
-        <SemanaYCanal ind={ind} />
-        <Antecedentes ind={ind} />
-        {chat && <Asistente c={chat} />}
-        <Costo ind={ind} gasto={gasto} />
-      </div>
-    </div>
+async function GrupoChat({ chatP, selP }: { chatP: ChatP; selP: SelP }) {
+  const [chat, { ind }] = await Promise.all([chatP, selP]);
+  if (!chat) return null;
+  return (
+    <>
+      <Mensajes c={chat} ind={ind} />
+      <Preseleccion c={chat} />
+    </>
+  );
+}
+
+async function GrupoRespuesta({ respP }: { respP: Promise<IndicadoresRespuesta | null> }) {
+  const resp = await respP;
+  if (!resp) return null;
+  return (
+    <>
+      <Respuesta r={resp} />
+      <Recordatorios r={resp} />
+      <Recomendados r={resp} />
+    </>
+  );
+}
+
+async function GrupoDetalle({ selP, chatP }: { selP: SelP; chatP: ChatP }) {
+  const [{ ind }, chat] = await Promise.all([selP, chatP]);
+  return (
+    <>
+      <Tiempos ind={ind} />
+      <Cierres ind={ind} />
+      <SemanaYCanal ind={ind} />
+      <Antecedentes ind={ind} />
+      {chat && <Asistente c={chat} />}
+    </>
+  );
+}
+
+type PropsCosto = Parameters<typeof CostoSeccion>[0];
+
+async function GrupoCosto({
+  costosP,
+  selP,
+  aviso,
+  periodoPagina,
+  elegido,
+}: {
+  costosP: ReturnType<typeof leerCostosSeleccion>;
+  selP: SelP;
+  aviso: PropsCosto["aviso"];
+  periodoPagina: PropsCosto["periodoPagina"];
+  elegido: PropsCosto["elegido"];
+}) {
+  const [costos, { gasto }] = await Promise.all([costosP, selP]);
+  return <CostoSeccion d={costos.detalle} gasto={gasto} aviso={aviso} periodoPagina={periodoPagina} elegido={elegido} />;
+}
+
+async function GrupoReporte({ reporteP }: { reporteP: Promise<Awaited<ReturnType<typeof configReporteDiario>> | null> }) {
+  const reporte = await reporteP;
+  return reporte ? <ReporteDiarioConfig inicial={reporte} /> : null;
+}
+
+/** Lo que se ve mientras llegan los datos de un grupo. */
+function Cargando({ titulos }: { titulos: string[] }) {
+  return (
+    <>
+      {titulos.map((t) => (
+        <section key={t} className="rounded-2xl border border-border bg-white p-4 sm:p-5" aria-busy="true">
+          <h2 className="text-base font-semibold text-text-primary">{t}</h2>
+          <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="h-[84px] animate-pulse rounded-xl bg-[#F1F5F9]" />
+            ))}
+          </div>
+          <p className="mt-3 text-xs text-text-tertiary">Cargando…</p>
+        </section>
+      ))}
+    </>
   );
 }
 
@@ -124,16 +278,23 @@ function Subtitulo({ children }: { children: React.ReactNode }) {
 
 const CAMPO = "h-7 rounded-md border border-border bg-white px-2 text-xs text-text-primary outline-none focus:border-primary";
 
-function Filtros({ dias, rango }: { dias: number | null; rango: Rango }) {
+function Filtros({ dias, rango, costo }: { dias: number | null; rango: Rango; costo: Record<string, string | undefined> }) {
   const conRango = dias == null;
   const hoy = diaBogota(new Date());
+  const conCosto = (base: Record<string, string>) => {
+    const q = new URLSearchParams(base);
+    for (const [k, v] of Object.entries(costo)) if (v) q.set(k, v);
+    const t = q.toString();
+    return t ? `${RUTA}?${t}` : RUTA;
+  };
   return (
     <form method="get" action={RUTA} className="mb-4 flex flex-wrap items-end gap-x-4 gap-y-3 rounded-2xl border border-border bg-white p-3">
+      {Object.entries(costo).map(([k, v]) => (v ? <input key={k} type="hidden" name={k} value={v} /> : null))}
       <nav className="flex rounded-lg border border-border bg-white p-0.5 text-xs" aria-label="Periodo">
         {PERIODOS.map((p) => (
           <Link
             key={p}
-            href={p === 30 ? RUTA : `${RUTA}?dias=${p}`}
+            href={conCosto(p === 30 ? {} : { dias: String(p) })}
             aria-current={p === dias ? "page" : undefined}
             className={`rounded-md px-3 py-1.5 ${p === dias ? "bg-primary font-medium text-white" : "text-text-secondary hover:bg-slate-50"}`}
           >
@@ -490,7 +651,7 @@ function SemanaYCanal({ ind }: P) {
     etiqueta: c.etiqueta,
     n: c.n,
     tono: c.clave === "sin_dato" ? "neutro" : "normal",
-    detalle: `${fmt(c.contratados)} contratados`,
+    detalle: `${fmt(c.contratados)} contratados (${pctTxt(c.n ? (c.contratados / c.n) * 100 : null) ?? "—"})`,
   }));
   return (
     <Seccion encabezado="Por semana y por canal">
@@ -505,6 +666,31 @@ function SemanaYCanal({ ind }: P) {
       <div>
         <Subtitulo>Por dónde llegaron</Subtitulo>
         <BarrasConPorcentaje filas={canal} total={ind.aspirantes} unidad="aspirantes" anchoEtiqueta={160} />
+      </div>
+    </Seccion>
+  );
+}
+
+/** Mensajes de WhatsApp del periodo (24-nov-2026; también van en el reporte diario por correo). */
+function Mensajes({ c, ind }: { c: Indicadores; ind: IndicadoresSeleccion }) {
+  const v = c.volumen;
+  const por: FilaBarra[] = [
+    { clave: "asistente", etiqueta: "Asistente de IA", n: v.enviadosPor.asistente },
+    { clave: "gh", etiqueta: "Gestión Humana", n: v.enviadosPor.gestionHumana },
+    { clave: "plantilla", etiqueta: "Plantillas", n: v.enviadosPor.plantilla },
+    { clave: "auto", etiqueta: "Automáticos (recordatorios, citas)", n: v.enviadosPor.automatico },
+  ];
+  return (
+    <Seccion encabezado="Mensajes de WhatsApp" ayuda="Conversaciones y mensajes del periodo, y cuántos aspirantes quedaron como candidatos.">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Cifra etiqueta="Conversaciones nuevas" valor={fmt(v.conversacionesNuevas)} />
+        <Cifra etiqueta="Mensajes recibidos" valor={fmt(v.recibidos)} />
+        <Cifra etiqueta="Mensajes enviados" valor={fmt(v.enviados)} />
+        <Cifra etiqueta="Candidatos" valor={fmt(ind.aspirantes)} nota="Procesos creados en el periodo" />
+      </div>
+      <div>
+        <Subtitulo>Enviados por</Subtitulo>
+        <BarrasConPorcentaje filas={por} total={v.enviados} unidad="mensajes" anchoEtiqueta={240} />
       </div>
     </Seccion>
   );
@@ -526,34 +712,3 @@ function Antecedentes({ ind }: P) {
   );
 }
 
-function Costo({ ind, gasto }: P & { gasto: GastoDelMes | null }) {
-  const c = ind.clave.costo;
-  const filas: FilaBarra[] = ind.costoPorConcepto;
-  return (
-    <Seccion
-      encabezado="Costo"
-      ayuda="Lo que cobran los proveedores del modelo y las consultas reales a Croma (por su valor en Tiempos y reglas), pasado a pesos con la TRM configurada."
-    >
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Cifra etiqueta="Gasto del periodo" valor={pesos(c.totalCop)} nota={`USD ${c.totalUsd.toLocaleString("es-CO", { maximumFractionDigits: 2 })}`} />
-        <Cifra etiqueta="Por aspirante" valor={pesos(c.porAspiranteCop)} />
-        <Cifra etiqueta="Por contratado" valor={pesos(c.porContratadoCop)} nota={c.porContratadoCop == null ? "Nadie se contrató en el periodo" : undefined} />
-        <Cifra
-          etiqueta="Gasto del mes frente al tope"
-          valor={gasto ? (gasto.topeCop > 0 ? `${Math.round(gasto.porcentaje)}%` : pesos(gasto.gastoCop)) : null}
-          nota={gasto ? (gasto.topeCop > 0 ? `${pesos(gasto.gastoCop)} de ${pesos(gasto.topeCop)}` : "Sin tope configurado") : "Falta la migración de la entrega 3"}
-        />
-      </div>
-      <p className="text-xs text-text-tertiary">
-        {fmt(c.consultasCroma)} consultas reales a Croma en el periodo.
-        {c.consultasCroma > 0 && !filas.some((f) => f.clave === "antecedentes") && " Su valor está en 0 en Tiempos y reglas: no suman al costo."}
-      </p>
-      {filas.length > 0 && (
-        <div>
-          <Subtitulo>Por concepto (pesos)</Subtitulo>
-          <BarrasConPorcentaje filas={filas} total={c.totalCop} unidad="pesos" anchoEtiqueta={200} />
-        </div>
-      )}
-    </Seccion>
-  );
-}

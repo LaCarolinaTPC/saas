@@ -249,7 +249,7 @@ export function largoRango(r: Rango): number {
   return Math.round(ms / DIA_MS) + 1;
 }
 
-function fechaValida(v: string): boolean {
+export function fechaValida(v: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
   const d = new Date(`${v}T12:00:00Z`);
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;

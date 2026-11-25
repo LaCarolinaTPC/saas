@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { soloLoCambiado } from "./solo-lo-cambiado";
 import { firmarMedios } from "@/lib/comunicaciones/medios";
 import { getCurrentPermissions, canAccess, puedeEditarEn, tienePermiso } from "@/lib/permissions";
 import { CAUSA_ANTECEDENTES, ESTADOS_REVISION_REINGRESO, FILTRO_ANTECEDENTES, FILTRO_APADRINADOS, FILTRO_REINGRESOS, campoFecha } from "@/lib/contratacion/constants";
@@ -24,6 +25,7 @@ import {
   type EvaluacionProceso,
 } from "@/lib/seleccion/servidor";
 import { consultarAntecedentesProceso, consultarSimitProceso, type ResultadoConsultaSimit } from "@/lib/verificacion/servidor";
+import { categoriasDeLicencia } from "@/lib/seleccion/preseleccion";
 
 export interface ProcesoInput {
   fecha_creacion: string;
@@ -289,23 +291,29 @@ async function crearProceso(input: ProcesoInput): Promise<{ id: string }> {
   return { id };
 }
 
-/** Guarda el formulario del proceso. El error vuelve como valor (ver `ResultadoProceso`). */
-export async function updateProceso(id: string, input: ProcesoInput): Promise<ResultadoProceso> {
+/**
+ * Guarda el formulario del proceso. El error vuelve como valor (ver `ResultadoProceso`).
+ * `original`: el formulario como estaba al abrir la ficha. Con él solo se guarda lo que
+ * la persona cambió; lo demás queda como esté en la base (24-nov-2026: con la ficha
+ * abierta, una acción del panel —«sigue», «no sigue», citar, pasar a exámenes— cambia
+ * el estado o las fechas, y «Guardar cambios» lo devolvía a lo que mostraba el formulario).
+ */
+export async function updateProceso(id: string, input: ProcesoInput, original?: ProcesoInput | null): Promise<ResultadoProceso> {
   return comoResultado(async () => {
-    await actualizarProceso(id, input);
+    await actualizarProceso(id, input, original ?? null);
     return {};
   });
 }
 
-async function actualizarProceso(id: string, input: ProcesoInput) {
+async function actualizarProceso(id: string, input: ProcesoInput, original: ProcesoInput | null) {
   const perms = await assertEditor();
   const admin = createAdminClient();
-  const row = sanitize(input);
+  const { data: antes } = await admin.from("procesos_contratacion").select("*").eq("id", id).maybeSingle();
+  if (!antes) throw new Error("El proceso no existe.");
+  const row = soloLoCambiado(sanitize(input), original ? sanitize(original) : null, antes as Record<string, unknown>);
   if (row.estado === "cierre" && !row.causa_no_contrato) {
     throw new Error("Para cerrar el proceso hay que indicar la causa.");
   }
-  const { data: antes } = await admin.from("procesos_contratacion").select("*").eq("id", id).maybeSingle();
-  if (!antes) throw new Error("El proceso no existe.");
   if (row.estado !== "contratado" && row.estado !== "cierre" && (await procesoAbiertoPorCedula(row.cedula, id))) {
     throw new Error(`Ya hay otro proceso abierto para la cédula ${row.cedula}.`);
   }
@@ -455,7 +463,7 @@ export async function listarConsultasExternas(id: string): Promise<ConsultaExter
   return (data ?? []).map(({ pdf_path, ...f }) => ({ ...f, pdf_url: pdf_path ? (urls.get(pdf_path as string) ?? null) : null })) as ConsultaExternaVista[];
 }
 
-const FUENTES_REVISION = ["policia", "procuraduria", "contraloria", "rnmc", "simit"] as const;
+const FUENTES_REVISION = ["policia", "procuraduria", "contraloria", "rnmc", "simit", "runt"] as const;
 export type FuenteRevision = (typeof FUENTES_REVISION)[number];
 
 /**
@@ -469,7 +477,14 @@ export type FuenteRevision = (typeof FUENTES_REVISION)[number];
 export async function revisarFuenteAMano(
   procesoId: string,
   fuente: FuenteRevision,
-  d: { hallazgo: boolean; valor?: number | null; nota?: string | null; pdf?: { base64: string; nombre?: string | null } | null }
+  d: {
+    hallazgo: boolean;
+    valor?: number | null;
+    nota?: string | null;
+    pdf?: { base64: string; nombre?: string | null } | null;
+    /** RUNT (24-nov-2026): la licencia revisada en el portal o en la foto que mandó el aspirante. */
+    licencia?: { categoria: string; vence?: string | null; restricciones?: string | null } | null;
+  }
 ): Promise<{ ok: boolean; error?: string }> {
   try {
     const perms = await assertEditor();
@@ -482,6 +497,17 @@ export async function revisarFuenteAMano(
     if (d.hallazgo && !nota && fuente !== "simit") return { ok: false, error: "Escribe qué encontraste." };
     const valor = fuente === "simit" ? Math.max(0, Math.round(Number(d.valor ?? 0))) : null;
     if (fuente === "simit" && !Number.isFinite(valor)) return { ok: false, error: "Escribe el valor del SIMIT (0 si no tiene deuda)." };
+    // RUNT: la categoría es obligatoria; una licencia vencida no se da por buena aquí.
+    let licencia: { categorias: string[]; vence: string | null; restricciones: string | null } | null = null;
+    if (fuente === "runt") {
+      const categorias = categoriasDeLicencia(d.licencia?.categoria ?? null);
+      if (!categorias.length) return { ok: false, error: "Escribe la categoría de la licencia (por ejemplo, C2)." };
+      const vence = String(d.licencia?.vence ?? "").trim() || null;
+      if (vence && !/^\d{4}-\d{2}-\d{2}$/.test(vence)) return { ok: false, error: "La fecha de vencimiento no es válida." };
+      const hoy = new Date(Date.now() - 5 * 3_600_000).toISOString().slice(0, 10);
+      if (vence && vence < hoy) return { ok: false, error: "La licencia está vencida: si es así, cierre el proceso por la licencia." };
+      licencia = { categorias, vence, restricciones: String(d.licencia?.restricciones ?? "").trim().slice(0, 200) || null };
+    }
 
     // Certificado en PDF (opcional): al bucket privado, junto a los documentos del proceso.
     let pdfPath: string | null = null;
@@ -506,7 +532,9 @@ export async function revisarFuenteAMano(
             ? { ...base, is_fiscal_responsible: d.hallazgo }
             : fuente === "rnmc"
               ? { ...base, found: true, full_name: String(p.nombre ?? "").trim() || "REVISIÓN MANUAL", has_pending_measures: d.hallazgo, fecha_expedicion_consultada: (fx?.cedula_fecha_expedicion as string | null) ?? undefined }
-              : { ...base, summary: { total: valor } };
+              : fuente === "runt"
+                ? { ...base, ...licencia }
+                : { ...base, summary: { total: valor } };
     // Lo que seguía en curso en Croma para esta fuente ya no se espera.
     await admin
       .from("verificaciones_externas")
@@ -531,7 +559,18 @@ export async function revisarFuenteAMano(
     if (fuente === "simit") {
       await admin.from("procesos_contratacion").update({ simit: (valor ?? 0) > 0 ? "deuda" : "ok", simit_valor: valor ?? 0 }).eq("id", procesoId);
     }
-    await registrarEvento(procesoId, { tipo: "dato", detalle: { revision_manual: { fuente, hallazgo: d.hallazgo, valor, nota, pdf: Boolean(pdfPath) } } }, actor);
+    if (fuente === "runt" && licencia) {
+      // La licencia queda verificada por una persona: cuenta como el RUNT para avanzar y para citar.
+      await admin
+        .from("procesos_contratacion")
+        .update({ licencia_categoria: licencia.categorias.join(", "), licencia_verificada_runt: true, ...(licencia.restricciones ? { licencia_restricciones: licencia.restricciones } : {}) })
+        .eq("id", procesoId);
+    }
+    await registrarEvento(
+      procesoId,
+      { tipo: "dato", detalle: { revision_manual: { fuente, hallazgo: fuente === "runt" ? false : d.hallazgo, valor, nota, pdf: Boolean(pdfPath), ...(licencia ? { licencia } : {}) } } },
+      actor
+    );
     await reevaluarPreseleccion(procesoId);
     await marcarListoParaCitar(procesoId).catch(() => false);
     await marcarRevisionAntecedentes(procesoId).catch(() => null);

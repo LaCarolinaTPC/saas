@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { leerTodo } from "./leer-todo";
+import { guardadoCompartido } from "@/lib/cache-compartido";
 import {
   calcularIndicadores,
   inicioDiaBogota,
@@ -55,7 +56,38 @@ const OPCIONALES_MENSAJE = ["generado_por_ia", "plantilla", "enviado_por", "esta
 /** Lote de ids por consulta `in(...)`: que la URL no se haga demasiado larga. */
 const LOTE_IDS = 100;
 /** Hasta cuántas conversaciones conviene pedir los mensajes por id en vez de por fecha. */
-const POCAS_CONVERSACIONES = 400;
+export const POCAS_CONVERSACIONES = 400;
+
+/**
+ * Todos los mensajes desde `inicio` (24-nov-2026). Los indicadores del chat y
+ * los de respuesta de Selección leen el mismo conjunto en la misma página: se
+ * lee una vez y se comparte unos minutos (la base atiende de a dos consultas y
+ * cada viaje cuesta ~130 ms).
+ */
+const memoMensajes = new Map<string, { hasta: number; datos: Promise<{ filas: MensajeFila[]; faltantes: string[] }> }>();
+export function mensajesDesde(inicio: string): Promise<{ filas: MensajeFila[]; faltantes: string[] }> {
+  const ahora = Date.now();
+  for (const [k, v] of memoMensajes) if (v.hasta < ahora) memoMensajes.delete(k);
+  const previo = memoMensajes.get(inicio);
+  if (previo) return previo.datos;
+  const faltantes: string[] = [];
+  const db: Admin = createAdminClient();
+  const datos = leerTodo<MensajeFila>(
+    "wa_mensajes",
+    COLS_MENSAJE,
+    OPCIONALES_MENSAJE,
+    (sel, conteo) =>
+      db
+        .from("wa_mensajes")
+        .select(sel, conteo ? { count: "exact", head: true } : undefined)
+        .gte("timestamp", inicio),
+    ["timestamp", "id"],
+    faltantes
+  ).then((filas) => ({ filas, faltantes }));
+  memoMensajes.set(inicio, { hasta: ahora + 2 * 60_000, datos });
+  datos.catch(() => memoMensajes.delete(inicio));
+  return datos;
+}
 /** Ventana de «esperando a una persona ahora». */
 const DIAS_ESPERANDO = 30;
 
@@ -105,6 +137,20 @@ export async function leerIndicadoresComparados({
     anterior: previo && datosPrevio ? calcularIndicadores({ ...datosPrevio, marcadas: [], rango: previo, filtros }) : null,
   };
 }
+
+/**
+ * Los del chat de un periodo, sin filtros ni comparación (Candidatos › Indicadores
+ * y el reporte diario): lo calculado se comparte 5 minutos entre todos los
+ * servidores (24-nov-2026). Lo leído de la base es demasiado grande para eso.
+ */
+export const leerIndicadoresDelPeriodo = guardadoCompartido(
+  async (desde: string, hasta: string): Promise<Indicadores> => {
+    const rango = { desde, hasta };
+    return calcularIndicadores({ ...(await leerDatos(rango, true)), rango });
+  },
+  "indicadores-chat-v1",
+  VIGENCIA_MS / 1000
+);
 
 /** Lo leído para un tramo, desde la memoria si se leyó hace menos de `VIGENCIA_MS`. */
 function leerDatos(lectura: Rango, completo: boolean): Promise<Omit<EntradaIndicadores, "rango" | "filtros">> {
@@ -169,18 +215,10 @@ async function leerDatosDeLaBase(lectura: Rango, completo: boolean): Promise<Omi
   const mensajesP = conversacionesP.then((convs) =>
     convs.length <= POCAS_CONVERSACIONES
       ? leerMensajesPorIds(convs.map((c) => c.id), faltantes)
-      : leerTodo<MensajeFila>(
-          "wa_mensajes",
-          COLS_MENSAJE,
-          OPCIONALES_MENSAJE,
-          (sel, conteo) =>
-            db
-              .from("wa_mensajes")
-              .select(sel, conteo ? { count: "exact", head: true } : undefined)
-              .gte("timestamp", inicio),
-          ["timestamp", "id"],
-          faltantes
-        )
+      : mensajesDesde(inicio).then((r) => {
+          faltantes.push(...r.faltantes);
+          return r.filas;
+        })
   );
 
   // «Esperando a una persona ahora» mira siempre los últimos 30 días, sea

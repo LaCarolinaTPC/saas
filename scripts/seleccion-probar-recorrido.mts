@@ -16,7 +16,8 @@ import { ESPERA_CIERRE_MINUTOS, cerrarNoPreseleccionados, leerMensaje, marcarLis
 import { simularCromaProceso } from "@/lib/verificacion/servidor";
 import { citarProceso, citasDeProceso, confirmarCita, leerAjustesAgenda, marcarLlegada } from "@/lib/seleccion/agenda-servidor";
 import { horaDelDia, hhmm } from "@/lib/seleccion/agenda";
-import { enviarAExamenes, registrarPrueba, registrarReconocimientos } from "@/lib/seleccion/profesor-servidor";
+import { enviarAExamenes, registrarPrueba } from "@/lib/seleccion/profesor-servidor";
+import { citarReconocimiento, finalizarReconocimiento, registrarRutas } from "@/lib/seleccion/reconocimiento-servidor";
 import { registrarExamen } from "@/lib/seleccion/examenes-servidor";
 import { itemsCarpeta, marcarItemCarpeta } from "@/lib/seleccion/carpeta-servidor";
 import { rutasObligatorias } from "@/lib/seleccion/rutas-servidor";
@@ -132,32 +133,37 @@ try {
   revisar("«Listo para exámenes»: pasa a exámenes (fase 1)", rp.ok && pr.estado === "en_examenes", { rp, estado: pr.estado });
   const f1 = await citaDe(p1, "examen_f1");
   revisar(`cita de la fase 1 a la hora del laboratorio (${a.laboratorioHora}), con laboratorio asignado`, f1 && hhmm(f1.hora) === a.laboratorioHora && !!pr.laboratorio_id, { f1, lab: pr.laboratorio_id });
-  revisar("el mensaje de la fase 1 habla de la carta y no de la orden", /carta/i.test(rp.texto ?? "") && !/orden de ex[aá]menes/i.test(rp.texto ?? ""), rp.texto);
-  revisar("al aspirante solo le va la carta del banco", (rp.documentos ?? []).length > 0 && (rp.documentos ?? []).every((d) => /carta/i.test(d)), rp.documentos);
+  // 24-nov-2026: el mensaje pregunta si ya tiene cuenta en el Banco de Bogotá; la carta sale solo si responde que no.
+  revisar("el mensaje de la fase 1 pregunta por el Banco de Bogotá y no habla de la orden", /Banco de Bogot/i.test(rp.texto ?? "") && !/orden de ex[aá]menes/i.test(rp.texto ?? ""), rp.texto);
+  revisar("todavía no se le envía la carta (espera la respuesta del banco)", (rp.documentos ?? []).length === 0 && !!pr.banco_preguntado_at, { docs: rp.documentos, banco: pr.banco_preguntado_at });
   // 23-nov-2026: la orden al laboratorio sale sola al citar (en el chat de prueba, simulada y enseguida).
   const automatica = (await ajuste("orden_laboratorio_automatica")) !== false;
   const ordenDe = async (citaId: string | undefined) => {
     if (!citaId) return { marcada: false, envios: 0 };
     const { data: c } = await db.from("seleccion_citas").select("orden_laboratorio_at").eq("id", citaId).maybeSingle();
-    const { count } = await db.from("seleccion_envios_laboratorio").select("id", { count: "exact", head: true }).contains("cita_ids", [citaId]).eq("resultado", "simulado");
+    const { count } = await db.from("seleccion_envios_laboratorio").select("id", { count: "exact", head: true }).contains("cita_ids", [citaId]).in("resultado", ["simulado", "enviado"]);
     return { marcada: !!c?.orden_laboratorio_at, envios: count ?? 0 };
   };
   const o1 = await ordenDe(f1?.id);
-  revisar(automatica ? "la orden de la fase 1 sale sola al laboratorio (simulada)" : "envío manual: la orden de la fase 1 espera a «Enviar»", automatica ? o1.marcada && o1.envios === 1 : !o1.marcada && o1.envios === 0, o1);
+  revisar(automatica ? "la orden de la fase 1 sale sola al laboratorio (simulada o a su destino de prueba)" : "envío manual: la orden de la fase 1 espera a «Enviar»", automatica ? o1.marcada && o1.envios === 1 : !o1.marcada && o1.envios === 0, o1);
 
   const e1 = await registrarExamen(p1, { fase: 1, resultado: "apto" }, actor);
   revisar("fase 1 apta: pasa a la fase 2 con su cita", e1.ok && (await proceso(p1)).estado === "en_examenes_fase2" && !!(await citaDe(p1, "examen_f2")), e1);
   const o2 = await ordenDe((await citaDe(p1, "examen_f2"))?.id);
   revisar(automatica ? "y la de la fase 2 también" : "envío manual: la de la fase 2 también espera", automatica ? o2.marcada && o2.envios === 1 : !o2.marcada && o2.envios === 0, o2);
   const e2 = await registrarExamen(p1, { fase: 2, resultado: "apto" }, actor);
-  revisar("fase 2 apta: pasa a reconocimiento de ruta con su cita", e2.ok && (await proceso(p1)).estado === "reconocimiento_ruta" && !!(await citaDe(p1, "reconocimiento")), e2);
+  // Desde el 24-nov-2026 el reconocimiento lo cita su encargado (pantalla «Reconocimiento de ruta»), no Gestivo.
+  revisar("fase 2 apta: pasa a reconocimiento de ruta, sin cita automática", e2.ok && (await proceso(p1)).estado === "reconocimiento_ruta" && !(await citaDe(p1, "reconocimiento")), e2);
+  const cr = await citarReconocimiento(p1, { fecha: new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date(Date.now() + 86_400_000)), hora: "08:00" }, actor);
+  revisar("la encargada lo cita y queda en curso", cr.ok && !!(await citaDe(p1, "reconocimiento")) && (await proceso(p1)).reconocimiento_estado === "en_curso", cr);
 
   const obligatorias = await rutasObligatorias();
   const minimas = Math.max(Number(await ajuste("rutas_minimas")) || 2, obligatorias.length);
   const rutas = [...obligatorias, ...Array.from({ length: minimas }, (_, i) => `RUTA RECORRIDO ${i + 1}`)].slice(0, minimas);
   // Todas en un solo guardado del día, como lo hace el profesor desde el celular.
-  const s = await registrarReconocimientos(p1, { salidas: rutas.map((ruta) => ({ ruta, resultado: "aprendida" as const })) }, actor);
+  const s = await registrarRutas(p1, { salidas: rutas.map((ruta) => ({ ruta, resultado: "aprendida" as const })) }, actor);
   revisar(`aprende ${rutas.length} rutas (${obligatorias.length} obligatorias) en un guardado: «rutas completas», sin mensaje`, s.ok && !!s.rutasCompletas && !s.texto, { s, rutas });
+  revisar("la encargada da por terminado el reconocimiento", (await finalizarReconocimiento(p1, "Recorrido", actor)).ok && (await proceso(p1)).reconocimiento_estado === "finalizado");
 
   let cond = await condicionesDeProceso(p1);
   console.log(`  (antes de completar: falta ${cond.faltan.join("; ") || "nada"})`);

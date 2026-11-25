@@ -9,12 +9,13 @@ import { useCallback, useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, Circle, ExternalLink, FileUp, FolderOpen, Route, Stethoscope, TriangleAlert, UserCheck } from "lucide-react";
 import {
-  agregarReferenciaFicha, anularAdjuntoFicha, aprobarContratacionFicha, cerrarPorExamenesFicha, contratarFicha, datosEntrega3, marcarItemCarpetaFicha,
+  agregarReferenciaFicha, anularAdjuntoFicha, aprobarContratacionFicha, contratarFicha, decidirNoAptoFicha, datosEntrega3, marcarItemCarpetaFicha,
   registrarExamenFicha, registrarRutaFicha, rutasDisponibles, validarReferenciaFicha, type DatosEntrega3,
 } from "@/app/(dashboard)/candidatos/entrega3-actions";
 import type { AdjuntoVista } from "@/lib/seleccion/carpeta-servidor";
 import { ETIQUETA_RESULTADO } from "@/lib/seleccion/examenes";
 import { LaboratorioFicha } from "./laboratorio-ficha";
+import { CorreoPsicoFicha } from "./correo-psico-ficha";
 import type { EstadoCarpeta } from "@/lib/seleccion/contratacion";
 
 export const fechaHora = (iso: string | null) =>
@@ -139,13 +140,17 @@ export function SeccionExamenesRutas({ procesoId, abierto, version }: { procesoI
   const [rutas, setRutas] = useState<string[] | null>(null);
   const [ruta, setRuta] = useState("");
   const [obsRuta, setObsRuta] = useState("");
+  const [decision, setDecision] = useState("");
+  // Cerrado desde aquí («No sigue»): la ficha abierta no se entera hasta recargar el proceso.
+  const [cerradoAqui, setCerradoAqui] = useState(false);
 
   if (!datos) return null;
   if (!datos.examenes) return <p className="text-sm text-gray-500">{SIN_MIGRACION}</p>;
   const ex = (f: 1 | 2) => datos.examenes!.find((e) => e.fase === f);
   const noApto = datos.examenes.find((e) => e.resultado === "no_apto");
   const aplazado = datos.examenes.find((e) => e.resultado === "aplazado");
-  const editar = datos.puede.editar && abierto;
+  const sigueAbierto = abierto && !cerradoAqui;
+  const editar = datos.puede.editar && sigueAbierto;
   const sugerida: 1 | 2 = ex(1)?.resultado === "apto" ? 2 : 1;
   // Con la fase 1 apta se propone la 2 (antes se quedaba en «Fase 1» y se podía registrar dos veces).
   const faseForm: 1 | 2 = sugerida === 2 ? fase ?? 2 : 1;
@@ -180,27 +185,65 @@ export function SeccionExamenesRutas({ procesoId, abierto, version }: { procesoI
           })}
         </div>
 
-        <LaboratorioFicha procesoId={procesoId} puedeEditar={datos.puede.editar && abierto} />
+        <LaboratorioFicha procesoId={procesoId} puedeEditar={datos.puede.editar && sigueAbierto} />
 
-        {noApto && abierto && (
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2">
-            <p className="flex items-center gap-2 text-sm text-red-700">
-              <TriangleAlert className="h-4 w-4 shrink-0" /> Fase {noApto.fase} no apta: se propone cerrar con «Exámenes médicos».
+        {/* Correo para la prueba psicosensotécnica: se pide al entrar a la fase 1. */}
+        <div className="mt-3">
+          <CorreoPsicoFicha procesoId={procesoId} />
+        </div>
+
+        {/* 24-nov-2026: el no apto se revisa a mano (queda marcado en el tablero) y se decide si sigue. */}
+        {noApto && sigueAbierto && (
+          <div className="mt-3 space-y-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2">
+            <p className="flex items-center gap-2 text-sm font-medium text-red-700">
+              <TriangleAlert className="h-4 w-4 shrink-0" /> Fase {noApto.fase} no apta: revise por qué y decida si sigue.
             </p>
+            {noApto.observacion && <p className="text-xs text-red-800">Laboratorio: {noApto.observacion}</p>}
+            <p className="text-xs text-gray-600">Mientras se decide, sigue en el reconocimiento de ruta.</p>
             {editar && (
-              <button
-                type="button"
-                disabled={ocupado}
-                onClick={() => confirm("¿Cerrar el proceso por exámenes médicos?") && correr(() => cerrarPorExamenesFicha(procesoId), "Proceso cerrado por exámenes médicos.")}
-                className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
-              >
-                Cerrar el proceso
-              </button>
+              <>
+                <textarea
+                  className={`${campo} min-h-[60px] bg-white`}
+                  placeholder="¿Qué se decidió y por qué? (obligatorio; queda en el historial)"
+                  value={decision}
+                  onChange={(e) => setDecision(e.target.value)}
+                />
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={ocupado || decision.trim().length < 5}
+                    onClick={() =>
+                      correr(
+                        () => decidirNoAptoFicha(procesoId, true, decision),
+                        noApto.fase === 1 ? "Sigue: queda citado a la fase 2 y se le envió el mensaje." : "Sigue: pasa a reconocimiento de ruta.",
+                        () => setDecision("")
+                      )
+                    }
+                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+                  >
+                    {noApto.fase === 1 ? "Sigue: pasar a la fase 2 y avisarle" : "Sigue: pasar a reconocimiento de ruta"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={ocupado || decision.trim().length < 5}
+                    onClick={() =>
+                      confirm("¿Cerrar el proceso por exámenes médicos? Ya no se le enviarán más mensajes.") &&
+                      correr(() => decidirNoAptoFicha(procesoId, false, decision), "Proceso cerrado por exámenes médicos.", () => {
+                        setDecision("");
+                        setCerradoAqui(true);
+                      })
+                    }
+                    className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                  >
+                    No sigue: cerrar el proceso
+                  </button>
+                </div>
+              </>
             )}
           </div>
         )}
 
-        {aplazado && abierto && (
+        {aplazado && sigueAbierto && (
           <div className="mt-3 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
             <TriangleAlert className="h-4 w-4 shrink-0" /> Fase {aplazado.fase} aplazada: {aplazado.observacion ?? "sin motivo"}. Cuando el laboratorio dé el concepto definitivo, regístrelo abajo.
           </div>
@@ -221,7 +264,7 @@ export function SeccionExamenesRutas({ procesoId, abierto, version }: { procesoI
                 type="button"
                 disabled={ocupado}
                 className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
-                onClick={() => correr(() => registrarExamenFicha(procesoId, faseForm, "apto", observacion), faseForm === 1 ? "Fase 1 apta: queda citado a la fase 2." : "Fase 2 apta: pasa a reconocimiento de ruta y se le avisa por WhatsApp.", () => setObservacion(""))}
+                onClick={() => correr(() => registrarExamenFicha(procesoId, faseForm, "apto", observacion), faseForm === 1 ? "Fase 1 apta: queda citado a la fase 2." : "Fase 2 apta: pasa a reconocimiento de ruta (lo cita la encargada del reconocimiento).", () => setObservacion(""))}
               >
                 Apto
               </button>

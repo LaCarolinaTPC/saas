@@ -17,9 +17,54 @@ import { guardarAdjuntoSeleccion, ADJUNTO_MIMES } from "./carpeta-servidor";
 import { registrarExamen } from "./examenes-servidor";
 import { esConversacionDeLaboratorio } from "./laboratorio-servidor";
 import {
-  SISTEMA_LABORATORIO, asociarProceso, faseDeEstado, interpretarLecturaLaboratorio, lecturaSinModelo,
-  type LecturaLaboratorio, type ProcesoEnExamenes, type ResultadoLaboratorio,
+  asociarProceso, decidirResultado, faseDeEstado, frasesConDefecto, interpretarLecturaLaboratorio, lecturaSinModelo, resultadoPorFrase, sistemaLaboratorio,
+  type FrasesLaboratorio, type LecturaLaboratorio, type ProcesoEnExamenes, type ResultadoLaboratorio,
 } from "./laboratorio";
+
+/** Lo registrado solo porque la respuesta traía la frase acordada (24-nov-2026). */
+export interface ConfirmadoPorFrase {
+  procesoId: string;
+  fase: 1 | 2;
+  resultado: ResultadoLaboratorio;
+  /** El mensaje que le salió al aspirante (cita de la fase 2 o reconocimiento), para el chat de prueba. */
+  texto?: string;
+}
+
+const ACTOR_FRASE: ActorProceso = { tipo: "sistema", userId: null, userEmail: "Laboratorio (frase acordada)" };
+
+/** Las frases acordadas con el laboratorio; la de apto por defecto si no tiene (o falta la migración 20261124181735). */
+async function frasesDeLaboratorio(laboratorioId: string | null | undefined): Promise<FrasesLaboratorio> {
+  if (!laboratorioId) return frasesConDefecto(null);
+  const { data, error } = await createAdminClient()
+    .from("seleccion_laboratorios")
+    .select("frase_apto, frase_no_apto, frase_aplazado")
+    .eq("id", laboratorioId)
+    .maybeSingle();
+  if (error || !data) return frasesConDefecto(null);
+  return frasesConDefecto({ apto: data.frase_apto as string | null, no_apto: data.frase_no_apto as string | null, aplazado: data.frase_aplazado as string | null });
+}
+
+/**
+ * Responde solo con la frase (por WhatsApp, a la orden de un aspirante): si ese
+ * laboratorio tiene un solo aspirante esperando resultado, es de él. La frase
+ * de apto es la de la fase 1: para ella solo cuentan los que esperan la fase 1.
+ */
+async function unicoEsperando(
+  laboratorioId: string | null | undefined,
+  procesos: ProcesoEnExamenes[],
+  resultado: ResultadoLaboratorio
+): Promise<ProcesoEnExamenes | null> {
+  const candidatos = resultado === "apto" ? procesos.filter((p) => faseDeEstado(p.estado) === 1) : procesos;
+  if (!laboratorioId || !candidatos.length) return null;
+  const { data } = await createAdminClient()
+    .from("procesos_contratacion")
+    .select("id")
+    .eq("laboratorio_id", laboratorioId)
+    .in("id", candidatos.map((p) => p.id));
+  const ids = new Set((data ?? []).map((x) => x.id as string));
+  const delLab = candidatos.filter((p) => ids.has(p.id));
+  return delLab.length === 1 ? delLab[0] : null;
+}
 
 const IMAGENES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const MAX_BYTES = 3_500_000;
@@ -90,13 +135,18 @@ export interface EntradaLaboratorio {
  * usan el webhook y el simulador de Selección, para que el simulador pruebe
  * lo mismo. Nunca lanza.
  */
-export async function leerYGuardarAvisos(e: EntradaLaboratorio): Promise<{ avisos: number; lecturas: LecturaLaboratorio[]; ids: string[] }> {
+export async function leerYGuardarAvisos(
+  e: EntradaLaboratorio
+): Promise<{ avisos: number; lecturas: LecturaLaboratorio[]; ids: string[]; confirmados: ConfirmadoPorFrase[] }> {
   const db = createAdminClient();
   const m = { id: e.waMensajeId ?? null, media_path: e.mediaPath ?? null, mime_type: e.mime ?? null, nombre_archivo: e.nombreArchivo ?? null };
   const conversacionId = e.conversacionId ?? undefined;
   const texto = String(e.texto ?? "").trim();
   const textos = [texto, String(m.nombre_archivo ?? "")].filter(Boolean);
   let lecturas: LecturaLaboratorio[] | null = null;
+  // Las frases acordadas (la de apto por defecto): la IA también reconoce sus variantes.
+  const frases = await frasesDeLaboratorio(e.laboratorioId);
+  const sistema = sistemaLaboratorio(frases);
 
   if (!(await topeAlcanzado())) {
     try {
@@ -112,11 +162,11 @@ export async function leerYGuardarAvisos(e: EntradaLaboratorio): Promise<{ aviso
         if (bytes && bytes.length <= (esPdf ? MAX_BYTES_PDF : MAX_BYTES)) {
           const entrada: ImagenEntrada = { tipo: mime as ImagenEntrada["tipo"], base64: bytes.toString("base64"), nombre: (m.nombre_archivo as string | null) ?? undefined };
           const que = esPdf ? "Este PDF" : "Esta imagen";
-          r = await leerImagen(config, claves, SISTEMA_LABORATORIO, `${que} lo mandó el laboratorio. Extrae los resultados con el formato indicado.${textos.length ? `\nTexto que vino con el archivo: ${textos.join(" · ")}` : ""}`, entrada);
+          r = await leerImagen(config, claves, sistema, `${que} lo mandó el laboratorio. Extrae los resultados con el formato indicado.${textos.length ? `\nTexto que vino con el archivo: ${textos.join(" · ")}` : ""}`, entrada);
         }
       }
       if (!r && textos.length) {
-        r = await generarRespuesta(config, claves, SISTEMA_LABORATORIO, [{ role: "user", content: textos.join("\n") }]);
+        r = await generarRespuesta(config, claves, sistema, [{ role: "user", content: textos.join("\n") }]);
       }
       if (r) {
         lecturas = interpretarLecturaLaboratorio(r.texto);
@@ -128,12 +178,30 @@ export async function leerYGuardarAvisos(e: EntradaLaboratorio): Promise<{ aviso
   }
   // Sin modelo, un archivo muy pesado o una respuesta que no se entendió: las cédulas del texto.
   if (!lecturas) lecturas = lecturaSinModelo(textos);
-  // Un saludo o una pregunta sin archivo no es un aviso.
-  if (!lecturas.length && !m.media_path) return { avisos: 0, lecturas, ids: [] };
-
   const procesos = await procesosEnExamenes();
-  const filas = (lecturas.length ? lecturas : [{ nombre: null, cedula: null, fase: null, resultado: null, observacion: null }]).map((l) => {
-    const p = asociarProceso(l, procesos);
+  // Respondió solo con la frase, sin nombre ni cédula: es del único aspirante que espera en ese laboratorio.
+  // Si esperan varios, no se adivina: queda un aviso con el resultado para que una persona elija a quién es.
+  let fraseSinAspirante: ResultadoLaboratorio | null = null;
+  if (!lecturas.length && texto) {
+    const r = resultadoPorFrase(texto, { nombre: null, cedula: null }, false, frases);
+    const p = r ? await unicoEsperando(e.laboratorioId, procesos, r) : null;
+    if (r && p) lecturas = [{ nombre: p.nombre, cedula: p.cedula, fase: faseDeEstado(p.estado), resultado: r, observacion: null }];
+    else if (r) fraseSinAspirante = r;
+  }
+  // Un saludo o una pregunta sin archivo no es un aviso.
+  if (!lecturas.length && !m.media_path && !fraseSinAspirante) return { avisos: 0, lecturas, ids: [], confirmados: [] };
+
+  // La frase acordada y la regla de la fase 1 (24-nov-2026): apto solo con la frase
+  // o una variante; «aplazado» si lo dice; cualquier otro resultado, no apto.
+  const variasPersonas = lecturas.length > 1;
+  const base: LecturaLaboratorio[] = lecturas.length ? lecturas : [{ nombre: null, cedula: null, fase: null, resultado: fraseSinAspirante, observacion: null }];
+  const asociados = base.map((l) => asociarProceso(l, procesos));
+  const conFrase = base.map((l, i) => {
+    const d = decidirResultado(texto, l, variasPersonas, frases, asociados[i] ? faseDeEstado(asociados[i]!.estado) : null, { soloArchivo: !texto && !!m.media_path });
+    return { l: { ...l, resultado: d.resultado }, porFrase: d.automatico };
+  });
+  const filas = conFrase.map(({ l, porFrase }, i) => {
+    const p = asociados[i];
     return {
       wa_mensaje_id: m.id,
       proceso_id: p?.id ?? null,
@@ -147,6 +215,7 @@ export async function leerYGuardarAvisos(e: EntradaLaboratorio): Promise<{ aviso
       ...(l.observacion ? { texto: `${texto}${texto ? "\n" : ""}Observación leída: ${l.observacion}`.slice(0, 2000) } : {}),
       ...(e.simulado ? { simulado: true } : {}),
       ...(e.laboratorioId ? { laboratorio_id: e.laboratorioId } : {}),
+      ...(porFrase ? { por_frase: true } : {}),
     };
   });
   let { data: creados, error } = await db.from("seleccion_avisos_laboratorio").insert(filas).select("id");
@@ -156,12 +225,142 @@ export async function leerYGuardarAvisos(e: EntradaLaboratorio): Promise<{ aviso
       const c = { ...f } as Record<string, unknown>;
       delete c.simulado;
       delete c.laboratorio_id;
+      delete c.por_frase;
       return c;
     });
     ({ data: creados, error } = await db.from("seleccion_avisos_laboratorio").insert(sinNuevas).select("id"));
   }
+  if (error && /por_frase/.test(error.message)) {
+    // Sin la migración 20261124181735: sin la marca, pero el aviso queda.
+    const sinMarca = filas.map((f) => {
+      const c = { ...f } as Record<string, unknown>;
+      delete c.por_frase;
+      return c;
+    });
+    ({ data: creados, error } = await db.from("seleccion_avisos_laboratorio").insert(sinMarca).select("id"));
+  }
   if (error) console.error("[seleccion] avisos del laboratorio:", error.message);
-  return { avisos: error ? 0 : filas.length, lecturas, ids: (creados ?? []).map((c) => c.id as string) };
+  const ids = (creados ?? []).map((c) => c.id as string);
+
+  // Con la frase acordada y el aspirante reconocido en la fase que corresponde, se registra solo.
+  const confirmados: ConfirmadoPorFrase[] = [];
+  for (const [i, { l, porFrase }] of conFrase.entries()) {
+    const p = asociados[i];
+    const id = ids[i];
+    const faseEsperada = p ? faseDeEstado(p.estado) : null;
+    const fase = l.fase ?? faseEsperada;
+    if (!porFrase || !p || !id || !l.resultado || !fase || fase !== faseEsperada) continue;
+    const r = await confirmarAviso(id, { procesoId: p.id, fase, resultado: l.resultado }, ACTOR_FRASE);
+    if (r.ok) confirmados.push({ procesoId: p.id, fase, resultado: l.resultado, texto: r.texto });
+    else console.warn("[seleccion] aviso por frase sin registrar:", r.error);
+  }
+  // 24-nov-2026: el archivo que manda el laboratorio con el resultado (Rescate suele mandar la
+  // radiografía en otro mensaje) queda en la carpeta del aspirante. Subirlo no es obligatorio:
+  // lo obligatorio es saber si es apto o no.
+  if (!error) {
+    await guardarArchivoDelMensaje({ ids, conFrase, asociados, mediaPath: m.media_path as string | null, laboratorioId: e.laboratorioId ?? null, confirmados }).catch((err) =>
+      console.error("[seleccion] archivo del laboratorio:", err)
+    );
+  }
+  return { avisos: error ? 0 : filas.length, lecturas, ids, confirmados };
+}
+
+/** Minutos en que un archivo suelto y el resultado del laboratorio se toman como del mismo aspirante. */
+const VENTANA_ARCHIVO_MIN = 20;
+const ACTOR_ARCHIVO: ActorProceso = { tipo: "sistema", userId: null, userEmail: "Laboratorio (archivo)" };
+
+/** Pasa un archivo del bucket «whatsapp» a la carpeta del aspirante (exámenes de esa fase). */
+async function guardarArchivoEnCarpeta(mediaPath: string, procesoId: string, fase: 1 | 2, actor: ActorProceso): Promise<boolean> {
+  const db = createAdminClient();
+  const { data: archivo } = await db.storage.from("whatsapp").download(mediaPath);
+  const ext = mediaPath.split(".").pop()?.toLowerCase() ?? "";
+  const mime = Object.keys(ADJUNTO_MIMES).find((k) => ADJUNTO_MIMES[k] === (ext === "jpeg" ? "jpg" : ext)) ?? "";
+  if (!archivo || !mime) return false;
+  const nombre = mediaPath.split("/").pop() ?? `laboratorio.${ADJUNTO_MIMES[mime]}`;
+  try {
+    await guardarAdjuntoSeleccion({ procesoId, tipo: `examen_f${fase}`, nombre, mime, buffer: Buffer.from(await archivo.arrayBuffer()), origen: "whatsapp" }, actor);
+    return true;
+  } catch (e) {
+    console.error("[seleccion] archivo del laboratorio a la carpeta:", e);
+    return false;
+  }
+}
+
+/** El aviso de un archivo queda resuelto: el archivo ya está en la carpeta de ese aspirante. */
+async function marcarArchivoGuardado(avisoId: string, procesoId: string, fase: 1 | 2): Promise<void> {
+  await createAdminClient()
+    .from("seleccion_avisos_laboratorio")
+    .update({ estado: "confirmado", proceso_id: procesoId, fase, resuelto_por: ACTOR_ARCHIVO.userEmail, resuelto_at: new Date().toISOString() })
+    .eq("id", avisoId)
+    .eq("estado", "pendiente");
+}
+
+/**
+ * El único aspirante del que ese laboratorio habló en los últimos minutos (con
+ * su fase). Si fueron varios, null: el archivo suelto lo asigna una persona.
+ */
+async function aspiranteRecienteDelLaboratorio(laboratorioId: string): Promise<{ procesoId: string; fase: 1 | 2 } | null> {
+  const desde = new Date(Date.now() - VENTANA_ARCHIVO_MIN * 60_000).toISOString();
+  const { data } = await createAdminClient()
+    .from("seleccion_avisos_laboratorio")
+    .select("proceso_id, fase, created_at")
+    .eq("laboratorio_id", laboratorioId)
+    .not("proceso_id", "is", null)
+    .gte("created_at", desde)
+    .order("created_at", { ascending: false })
+    .limit(20);
+  const ids = new Set((data ?? []).map((a) => a.proceso_id as string));
+  if (ids.size !== 1) return null;
+  const a = data![0];
+  return { procesoId: a.proceso_id as string, fase: a.fase === 2 ? 2 : 1 };
+}
+
+async function guardarArchivoDelMensaje(d: {
+  ids: string[];
+  conFrase: { l: LecturaLaboratorio; porFrase: boolean }[];
+  asociados: (ProcesoEnExamenes | null)[];
+  mediaPath: string | null;
+  laboratorioId: string | null;
+  confirmados: ConfirmadoPorFrase[];
+}): Promise<void> {
+  const db = createAdminClient();
+  // 1. Un archivo de un solo aspirante.
+  if (d.mediaPath && d.ids.length === 1) {
+    const p = d.asociados[0];
+    const l = d.conFrase[0].l;
+    if (p && !l.resultado && !d.confirmados.some((c) => c.procesoId === p.id)) {
+      // Se le reconoce el nombre (la radiografía lo trae) pero no trae resultado: va a su carpeta.
+      const fase = l.fase ?? faseDeEstado(p.estado) ?? 1;
+      if (await guardarArchivoEnCarpeta(d.mediaPath, p.id, fase, ACTOR_ARCHIVO)) await marcarArchivoGuardado(d.ids[0], p.id, fase);
+      return;
+    }
+    if (!p && d.laboratorioId) {
+      // Sin nombre: es del aspirante cuyo resultado mandó ese laboratorio hace un momento.
+      const reciente = await aspiranteRecienteDelLaboratorio(d.laboratorioId);
+      if (reciente && (await guardarArchivoEnCarpeta(d.mediaPath, reciente.procesoId, reciente.fase, ACTOR_ARCHIVO))) {
+        await marcarArchivoGuardado(d.ids[0], reciente.procesoId, reciente.fase);
+      }
+      return;
+    }
+  }
+  // 2. Al revés: el resultado llega después del archivo suelto (sin nombre) de hace un momento.
+  if (!d.laboratorioId || !d.asociados.some(Boolean)) return;
+  const reciente = await aspiranteRecienteDelLaboratorio(d.laboratorioId);
+  if (!reciente) return;
+  const desde = new Date(Date.now() - VENTANA_ARCHIVO_MIN * 60_000).toISOString();
+  const { data: sueltos } = await db
+    .from("seleccion_avisos_laboratorio")
+    .select("id, media_path")
+    .eq("laboratorio_id", d.laboratorioId)
+    .eq("estado", "pendiente")
+    .is("proceso_id", null)
+    .not("media_path", "is", null)
+    .gte("created_at", desde);
+  for (const a of sueltos ?? []) {
+    if (await guardarArchivoEnCarpeta(a.media_path as string, reciente.procesoId, reciente.fase, ACTOR_ARCHIVO)) {
+      await marcarArchivoGuardado(a.id as string, reciente.procesoId, reciente.fase);
+    }
+  }
 }
 
 export interface AvisoLaboratorio {

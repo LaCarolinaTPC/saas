@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  camposDeDocumento,
   cambiosParaProceso,
   compararCedula,
   conCalculados,
@@ -144,4 +145,37 @@ test("referenciasAceptadas e itemDeClase", () => {
   assert.equal(itemDeClase("licencia", items), "Fotocopia de la licencia");
   assert.equal(itemDeClase("carta_laboral", items), "Carta laboral");
   assert.equal(itemDeClase("otro", items), null);
+});
+
+test("certificado bancario: Banco de Bogotá, cédula y cuenta vigente (24-nov-2026)", () => {
+  const doc = {
+    clase: "certificado_bancario" as const,
+    campos: [
+      { campo: "banco", valor: "Banco de Bogotá", confianza: "alta" as const, evidencia: "EL BANCO DE BOGOTA", pagina: 1 },
+      { campo: "cedula", valor: "1.234.567", confianza: "alta" as const, evidencia: "CC 1234567", pagina: 1 },
+      { campo: "estado_cuenta", valor: "Vigente", confianza: "alta" as const, evidencia: "se encuentra Vigente", pagina: 1 },
+    ],
+    experiencias: [],
+    referencias: [],
+  };
+  const c = camposDeDocumento(doc, { hoy: "2026-11-24", cedulaProceso: "1234567" });
+  const v = (k: string) => c.find((x) => x.campo === k)?.valor;
+  assert.equal(v("banco_bogota"), "sí");
+  assert.equal(v("cuenta_vigente"), "sí");
+  assert.equal(v("cedula_coincide"), "sí");
+  // Otro banco, cancelada y de otra persona: las tres quedan marcadas para quien valida.
+  const mal = camposDeDocumento(
+    { ...doc, campos: [{ ...doc.campos[0], valor: "Bancolombia" }, { ...doc.campos[1], valor: "999999" }, { ...doc.campos[2], valor: "Cancelada" }] },
+    { hoy: "2026-11-24", cedulaProceso: "1234567" }
+  );
+  const m = (k: string) => mal.find((x) => x.campo === k);
+  assert.equal(m("banco_bogota")?.valor, "no");
+  assert.match(String(m("banco_bogota")?.nota), /Bancolombia/);
+  assert.equal(m("cuenta_vigente")?.valor, "no");
+  assert.equal(m("cedula_coincide")?.valor, "no");
+  // El asistente sabe qué pedir.
+  assert.match(resumenParaAsistente({ clase: "certificado_bancario", estado: "leido", resumen: "", campos: mal }), /Banco de Bogotá/);
+  // Va al ítem de la carpeta.
+  assert.equal(itemDeClase("certificado_bancario", ["Hoja de vida", "Certificado bancario"]), "Certificado bancario");
+  assert.equal(itemDeClase("carta_laboral", ["Certificado bancario", "Carta laboral"]), "Carta laboral");
 });

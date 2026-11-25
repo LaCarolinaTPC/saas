@@ -20,6 +20,10 @@ export interface Laboratorio {
   correos: string[];
   correos_copia: string[];
   asunto: string | null;
+  /** Frases acordadas para cada resultado (24-nov-2026): con ellas el resultado se registra solo. Sin la migración 20261124181735, no vienen. */
+  frase_apto?: string | null;
+  frase_no_apto?: string | null;
+  frase_aplazado?: string | null;
   plantilla_orden_ruta: string | null;
   activo: boolean;
   predeterminado: boolean;

@@ -19,12 +19,13 @@ import { horaBogota, ventanaAbierta } from "@/lib/comunicaciones/seguimiento";
 import { enviarMedio, subirMedioAMeta } from "@/lib/comunicaciones/whatsapp";
 import { normalizarTelefono, obtenerOCrearConversacion, registrarSaliente } from "@/lib/comunicaciones/registro";
 import { correoConfigurado, enviarCorreo } from "@/lib/correo/enviar";
+import { destinoDePrueba } from "@/lib/entorno-pruebas";
 import { fechaBogota } from "@/lib/tesoreria/recobros";
 import { fechaEnTexto, horaEnTexto, siguienteDiaHabil } from "./agenda";
 import { conversacionDeProceso } from "./agenda-servidor";
 import { BUCKET_SELECCION } from "./carpeta-servidor";
 import { MIME_DOCX_DOCUMENTO, marcasDeDocx, rellenarDocx } from "./documento-word";
-import { marcasDePdf, rellenarPdf } from "./documento-pdf";
+import { marcasDePdf, rellenarPdf, type FirmaCarta } from "./documento-pdf";
 import { FIRMA_SELECCION, enviarMensajeSeleccion, prepararMensaje } from "./envio";
 import { marcarTipoContacto } from "./laboratorio-servidor";
 import {
@@ -215,6 +216,9 @@ export interface DatosLaboratorio {
   dias_atencion?: number[];
   dias_preferidos?: number[];
   porcentaje?: number;
+  frase_apto?: string | null;
+  frase_no_apto?: string | null;
+  frase_aplazado?: string | null;
 }
 
 const diasValidos = (d: number[] | undefined) => [...new Set((d ?? []).map(Number).filter((x) => Number.isInteger(x) && x >= 0 && x <= 6))].sort();
@@ -251,10 +255,25 @@ export async function guardarLaboratorio(d: DatosLaboratorio, usuario: string | 
   const db = createAdminClient();
   // Uno solo predeterminado.
   if (fila.predeterminado) await db.from("seleccion_laboratorios").update({ predeterminado: false }).eq("predeterminado", true).neq("id", d.id ?? "00000000-0000-0000-0000-000000000000");
-  const conReparto = reparto ? { ...fila, ...reparto } : fila;
-  const r = d.id
-    ? await db.from("seleccion_laboratorios").update(conReparto).eq("id", d.id).select("id").single()
-    : await db.from("seleccion_laboratorios").insert(conReparto).select("id").single();
+  const frases =
+    d.frase_apto !== undefined || d.frase_no_apto !== undefined || d.frase_aplazado !== undefined
+      ? {
+          frase_apto: d.frase_apto?.trim().slice(0, 200) || null,
+          frase_no_apto: d.frase_no_apto?.trim().slice(0, 200) || null,
+          frase_aplazado: d.frase_aplazado?.trim().slice(0, 200) || null,
+        }
+      : null;
+  const conReparto = { ...fila, ...(reparto ?? {}), ...(frases ?? {}) };
+  const guardar = (valores: Record<string, unknown>) =>
+    d.id
+      ? db.from("seleccion_laboratorios").update(valores).eq("id", d.id).select("id").single()
+      : db.from("seleccion_laboratorios").insert(valores).select("id").single();
+  let r = await guardar(conReparto);
+  // Sin la migración 20261124181735 no existen las frases: se guarda lo demás y se avisa.
+  if (r.error && frases && /frase_/.test(r.error.message)) {
+    r = await guardar(reparto ? { ...fila, ...reparto } : fila);
+    if (!r.error) return { ok: false, error: "Se guardó el laboratorio, pero las frases no: falta aplicar la migración 20261124181735." };
+  }
   if (r.error) return { ok: false, error: /duplicate|unique/i.test(r.error.message) ? "Ya hay un laboratorio con ese nombre." : r.error.message };
   if (whatsapp) {
     // Lo que escriba desde ese número se lee como resultados, y el asistente no le contesta.
@@ -307,6 +326,61 @@ export async function subirPlantillaCarta(contenido: Buffer, usuario: string | n
   if (e) return { ok: false, error: e };
   await createAdminClient().from("seleccion_ajustes").update({ valor: ruta, actualizado_por: usuario }).eq("clave", "carta_banco_ruta");
   return { ok: true, marcas: v.marcas };
+}
+
+// ── Firma de la carta del banco (24-nov-2026) ──────────────────────────────
+// Nombre y cargo de quien firma: ajustes carta_firmante y carta_firmante_cargo.
+// La firma y el sello: imágenes en el bucket de Selección, en rutas fijas.
+
+export type ImagenCarta = "firma" | "sello";
+const RUTA_IMAGEN: Record<ImagenCarta, string> = { firma: "plantillas/carta-firma", sello: "plantillas/carta-sello" };
+
+/** Quién firma y las imágenes, para escribir la carta. Lo que falte queda como está en la plantilla. */
+export async function firmaCarta(): Promise<FirmaCarta> {
+  const ajustes = await leerAjustes().catch(() => []);
+  const [firma, sello] = await Promise.all([descargar(RUTA_IMAGEN.firma), descargar(RUTA_IMAGEN.sello)]);
+  return {
+    nombre: String(valorAjuste(ajustes, "carta_firmante", "") ?? "").trim() || null,
+    cargo: String(valorAjuste(ajustes, "carta_firmante_cargo", "") ?? "").trim() || null,
+    firma: firma ? new Uint8Array(firma) : null,
+    sello: sello ? new Uint8Array(sello) : null,
+  };
+}
+
+/** Para la pantalla: el nombre, el cargo y las imágenes (como data URL, para verlas). */
+export async function estadoFirmaCarta(): Promise<{ nombre: string; cargo: string; firma: string | null; sello: string | null }> {
+  const f = await firmaCarta();
+  const dataUrl = (b: Uint8Array | null | undefined) => (b ? `data:${b[0] === 0x89 ? "image/png" : "image/jpeg"};base64,${Buffer.from(b).toString("base64")}` : null);
+  return { nombre: f.nombre ?? "", cargo: f.cargo ?? "", firma: dataUrl(f.firma), sello: dataUrl(f.sello) };
+}
+
+export async function guardarFirmante(nombre: string, cargo: string, usuario: string | null): Promise<{ ok: boolean; error?: string }> {
+  const db = createAdminClient();
+  for (const [clave, valor, etiqueta, orden] of [
+    ["carta_firmante", nombre.trim().slice(0, 120), "Nombre de quien firma la carta del banco", 321],
+    ["carta_firmante_cargo", cargo.trim().slice(0, 120), "Cargo de quien firma la carta del banco", 322],
+  ] as const) {
+    const { error } = await db
+      .from("seleccion_ajustes")
+      .upsert({ clave, grupo: "dato", nombre: etiqueta, orden, valor, valor_sugerido: "", unidad: "texto", origen: "Gestión Humana, 24-nov-2026", entrega: 3, actualizado_por: usuario, updated_at: new Date().toISOString() }, { onConflict: "clave" });
+    if (error) return { ok: false, error: error.message };
+  }
+  return { ok: true };
+}
+
+/** Sube la firma o el sello: PNG (mejor con fondo transparente) o JPG, hasta 1,5 MB. */
+export async function subirImagenCarta(tipo: ImagenCarta, contenido: Buffer): Promise<{ ok: boolean; error?: string }> {
+  const png = contenido[0] === 0x89 && contenido[1] === 0x50;
+  const jpg = contenido[0] === 0xff && contenido[1] === 0xd8;
+  if (!png && !jpg) return { ok: false, error: "La imagen debe ser PNG o JPG." };
+  if (contenido.length > 1_500_000) return { ok: false, error: "La imagen pesa más de 1,5 MB." };
+  const { error } = await createAdminClient().storage.from(BUCKET_SELECCION).upload(RUTA_IMAGEN[tipo], contenido, { contentType: png ? "image/png" : "image/jpeg", upsert: true });
+  return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+export async function quitarImagenCarta(tipo: ImagenCarta): Promise<{ ok: boolean; error?: string }> {
+  const { error } = await createAdminClient().storage.from(BUCKET_SELECCION).remove([RUTA_IMAGEN[tipo]]);
+  return error ? { ok: false, error: error.message } : { ok: true };
 }
 
 /** Ruta de la carta del banco (ajuste carta_banco_ruta). */
@@ -400,8 +474,11 @@ export async function documentosAspirante(procesoId: string, cita: { fecha: stri
     avisos.push(lab ? `El laboratorio ${lab.nombre} no tiene la plantilla de la orden (Candidatos › Selección › Laboratorios).` : "El aspirante no tiene laboratorio y no hay uno predeterminado.");
   }
   const plantillaCarta = await descargar(await rutaCarta());
+  const firma = plantillaCarta ? await firmaCarta() : null;
+  if (firma?.nombre) valores.firmante = firma.nombre;
+  if (firma?.cargo) valores.firmante_cargo = firma.cargo;
   if (plantillaCarta && esPdf(plantillaCarta)) {
-    const r = await rellenarPdf(new Uint8Array(plantillaCarta), valores);
+    const r = await rellenarPdf(new Uint8Array(plantillaCarta), valores, { firma });
     documentos.push({ tipo: "carta", nombre: archivoCarta(p, "pdf"), contenido: Buffer.from(r.pdf), mime: MIME_PDF, faltan: r.faltan });
   } else if (plantillaCarta) {
     const r = await rellenarDocx(plantillaCarta, valores);
@@ -422,7 +499,7 @@ export interface ResultadoDocumentos {
 
 const TEXTO_DOCUMENTOS: Record<"orden" | "carta", string> = {
   orden: "Orden de exámenes médicos: llévala al laboratorio.",
-  carta: "Carta para abrir tu cuenta en el Banco de Bogotá: imprímela y llévala al banco.",
+  carta: "Carta de autorización para abrir su cuenta de ahorros en el Banco de Bogotá: llévela impresa con su documento de identidad.",
 };
 
 /**
@@ -474,6 +551,9 @@ export async function enviarDocumentosPendientes(conversacionId: string): Promis
     const db = createAdminClient();
     const { data: conv } = await db.from("wa_conversaciones").select("proceso_id").eq("id", conversacionId).maybeSingle();
     if (!conv?.proceso_id) return;
+    // Desde el 24-nov-2026 la carta es solo para quien dijo que no tiene cuenta en el Banco de Bogotá.
+    const { data: banco, error: eBanco } = await db.from("procesos_contratacion").select("banco_cuenta, banco_preguntado_at").eq("id", conv.proceso_id).maybeSingle();
+    if (!eBanco && banco?.banco_preguntado_at && banco.banco_cuenta !== "no") return;
     const { data: citas, error } = await db
       .from("seleccion_citas")
       .select("id")
@@ -594,9 +674,12 @@ export async function enviarOrdenLaboratorio(
   const vista = await vistaOrden(labId, fecha, { incluirPrueba: true, citaIds: opciones.citaIds, incluirEnviadas: opciones.simular });
   if (!vista) return { ok: false, error: "El laboratorio no existe.", simulado: false, enviados: 0, vista: null, detalle: [] };
   if (!vista.aspirantes.length) return { ok: false, error: "No hay aspirantes citados ese día en este laboratorio sin la orden enviada.", simulado: false, enviados: 0, vista, detalle: [] };
-  const reales = opciones.simular ? [] : vista.aspirantes.filter((a) => !a.prueba);
-  const simulados = opciones.simular ? vista.aspirantes : vista.aspirantes.filter((a) => a.prueba);
   const lab = (await laboratorioPorId(labId))!;
+  // Entorno de pruebas con el laboratorio apuntando a un correo o número de prueba
+  // (24-nov-2026): la orden de los candidatos de prueba también sale de verdad.
+  const aDestinoDePrueba = !opciones.simular && (await destinoDePrueba(lab)) != null;
+  const reales = opciones.simular ? [] : vista.aspirantes.filter((a) => !a.prueba || aDestinoDePrueba);
+  const simulados = opciones.simular ? vista.aspirantes : vista.aspirantes.filter((a) => a.prueba && !aDestinoDePrueba);
   const marcar = async (citas: string[]) => {
     if (citas.length) await db.from("seleccion_citas").update({ orden_laboratorio_at: new Date().toISOString() }).in("id", citas);
   };
@@ -742,15 +825,16 @@ export async function hiloLaboratorio(labId: string, opciones: { soloPrueba?: bo
       .order("created_at")
       .limit(200),
   ]);
-  const filasEnvio = ((envios ?? []) as Record<string, unknown>[]).filter((e) => !opciones.soloPrueba || e.resultado === "simulado");
+  // En el chat de prueba: lo simulado y lo que salió de verdad a un destino de prueba (se filtra abajo por los candidatos).
+  const filasEnvio = (envios ?? []) as Record<string, unknown>[];
   // Aspirantes de cada orden: nombre, cédula, fase de la cita y si aún esperan ese resultado.
   const citaIds = [...new Set(filasEnvio.flatMap((e) => (e.cita_ids as string[]) ?? []))];
   const { data: citasOrden } = citaIds.length
-    ? await db.from("seleccion_citas").select("id, tipo, proceso_id, procesos_contratacion(nombre, cedula, estado)").in("id", citaIds)
+    ? await db.from("seleccion_citas").select("id, tipo, proceso_id, procesos_contratacion(nombre, cedula, estado, origen)").in("id", citaIds)
     : { data: [] as Record<string, unknown>[] };
   const aspiranteDeCita = new Map(
     ((citasOrden ?? []) as Record<string, unknown>[]).map((c) => {
-      const p = (Array.isArray(c.procesos_contratacion) ? c.procesos_contratacion[0] : c.procesos_contratacion) as { nombre?: string; cedula?: string; estado?: string } | null;
+      const p = (Array.isArray(c.procesos_contratacion) ? c.procesos_contratacion[0] : c.procesos_contratacion) as { nombre?: string; cedula?: string; estado?: string; origen?: string | null } | null;
       const fase: 1 | 2 = c.tipo === "examen_f2" ? 2 : 1;
       return [
         c.id as string,
@@ -760,15 +844,24 @@ export async function hiloLaboratorio(labId: string, opciones: { soloPrueba?: bo
           cedula: String(p?.cedula ?? ""),
           fase,
           esperando: p?.estado === (fase === 1 ? "en_examenes" : "en_examenes_fase2"),
+          prueba: p?.origen === "chat_prueba",
         },
       ] as const;
     })
   );
+  const deCandidatosDePrueba = (e: Record<string, unknown>) => {
+    const ids = (e.cita_ids as string[]) ?? [];
+    return ids.length > 0 && ids.every((id) => aspiranteDeCita.get(id)?.prueba);
+  };
   const salientes: MensajeHiloLaboratorio[] = filasEnvio
+    .filter((e) => !opciones.soloPrueba || e.resultado === "simulado" || deCandidatosDePrueba(e))
     .map((e) => {
       const procesos = (e.proceso_ids as string[]) ?? [];
       const nombres = (e.adjuntos as string[]) ?? [];
-      const aspirantes = ((e.cita_ids as string[]) ?? []).map((id) => aspiranteDeCita.get(id)).filter((a) => a != null);
+      const aspirantes = ((e.cita_ids as string[]) ?? [])
+        .map((id) => aspiranteDeCita.get(id))
+        .filter((a) => a != null)
+        .map((a) => ({ procesoId: a.procesoId, nombre: a.nombre, cedula: a.cedula, fase: a.fase, esperando: a.esperando }));
       return {
         aspirantes,
         id: `e-${e.id as string}`,

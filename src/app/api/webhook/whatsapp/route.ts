@@ -7,6 +7,8 @@ import { responderConAgente } from "@/lib/comunicaciones/agente/responder";
 import { procesarRespuestaCita } from "@/lib/seleccion/agenda-ejecutar";
 import { procesarMensajeLaboratorio } from "@/lib/seleccion/laboratorio-lectura";
 import { enviarDocumentosPendientes } from "@/lib/seleccion/laboratorios-servidor";
+import { procesarCorreoPsico } from "@/lib/seleccion/correo-psico-servidor";
+import { procesarRespuestaExamenes } from "@/lib/seleccion/respuestas-examenes-servidor";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -174,6 +176,14 @@ export async function POST(req: NextRequest) {
       await enviarDocumentosPendientes(conversacionId);
       // Entrega 3: si el número es del laboratorio, se lee el resultado (el asistente no le contesta).
       await procesarMensajeLaboratorio(conversacionId, mensajeId).catch((e) => console.error("webhook whatsapp (laboratorio):", e));
+      // 24-nov-2026: la respuesta a la pregunta del mensaje de exámenes (¿cuenta en el
+      // Banco de Bogotá?, ¿cuántas rutas lleva?). Si era eso, ya se le respondió.
+      const deExamen = await procesarRespuestaExamenes(conversacionId, mensajeId).catch((e) => (console.error("webhook whatsapp (exámenes):", e), false));
+      if (deExamen) return;
+      // 24-nov-2026: el correo para la psicosensotécnica (lo escribe, o dice si está bien).
+      // Si el mensaje era eso, ya se le respondió y el asistente no contesta.
+      const delCorreo = await procesarCorreoPsico(conversacionId, mensajeId).catch((e) => (console.error("webhook whatsapp (correo):", e), false));
+      if (delCorreo) return;
       await responderConAgente(conversacionId, mensajeId).catch((e) => console.error("webhook whatsapp (agente):", e));
     });
   }

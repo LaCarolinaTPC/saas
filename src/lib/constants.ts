@@ -7,7 +7,7 @@ import {
   Calculator, ReceiptText, TrendingUp, Wrench, Flame, Gauge, Timer, Scale, Satellite,
   MessageCircle, Bus, CalendarClock, ClipboardPlus, BadgeDollarSign, Activity, HeartPulse,
   Landmark, Coins, MinusCircle, ClipboardCheck, LineChart, Cctv, Fuel, HeartHandshake, MessageSquareText, Tv,
-  Stethoscope, BrainCircuit, type LucideIcon,
+  Stethoscope, type LucideIcon,
 } from "lucide-react";
 
 export type NavLeaf = {
@@ -136,9 +136,8 @@ export const NAV_TREE: NavEntry[] = [
       { label: "Selección: mensajes, reglas e IA", href: "/candidatos/seleccion", icon: MessageSquareText },
       // Pantalla del profesor de manejo (módulo `profesor`), pensada para el celular.
       { label: "Profesor de manejo", href: "/profesor", icon: GraduationCap },
-      // Bandeja de la psicóloga (módulo `psicosensotecnica`): revisar las
-      // pruebas de los conductores y dar el concepto.
-      { label: "Psicosensotécnica", href: "/psicosensotecnica", icon: BrainCircuit },
+      // Reconocimiento de ruta (módulo `reconocimiento`, 24-nov-2026): lo hace un encargado.
+      { label: "Reconocimiento de ruta", href: "/reconocimiento", icon: Route },
       { label: "Empleados", href: "/empleados", icon: UsersRound },
       { label: "Conductores", href: "/conductores", icon: Truck },
       { label: "Ausentismo", href: "/ausentismo", icon: CalendarOff },

@@ -17,6 +17,8 @@ export interface FuentePendiente {
   motivo: string;
   /** La fuente sí respondió, con un hallazgo: la revisión a mano lo corrige o lo confirma (entrega 3). */
   conHallazgo?: boolean;
+  /** Todavía no se ha consultado (Croma en pausa o esperando): se puede verificar a mano igual. */
+  sinConsultar?: boolean;
 }
 
 const NOMBRE: Record<FuenteRevision, string> = {
@@ -25,6 +27,7 @@ const NOMBRE: Record<FuenteRevision, string> = {
   contraloria: "Contraloría",
   rnmc: "RNMC (medidas correctivas)",
   simit: "SIMIT",
+  runt: "RUNT (licencia)",
 };
 
 // Consultas ciudadanas gratuitas de cada fuente.
@@ -34,6 +37,7 @@ const PORTAL: Record<FuenteRevision, string> = {
   contraloria: "https://www.contraloria.gov.co/web/guest/persona-natural",
   rnmc: "https://srvcnpc.policia.gov.co/PSC/frm_cnp_consulta.aspx",
   simit: "https://www.fcm.org.co/simit/#/home-public",
+  runt: "https://www.runt.gov.co/actores/ciudadano/consulta-por-tipo-de-documento",
 };
 
 function leerPdf(archivo: File): Promise<string> {
@@ -49,6 +53,7 @@ export function RevisionManual({ procesoId, pendientes, onGuardado }: { procesoI
   const [abierta, setAbierta] = useState<FuenteRevision | null>(null);
   const [hallazgo, setHallazgo] = useState<boolean | null>(null);
   const [valor, setValor] = useState("0");
+  const [licencia, setLicencia] = useState({ categoria: "", vence: "", restricciones: "" });
   const [nota, setNota] = useState("");
   const [pdf, setPdf] = useState<{ base64: string; nombre: string } | null>(null);
   const [ocupado, setOcupado] = useState(false);
@@ -61,6 +66,7 @@ export function RevisionManual({ procesoId, pendientes, onGuardado }: { procesoI
     setAbierta(f);
     setHallazgo(null);
     setValor("0");
+    setLicencia({ categoria: "", vence: "", restricciones: "" });
     setNota("");
     setPdf(null);
     setError(null);
@@ -81,11 +87,19 @@ export function RevisionManual({ procesoId, pendientes, onGuardado }: { procesoI
   async function guardar() {
     if (!abierta || ocupado) return;
     const esSimit = abierta === "simit";
-    const conHallazgo = esSimit ? Number(valor || 0) > 0 : hallazgo;
+    const esRunt = abierta === "runt";
+    const conHallazgo = esSimit ? Number(valor || 0) > 0 : esRunt ? false : hallazgo;
     if (conHallazgo == null) return setError("Elige el resultado de la revisión.");
+    if (esRunt && !licencia.categoria.trim()) return setError("Escribe la categoría de la licencia.");
     setOcupado(true);
     setError(null);
-    const r = await revisarFuenteAMano(procesoId, abierta, { hallazgo: conHallazgo, valor: esSimit ? Number(valor || 0) : null, nota, pdf }).catch((e: Error) => ({ ok: false as const, error: e.message }));
+    const r = await revisarFuenteAMano(procesoId, abierta, {
+      hallazgo: conHallazgo,
+      valor: esSimit ? Number(valor || 0) : null,
+      nota,
+      pdf,
+      licencia: esRunt ? { categoria: licencia.categoria, vence: licencia.vence || null, restricciones: licencia.restricciones || null } : null,
+    }).catch((e: Error) => ({ ok: false as const, error: e.message }));
     setOcupado(false);
     if (!r.ok) return setError(r.error ?? "No se pudo guardar.");
     setAbierta(null);
@@ -109,7 +123,9 @@ export function RevisionManual({ procesoId, pendientes, onGuardado }: { procesoI
           <li key={p.fuente} className="rounded-lg border border-red-200 bg-white p-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="min-w-0 text-sm">
-                <span className="mr-2 rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-red-700">{p.conHallazgo ? "Con hallazgo" : "Error en Croma"}</span>
+                <span className="mr-2 rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-red-700">
+                  {p.conHallazgo ? "Con hallazgo" : p.sinConsultar ? "Sin verificar" : "Error en Croma"}
+                </span>
                 <span className="font-medium text-gray-900">{NOMBRE[p.fuente]}</span>
                 <span className="block text-xs text-gray-500">{p.motivo}</span>
               </div>
@@ -127,7 +143,23 @@ export function RevisionManual({ procesoId, pendientes, onGuardado }: { procesoI
 
             {abierta === p.fuente && (
               <div className="mt-3 space-y-2 border-t border-[#F1F5F9] pt-3">
-                {p.fuente === "simit" ? (
+                {p.fuente === "runt" ? (
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    <label className="block text-sm font-medium text-gray-700">
+                      Categoría
+                      <input value={licencia.categoria} onChange={(e) => setLicencia({ ...licencia, categoria: e.target.value })} placeholder="C2" className="mt-1 h-10 w-full rounded-lg border border-[#E2E8F0] px-3 text-sm outline-none focus:border-[#4F46E5]" />
+                    </label>
+                    <label className="block text-sm font-medium text-gray-700">
+                      Vence
+                      <input type="date" value={licencia.vence} onChange={(e) => setLicencia({ ...licencia, vence: e.target.value })} className="mt-1 h-10 w-full rounded-lg border border-[#E2E8F0] px-3 text-sm outline-none focus:border-[#4F46E5]" />
+                    </label>
+                    <label className="block text-sm font-medium text-gray-700">
+                      Restricciones
+                      <input value={licencia.restricciones} onChange={(e) => setLicencia({ ...licencia, restricciones: e.target.value })} placeholder="Ninguna, lentes…" className="mt-1 h-10 w-full rounded-lg border border-[#E2E8F0] px-3 text-sm outline-none focus:border-[#4F46E5]" />
+                    </label>
+                    <p className="text-xs text-gray-500 sm:col-span-3">Revísela en el portal del RUNT o en la foto de la licencia que mandó el aspirante (pestaña Documentos). Con esto la licencia queda verificada.</p>
+                  </div>
+                ) : p.fuente === "simit" ? (
                   <label className="block text-sm font-medium text-gray-700">
                     Valor en comparendos (0 si no tiene)
                     <input value={valor} onChange={(e) => setValor(e.target.value.replace(/\D/g, "").slice(0, 10))} inputMode="numeric" className="mt-1 h-10 w-full rounded-lg border border-[#E2E8F0] px-3 text-sm outline-none focus:border-[#4F46E5]" />

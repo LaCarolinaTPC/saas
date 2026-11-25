@@ -7,6 +7,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { leerTodo, type Consulta } from "@/lib/comunicaciones/leer-todo";
 import { diaBogota, inicioDiaBogota, sumarDias, type Rango } from "@/lib/comunicaciones/indicadores";
+import { POCAS_CONVERSACIONES, mensajesDesde } from "@/lib/comunicaciones/indicadores-servidor";
 import {
   calcularIndicadoresSeleccion,
   type CitaInd,
@@ -27,6 +28,7 @@ import {
   type ReferidoResp,
 } from "./indicadores-respuesta";
 import { gastoDelMes, type GastoDelMes } from "./consumos-servidor";
+import { guardadoCompartido } from "@/lib/cache-compartido";
 import { leerAjustes, valorAjuste } from "./servidor";
 
 const VIGENCIA_MS = 5 * 60_000;
@@ -168,18 +170,29 @@ async function leerRespuesta(rango: Rango): Promise<IndicadoresRespuesta> {
     faltantes
   );
 
+  // 24-nov-2026: con muchas conversaciones, los mensajes por fecha (desde el inicio del
+  // periodo: los de estas conversaciones son todos posteriores) y filtrados en memoria; es
+  // la misma lectura de los indicadores del chat, que se comparte. Con pocas, por sus ids.
   const mensajes: MensajeResp[] = [];
-  for (const lote of lotes(conversaciones.map((c) => c.id))) {
-    mensajes.push(
-      ...(await leerTodo<MensajeResp>(
-        "wa_mensajes",
-        ["conversacion_id", "direccion", "enviado_por", "timestamp"],
-        ["enviado_por"],
-        (sel, c) => q("wa_mensajes")(sel, c).in("conversacion_id", lote),
-        ["timestamp", "id"],
-        faltantes
-      ))
+  if (conversaciones.length > POCAS_CONVERSACIONES) {
+    const ids = new Set(conversaciones.map((c) => c.id));
+    const r = await mensajesDesde(inicio);
+    faltantes.push(...r.faltantes);
+    for (const m of r.filas) if (ids.has(m.conversacion_id)) mensajes.push(m);
+  } else {
+    const leidos = await Promise.all(
+      lotes(conversaciones.map((c) => c.id), 100).map((lote) =>
+        leerTodo<MensajeResp>(
+          "wa_mensajes",
+          ["conversacion_id", "direccion", "enviado_por", "timestamp"],
+          ["enviado_por"],
+          (sel, c) => q("wa_mensajes")(sel, c).in("conversacion_id", lote),
+          ["timestamp", "id"],
+          faltantes
+        )
+      )
     );
+    for (const l of leidos) mensajes.push(...l);
   }
 
   const idsProceso = [...new Set(conversaciones.map((c) => c.proceso_id).filter((id): id is string => Boolean(id)))];
@@ -232,13 +245,18 @@ async function leerRespuesta(rango: Rango): Promise<IndicadoresRespuesta> {
   return calcularIndicadoresRespuesta({ rango, conversaciones, mensajes, procesos, citas, referidos, faltantes: [...new Set(faltantes)] });
 }
 
+// 24-nov-2026: lo calculado se comparte 5 minutos entre todos los servidores (la memoria de
+// arriba es solo de esta instancia); se recalcula en segundo plano al vencerse.
+const seleccionCompartida = guardadoCompartido((desde: string, hasta: string) => leer({ desde, hasta }), "indicadores-seleccion-v1", VIGENCIA_MS / 1000);
+const respuestaCompartida = guardadoCompartido((desde: string, hasta: string) => leerRespuesta({ desde, hasta }), "indicadores-respuesta-v1", VIGENCIA_MS / 1000);
+
 /** Indicadores de respuesta de los aspirantes del periodo (guardados 5 minutos). null si la lectura falla. */
 export async function leerIndicadoresRespuesta(rango: Rango): Promise<IndicadoresRespuesta | null> {
   const clave = `${rango.desde}|${rango.hasta}`;
   const ahora = Date.now();
   let e = guardadoResp.get(clave);
   if (!e || e.hasta < ahora) {
-    e = { hasta: ahora + VIGENCIA_MS, datos: leerRespuesta(rango) };
+    e = { hasta: ahora + VIGENCIA_MS, datos: respuestaCompartida(rango.desde, rango.hasta) };
     guardadoResp.set(clave, e);
     e.datos.catch(() => guardadoResp.delete(clave));
   }
@@ -253,7 +271,7 @@ export async function leerIndicadoresSeleccion(rango: Rango): Promise<{ ind: Ind
   const ahora = Date.now();
   let e = guardado.get(clave);
   if (!e || e.hasta < ahora) {
-    e = { hasta: ahora + VIGENCIA_MS, datos: leer(rango) };
+    e = { hasta: ahora + VIGENCIA_MS, datos: seleccionCompartida(rango.desde, rango.hasta) };
     guardado.set(clave, e);
     e.datos.catch(() => guardado.delete(clave));
   }

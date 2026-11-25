@@ -2,7 +2,7 @@
 
 import { usePermisos } from "@/components/permisos/permisos-provider";
 import { useRef, useState, useTransition } from "react";
-import { BarChart3, CalendarClock, ClipboardList, LayoutGrid, List, Users, Trash2, MoreHorizontal, Eye, Briefcase, X } from "lucide-react";
+import { BarChart3, Brain, CalendarClock, ClipboardList, LayoutGrid, List, Users, Trash2, MoreHorizontal, Eye, Briefcase, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { KanbanProcesos } from "@/components/candidatos/kanban-procesos";
 import { AgendaDia } from "@/components/seleccion/agenda-dia";
@@ -84,6 +84,13 @@ export function CandidatosClient({ pipeline, allCandidates, vacancies, tablero, 
         className="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-sm font-medium text-gray-500 hover:bg-gray-100"
       >
         <BarChart3 className="h-4 w-4" /> Indicadores
+      </Link>
+      {/* 24-nov-2026: inscribir en PsicoAlianza y subir los resultados. */}
+      <Link
+        href="/candidatos/psicosensotecnica"
+        className="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-sm font-medium text-gray-500 hover:bg-gray-100"
+      >
+        <Brain className="h-4 w-4" /> Psicosensotécnica
       </Link>
     </div>
   );

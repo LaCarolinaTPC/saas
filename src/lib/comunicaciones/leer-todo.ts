@@ -1,8 +1,8 @@
 /**
  * Lectura paginada de la base para los indicadores (los de Comunicaciones y,
  * desde la entrega 4, los de selección). Se piden solo las columnas
- * necesarias, de 1000 en 1000 (PostgREST corta ahí): primero se cuenta y
- * luego se piden todas las páginas.
+ * necesarias, de 1000 en 1000 (PostgREST corta ahí): primero la primera
+ * página y, si viene llena, se cuenta y se piden las demás.
  *
  * Si una columna opcional no existe en esta base (una migración sin aplicar),
  * se quita de la consulta y se sigue: esa sección se muestra sin datos y el
@@ -57,32 +57,40 @@ export async function leerTodo<T>(
   faltantes: string[]
 ): Promise<T[]> {
   let cols = [...columnas];
+  const pagina = (sel: string, i: number) =>
+    turno(() => {
+      let q = armar(sel, false);
+      for (const o of orden) q = q.order(o, { ascending: true });
+      return q.range(i * PAGINA, (i + 1) * PAGINA - 1);
+    }) as Promise<{ data: T[] | null; error: { code?: string; message?: string } | null }>;
   for (let intento = 0; intento < 8; intento++) {
     const sel = cols.join(", ");
-    const { count, error } = (await turno(() => armar(sel, true))) as { count: number | null; error: { code?: string; message?: string } | null };
-    const falta = columnaFaltante(error);
+    // 24-nov-2026: primero la primera página (antes, siempre se contaba antes). Casi
+    // todas las lecturas caben en una (las de por lotes de ids): un viaje en vez de dos.
+    const primera = await pagina(sel, 0);
+    const falta = columnaFaltante(primera.error);
     if (falta && opcionales.includes(falta) && cols.includes(falta)) {
       faltantes.push(`${tabla}.${falta}`);
       cols = cols.filter((c) => c !== falta);
       continue;
     }
+    if (primera.error) {
+      faltantes.push(tabla);
+      console.error(`[indicadores] ${tabla}:`, primera.error.message);
+      return [];
+    }
+    const out: T[] = [...(primera.data ?? [])];
+    if (out.length < PAGINA) return out;
+    // Vino llena: se cuenta y se piden las demás páginas.
+    const { count, error } = (await turno(() => armar(sel, true))) as { count: number | null; error: { code?: string; message?: string } | null };
     if (error) {
       faltantes.push(tabla);
       console.error(`[indicadores] ${tabla}:`, error.message);
       return [];
     }
     const paginas = Math.ceil((count ?? 0) / PAGINA);
-    const resultados = await Promise.all(
-      Array.from({ length: paginas }, (_, i) =>
-        turno(() => {
-          let q = armar(sel, false);
-          for (const o of orden) q = q.order(o, { ascending: true });
-          return q.range(i * PAGINA, (i + 1) * PAGINA - 1);
-        })
-      )
-    );
-    const out: T[] = [];
-    for (const r of resultados as { data: T[] | null; error: { message: string } | null }[]) {
+    const resultados = await Promise.all(Array.from({ length: Math.max(0, paginas - 1) }, (_, i) => pagina(sel, i + 1)));
+    for (const r of resultados) {
       if (r.error) {
         faltantes.push(tabla);
         console.error(`[indicadores] ${tabla}:`, r.error.message);

@@ -6,6 +6,7 @@
  * `resolverSimitPendientes` (cron de seguimiento) la termina. La licencia se
  * consulta igual en el RUNT (`consultarRuntProceso`), con `resolverRuntPendientes`.
  */
+import { cromaPausado, siCromaActivo } from "./pausa";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ACTOR_SISTEMA, registrarEvento, type ActorProceso } from "@/lib/contratacion/servidor";
 import {
@@ -14,6 +15,7 @@ import {
   marcarListoParaCitar,
   marcarRevisionAntecedentes,
   reevaluarPreseleccion,
+  runtSinRespuesta,
   simitObligatorio,
 } from "@/lib/seleccion/servidor";
 import { hallazgoDe, type EvaluacionAntecedentes } from "@/lib/seleccion/antecedentes";
@@ -148,7 +150,7 @@ export async function consultarSimitProceso(
   const cedula = String(p.cedula ?? "").trim();
   if (!cedula) return { modo: "error", mensaje: "El proceso no tiene cédula." };
 
-  const proveedor = proveedorSimit({ seguirMs: opciones.seguirMs });
+  const proveedor = await siCromaActivo(proveedorSimit({ seguirMs: opciones.seguirMs }));
   if (!proveedor) {
     return { modo: "manual", mensaje: "No hay proveedor configurado (falta CROMA_API_KEY): registre el SIMIT a mano en la ficha." };
   }
@@ -193,7 +195,7 @@ export async function consultarSimitProceso(
  * 24 horas sin resultado se dan por fallidas.
  */
 export async function resolverSimitPendientes(limite = 20): Promise<{ revisadas: number; terminadas: number }> {
-  const proveedor = proveedorSimit();
+  const proveedor = await siCromaActivo(proveedorSimit());
   if (!proveedor) return { revisadas: 0, terminadas: 0 };
   const admin = createAdminClient();
   const { data: filas, error } = await admin
@@ -348,7 +350,7 @@ export async function simularCromaProceso(
  * más y menos de 6 errores en 24 horas.
  */
 export async function relanzarSimitFallidos(limite = 3): Promise<{ relanzados: number }> {
-  if (!proveedorSimit()) return { relanzados: 0 };
+  if (!(await siCromaActivo(proveedorSimit()))) return { relanzados: 0 };
   const admin = createAdminClient();
   const desde = new Date(Date.now() - 7 * 24 * 3_600_000).toISOString();
   const { data: procesos } = await admin
@@ -506,7 +508,7 @@ export async function consultarRuntProceso(
   const cedula = String(p.cedula ?? "").trim();
   if (!cedula) return { modo: "error", mensaje: "El proceso no tiene cédula." };
 
-  const proveedor = proveedorRunt({ seguirMs: opciones.seguirMs });
+  const proveedor = await siCromaActivo(proveedorRunt({ seguirMs: opciones.seguirMs }));
   if (!proveedor) {
     return { modo: "manual", mensaje: "No hay proveedor configurado (falta CROMA_API_KEY): verifique la licencia a mano en el RUNT." };
   }
@@ -567,7 +569,7 @@ export async function consultarRuntProceso(
 
 /** Termina las consultas del RUNT que quedaron como trabajo asíncrono (cron de seguimiento). */
 export async function resolverRuntPendientes(limite = 20): Promise<{ revisadas: number; terminadas: number; terminados: string[] }> {
-  const proveedor = proveedorRunt();
+  const proveedor = await siCromaActivo(proveedorRunt());
   if (!proveedor) return { revisadas: 0, terminadas: 0, terminados: [] };
   const admin = createAdminClient();
   const { data: filas, error } = await admin
@@ -659,7 +661,7 @@ export async function consultarPoliciaProceso(procesoId: string, actor: ActorPro
   if (p.autorizacion_datos !== "si") return { modo: "error", mensaje: "El aspirante no ha autorizado el tratamiento de datos: no se puede consultar." };
   const cedula = String(p.cedula ?? "").replace(/\D/g, "");
   if (!cedula) return { modo: "error", mensaje: "El proceso no tiene cédula." };
-  const proveedor = proveedorPolicia({ seguirMs: opciones.seguirMs });
+  const proveedor = await siCromaActivo(proveedorPolicia({ seguirMs: opciones.seguirMs }));
   if (!proveedor) return { modo: "manual", mensaje: "No hay proveedor configurado (falta CROMA_API_KEY)." };
   const { data: previa } = await admin
     .from("verificaciones_externas")
@@ -694,7 +696,7 @@ export async function consultarPoliciaProceso(procesoId: string, actor: ActorPro
 
 /** Termina las consultas de la Policía que quedaron como trabajo asíncrono (cron de seguimiento). */
 export async function resolverPoliciaPendientes(limite = 20): Promise<{ revisadas: number; terminadas: number }> {
-  const proveedor = proveedorPolicia();
+  const proveedor = await siCromaActivo(proveedorPolicia());
   if (!proveedor) return { revisadas: 0, terminadas: 0 };
   const admin = createAdminClient();
   const { data: filas, error } = await admin
@@ -803,10 +805,13 @@ export async function verificacionEnCurso(procesoId: string): Promise<boolean> {
   const admin = createAdminClient();
   const { data: p } = await admin.from("procesos_contratacion").select("estado, simit, licencia_runt, preseleccion, autorizacion_datos").eq("id", procesoId).maybeSingle();
   if (!p || p.autorizacion_datos !== "si") return false;
+  // Croma en pausa: no hay nada en curso; lo que falta queda para revisar a mano (24-nov-2026).
+  if (await cromaPausado()) return false;
   const pre = p.preseleccion as { edad?: { color?: string }; residencia?: { color?: string }; licencia?: { color?: string } } | null;
   if (pre?.edad?.color === "rojo" || pre?.residencia?.color === "rojo") return false;
-  // El RUNT todavía no se consulta pero ya hay con qué.
-  if (!p.licencia_runt) {
+  // El RUNT todavía no se consulta pero ya hay con qué. Si ya falló, no se dice que sigue
+  // en curso: el asistente le pide la licencia (24-nov-2026) y se reintenta por detrás.
+  if (!p.licencia_runt && !(await runtSinRespuesta(procesoId))) {
     const d = await datosNombreDeProceso(procesoId);
     if ((await nombreParaRunt(procesoId, d.foto, d.apellidoEscrito)).nombre) return true;
   }
@@ -948,8 +953,31 @@ export async function nombreParaRunt(
  * autorización y movidos en las últimas 6 horas. Devuelve los que se consultaron, para que el
  * asistente avise el resultado.
  */
+/**
+ * Freno del RUNT (24-nov-2026), como el de los antecedentes: se vuelve a
+ * consultar solo si el último error fue hace al menos 30 min y lleva menos de
+ * 6 errores en 24 h. Después queda para revisar a mano (la licencia se la pide
+ * el asistente y la valida una persona en «Lo revisé a mano»).
+ */
+export async function puedeReintentarRunt(procesoId: string): Promise<boolean> {
+  const desde = new Date(Date.now() - 24 * 3_600_000).toISOString();
+  const { data } = await createAdminClient()
+    .from("verificaciones_externas")
+    .select("created_at")
+    .eq("proceso_id", procesoId)
+    .eq("fuente", "runt")
+    .eq("estado", "error")
+    .gte("created_at", desde)
+    .order("created_at", { ascending: false })
+    .limit(10);
+  const fallas = data ?? [];
+  if (fallas.length >= 6) return false;
+  const ultima = fallas[0] ? Date.parse(fallas[0].created_at as string) : 0;
+  return Date.now() - ultima >= 30 * 60_000;
+}
+
 export async function consultarRuntFaltantes(limite = 5): Promise<string[]> {
-  if (!proveedorRunt()) return [];
+  if (!(await siCromaActivo(proveedorRunt()))) return [];
   const admin = createAdminClient();
   const desde = new Date(Date.now() - 6 * 3_600_000).toISOString();
   const { data } = await admin
@@ -967,7 +995,9 @@ export async function consultarRuntFaltantes(limite = 5): Promise<string[]> {
     if (hechos.length >= limite) break;
     const id = p.id as string;
     const { data: enCurso } = await admin.from("verificaciones_externas").select("id").eq("proceso_id", id).eq("fuente", "runt").eq("estado", "pendiente").limit(1).maybeSingle();
-    if (enCurso || !(await verificacionEnCurso(id))) continue;
+    if (enCurso || !(await puedeReintentarRunt(id))) continue;
+    // Si ya falló, verificacionEnCurso dice que no (el asistente pide la licencia), pero se reintenta igual.
+    if (!(await runtSinRespuesta(id)) && !(await verificacionEnCurso(id))) continue;
     const d = await datosNombreDeProceso(id);
     const n = await nombreParaRunt(id, d.foto, d.apellidoEscrito);
     if (!n.nombre) continue;
@@ -1122,7 +1152,7 @@ export async function consultarRnmcProceso(
   if (!cedula) return { modo: "error", mensaje: "El proceso no tiene cédula." };
   const fecha = fechaExpedicion ?? (await fechaExpedicionDe(procesoId));
   if (!fecha) return { modo: "omitida", mensaje: "Falta la fecha de expedición de la cédula." };
-  const proveedor = proveedorRnmc();
+  const proveedor = await siCromaActivo(proveedorRnmc());
   if (!proveedor) return { modo: "manual", mensaje: "No hay proveedor configurado (falta CROMA_API_KEY)." };
 
   const { data: previa } = await admin
@@ -1229,7 +1259,7 @@ export async function consultarRnmcProceso(
  * asistente le cuente el resultado al aspirante.
  */
 export async function resolverRnmcPendientes(limite = 20): Promise<{ revisadas: number; terminadas: number; terminados: string[] }> {
-  const proveedor = proveedorRnmc();
+  const proveedor = await siCromaActivo(proveedorRnmc());
   if (!proveedor) return { revisadas: 0, terminadas: 0, terminados: [] };
   const terminados: string[] = [];
   const admin = createAdminClient();
@@ -1290,7 +1320,7 @@ export async function resolverRnmcPendientes(limite = 20): Promise<{ revisadas: 
 
 /** Procuraduría o Contraloría para el proceso, una sola vez por cédula. */
 async function consultarFuenteAntecedentes(procesoId: string, cedula: string, fuente: FuenteAntecedenteCroma, actor: ActorProceso): Promise<void> {
-  const proveedor = proveedorAntecedentes();
+  const proveedor = await siCromaActivo(proveedorAntecedentes());
   if (!proveedor) return;
   const admin = createAdminClient();
   const { data: previa } = await admin
@@ -1338,7 +1368,7 @@ export async function consultarAntecedentesProceso(
   const { data: p } = await admin.from("procesos_contratacion").select("cedula, autorizacion_datos").eq("id", procesoId).maybeSingle();
   if (!p || p.autorizacion_datos !== "si") return null;
   const cedula = String(p.cedula ?? "").replace(/\D/g, "");
-  if (!cedula || !proveedorAntecedentes()) return null;
+  if (!cedula || !(await siCromaActivo(proveedorAntecedentes()))) return null;
   const nunca = (fuente: string) => (e: unknown) => console.error(`[seleccion] antecedentes ${fuente}:`, e);
   await Promise.all([
     consultarPoliciaProceso(procesoId, actor, { seguirMs: opciones.seguirMs }).catch(nunca("policía")),
@@ -1354,7 +1384,7 @@ export async function consultarAntecedentesProceso(
 
 /** Termina las consultas de Procuraduría y Contraloría que quedaron en curso (cron) y revisa si ya queda listo para citar. */
 export async function resolverAntecedentesPendientes(limite = 20): Promise<{ revisadas: number; terminadas: number }> {
-  const proveedor = proveedorAntecedentes();
+  const proveedor = await siCromaActivo(proveedorAntecedentes());
   if (!proveedor) return { revisadas: 0, terminadas: 0 };
   const admin = createAdminClient();
   const { data: filas, error } = await admin
@@ -1429,7 +1459,7 @@ async function puedeReintentarAntecedentes(procesoId: string): Promise<boolean> 
 
 // Cada proceso puede tardar hasta ~110 s (Procuraduría): pocos por pasada para caber en los 300 s del cron.
 export async function lanzarAntecedentesPendientes(limite = 2): Promise<{ revisados: number; fechaRechazada: string[] }> {
-  if (!proveedorAntecedentes()) return { revisados: 0, fechaRechazada: [] };
+  if (!(await siCromaActivo(proveedorAntecedentes()))) return { revisados: 0, fechaRechazada: [] };
   const fechaRechazada: string[] = [];
   const admin = createAdminClient();
   const desde = new Date(Date.now() - 30 * 24 * 3_600_000).toISOString();

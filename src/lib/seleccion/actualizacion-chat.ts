@@ -49,6 +49,22 @@ export const CAUSAS_REABRIBLES = {
 } as const;
 
 /**
+ * ¿El proceso terminó para esta persona? (24-nov-2026: cerrar por cualquier
+ * razón detiene todo). Cerrado por una persona —desde el tablero o la ficha,
+ * con cualquier causa— o por antecedentes: el asistente solo le dice con
+ * amabilidad que no continúa y no le pide nada más. No cuentan:
+ *  - el cierre automático que la persona puede revertir (incomunicado, un
+ *    requisito de la preselección): ahí el asistente retoma si vuelve;
+ *  - «Ya trabaja en la empresa»: lo atienden las reglas del vínculo.
+ */
+export function procesoTerminado(estado: string | null | undefined, causa: string | null | undefined, actorDelCierre: string | null | undefined): boolean {
+  if (estado !== "cierre") return false;
+  if (causa === "Ya trabaja en la empresa") return false;
+  const reabrible = !!causa && (Object.values(CAUSAS_REABRIBLES) as string[]).includes(causa);
+  return !(reabrible && actorDelCierre === "sistema");
+}
+
+/**
  * ¿Lo que la persona dice ahora justifica reabrir su proceso, que se cerró
  * solo? (pedido de GH del 18-nov-2026: puede pensarlo y volver días después)
  *  - «Incomunicado»: basta con que vuelva a escribir.

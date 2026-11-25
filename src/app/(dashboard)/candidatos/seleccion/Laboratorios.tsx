@@ -12,11 +12,11 @@ import Link from "next/link";
 import { Download, FileText, Mail, MessageCircle, Plus, Send, TriangleAlert, Upload } from "lucide-react";
 import { DIAS_CORTOS, DIAS_SEMANA, type Laboratorio, type ModoReparto } from "@/lib/seleccion/laboratorios";
 import type { VistaOrden } from "@/lib/seleccion/laboratorios-servidor";
-import type { LecturaLaboratorio } from "@/lib/seleccion/laboratorio";
+import { FRASE_APTO_POR_DEFECTO, type LecturaLaboratorio } from "@/lib/seleccion/laboratorio";
 import {
   asignarLaboratorioAccion, datosLaboratorios, documentosAspiranteAccion, enviarDocumentosAccion, enviarOrdenAccion, guardarLaboratorioAccion,
   guardarRepartoAccion, procesosEnExamenesAccion, simularRepartoAccion, simularRespuestaLaboratorioAccion, subirPlantillaCartaAccion,
-  subirPlantillaOrdenAccion, vistaOrdenAccion,
+  subirPlantillaOrdenAccion, vistaOrdenAccion, datosFirmaCartaAccion, guardarFirmanteAccion, quitarImagenCartaAccion, subirImagenCartaAccion,
   type DocumentoDescarga, type PantallaLaboratorios, type ProcesoSimulador,
 } from "./laboratorios-actions";
 
@@ -116,6 +116,9 @@ function TarjetaLaboratorio({ lab, marcas, smtp, puedeEditar, onCambio, reparto,
     dias_atencion: lab?.dias_atencion?.length ? lab.dias_atencion : [1, 2, 3, 4, 5, 6],
     dias_preferidos: lab?.dias_preferidos ?? [],
     porcentaje: lab?.porcentaje ?? 0,
+    frase_apto: lab?.frase_apto || FRASE_APTO_POR_DEFECTO,
+    frase_no_apto: lab?.frase_no_apto ?? "",
+    frase_aplazado: lab?.frase_aplazado ?? "",
   });
   const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
   const [ocupado, enTransicion] = useTransition();
@@ -163,6 +166,28 @@ function TarjetaLaboratorio({ lab, marcas, smtp, puedeEditar, onCambio, reparto,
             </label>
           </>
         )}
+      </div>
+      <div className="mt-2 rounded-lg bg-slate-50 p-2">
+        <p className="text-xs font-medium text-text-secondary">Cómo responde el resultado</p>
+        <p className="text-[11px] text-text-tertiary">
+          La frase que el laboratorio escribe para cada resultado (acordada con él; la IA reconoce también sus variantes). Si la respuesta la trae y se reconoce al aspirante por
+          la cédula o el nombre, el resultado se registra solo y pasa a la fase 2. En la fase 1, cualquier otro resultado cuenta como no apto, salvo que diga «aplazado». Lo
+          que no es un resultado (un saludo, «pendiente») queda en «Avisos del laboratorio» para confirmarlo.
+        </p>
+        <div className="mt-1.5 grid gap-2 sm:grid-cols-3">
+          <label className="text-xs text-text-secondary">
+            Apto
+            <input className={campo} value={f.frase_apto} disabled={!puedeEditar} placeholder={FRASE_APTO_POR_DEFECTO} onChange={(e) => set("frase_apto", e.target.value)} />
+          </label>
+          <label className="text-xs text-text-secondary">
+            No apto
+            <input className={campo} value={f.frase_no_apto} disabled={!puedeEditar} placeholder="NO PUEDE CONTINUAR" onChange={(e) => set("frase_no_apto", e.target.value)} />
+          </label>
+          <label className="text-xs text-text-secondary">
+            Aplazado
+            <input className={campo} value={f.frase_aplazado} disabled={!puedeEditar} placeholder="APLAZADO" onChange={(e) => set("frase_aplazado", e.target.value)} />
+          </label>
+        </div>
       </div>
       <div className="mt-2 grid gap-2 sm:grid-cols-3">
         <div className="text-xs text-text-secondary">
@@ -447,7 +472,15 @@ function SimuladorRespuesta({ labs }: { labs: Laboratorio[] }) {
               const r = await simularRespuestaLaboratorioAccion(labId, fd);
               if (!r.ok) return setAviso({ ok: false, texto: r.error });
               setLecturas(r.lecturas);
-              setAviso({ ok: true, texto: r.avisos ? `Quedó${r.avisos === 1 ? "" : "aron"} ${r.avisos} aviso${r.avisos === 1 ? "" : "s"} para confirmar en la Agenda.` : "No se leyó ningún resultado (un saludo o una pregunta no deja aviso)." });
+              const solos = r.confirmados?.length ?? 0;
+              setAviso({
+                ok: true,
+                texto: solos
+                  ? `Traía la frase acordada: ${solos} resultado${solos === 1 ? "" : "s"} quedó registrado sin confirmar.${r.avisos > solos ? ` Los demás quedan en la Agenda para confirmar.` : ""}`
+                  : r.avisos
+                    ? `Quedó${r.avisos === 1 ? "" : "aron"} ${r.avisos} aviso${r.avisos === 1 ? "" : "s"} para confirmar en la Agenda.`
+                    : "No se leyó ningún resultado (un saludo o una pregunta no deja aviso).",
+              });
             })
           }
         >
@@ -574,7 +607,7 @@ export default function Laboratorios() {
         )}
       </Seccion>
 
-      <Seccion titulo="Carta del banco" ayuda="Se le envía al aspirante por WhatsApp cuando se cita a la fase 1, para que la imprima (la orden de exámenes va solo al laboratorio). Escriba en el Word las marcas {nombre}, {cedula}, {cargo} y {fecha_larga}, guárdelo como PDF y súbalo: la carta sale en PDF con el mismo diseño. También se acepta el Word.">
+      <Seccion titulo="Carta del banco" ayuda="Se le envía al aspirante por WhatsApp cuando responde que no tiene cuenta de ahorros en el Banco de Bogotá (lo pregunta el mensaje de la fase 1), para que la imprima; si ya tiene cuenta, se le pide el certificado bancario. Escriba en el Word las marcas {nombre}, {cedula}, {cargo} y {fecha_larga}, guárdelo como PDF y súbalo: la carta sale en PDF con el mismo diseño. También se acepta el Word.">
         <div className="flex flex-wrap items-center gap-2">
           <SubirWord
             etiqueta="Subir carta (PDF o Word)"
@@ -589,6 +622,7 @@ export default function Laboratorios() {
           <Marcas marcas={datos.plantillas.carta} />
         </div>
         {aviso && <Mensaje {...aviso} />}
+        <FirmaCarta puedeEditar={datos.puedeEditar} />
       </Seccion>
 
       <OrdenDelDia labs={labs} puedeEnviar={datos.puedeEnviar} />
@@ -600,6 +634,141 @@ export default function Laboratorios() {
         <hr className="border-[#F1F5F9]" />
         <SimuladorRespuesta labs={labs} />
       </Seccion>
+    </div>
+  );
+}
+
+// ── Firma de la carta del banco (24-nov-2026) ──────────────────────────────
+
+/**
+ * Quién firma la carta (nombre y cargo) y las imágenes de la firma y el sello.
+ * Sin marcas en la plantilla, Gestivo cambia el nombre y el cargo que están
+ * debajo de «Atentamente» y pone la firma y el sello en el espacio de arriba.
+ */
+function FirmaCarta({ puedeEditar }: { puedeEditar: boolean }) {
+  const [d, setD] = useState<{ nombre: string; cargo: string; firma: string | null; sello: string | null } | null>(null);
+  const [nombre, setNombre] = useState("");
+  const [cargo, setCargo] = useState("");
+  const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
+  const [ocupado, enTransicion] = useTransition();
+  const cargar = useCallback(() => {
+    datosFirmaCartaAccion()
+      .then((r) => {
+        if (!r.ok) return setAviso({ ok: false, texto: r.error });
+        setD(r);
+        setNombre(r.nombre);
+        setCargo(r.cargo);
+      })
+      .catch(() => undefined);
+  }, []);
+  useEffect(cargar, [cargar]);
+  if (!d) return null;
+  const subir = (tipo: "firma" | "sello", fd: FormData) =>
+    enTransicion(async () => {
+      const r = await subirImagenCartaAccion(tipo, fd);
+      setAviso(r.ok ? { ok: true, texto: tipo === "firma" ? "Firma guardada." : "Sello guardado." } : { ok: false, texto: r.error });
+      cargar();
+    });
+  const quitar = (tipo: "firma" | "sello") =>
+    enTransicion(async () => {
+      const r = await quitarImagenCartaAccion(tipo);
+      setAviso(r.ok ? { ok: true, texto: "Imagen quitada." } : { ok: false, texto: r.error });
+      cargar();
+    });
+  return (
+    <div className="mt-3 space-y-2 rounded-lg bg-slate-50 p-3">
+      <p className="text-sm font-medium text-text-primary">Quién firma la carta</p>
+      <p className="text-[11px] text-text-tertiary">
+        Se cambia el nombre y el cargo que están debajo de «Atentamente» en la plantilla, y la firma y el sello van en el espacio de arriba. Si prefiere ubicarlos usted, escriba en el
+        Word las marcas {"{firmante}"}, {"{firmante_cargo}"}, {"{firma}"} y {"{sello}"}. La firma y el sello van mejor en PNG con fondo transparente. Vacío: queda lo de la plantilla.
+      </p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <label className="text-xs text-text-secondary">
+          Nombre de quien firma
+          <input className={campo} value={nombre} disabled={!puedeEditar} placeholder="Como está en la plantilla" onChange={(e) => setNombre(e.target.value)} />
+        </label>
+        <label className="text-xs text-text-secondary">
+          Cargo
+          <input className={campo} value={cargo} disabled={!puedeEditar} placeholder="Auxiliar de Gestión Humana" onChange={(e) => setCargo(e.target.value)} />
+        </label>
+      </div>
+      {puedeEditar && (
+        <button
+          type="button"
+          className={botonPrimario}
+          disabled={ocupado || (nombre === d.nombre && cargo === d.cargo)}
+          onClick={() =>
+            enTransicion(async () => {
+              const r = await guardarFirmanteAccion(nombre, cargo);
+              setAviso(r.ok ? { ok: true, texto: "Guardado." } : { ok: false, texto: r.error });
+              cargar();
+            })
+          }
+        >
+          Guardar quien firma
+        </button>
+      )}
+      <div className="flex flex-wrap gap-3">
+        <ImagenCarta tipo="firma" url={d.firma} puedeEditar={puedeEditar} ocupado={ocupado} onSubir={subir} onQuitar={quitar} />
+        <ImagenCarta tipo="sello" url={d.sello} puedeEditar={puedeEditar} ocupado={ocupado} onSubir={subir} onQuitar={quitar} />
+      </div>
+      {aviso && <Mensaje {...aviso} />}
+    </div>
+  );
+}
+
+/** La firma o el sello de la carta: vista previa, subir y quitar. */
+function ImagenCarta({
+  tipo,
+  url,
+  puedeEditar,
+  ocupado,
+  onSubir,
+  onQuitar,
+}: {
+  tipo: "firma" | "sello";
+  url: string | null;
+  puedeEditar: boolean;
+  ocupado: boolean;
+  onSubir: (tipo: "firma" | "sello", fd: FormData) => void;
+  onQuitar: (tipo: "firma" | "sello") => void;
+}) {
+  return (
+    <div className="flex flex-col items-start gap-1.5 rounded-lg border border-[#E2E8F0] p-2">
+      <span className="text-xs font-medium text-text-secondary">{tipo === "firma" ? "Firma" : "Sello de la empresa"}</span>
+      <div className="flex h-20 w-40 items-center justify-center rounded bg-slate-50">
+        {url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={url} alt={tipo === "firma" ? "Firma" : "Sello"} className="max-h-20 max-w-40 object-contain" />
+        ) : (
+          <span className="text-[11px] text-text-tertiary">Sin imagen</span>
+        )}
+      </div>
+      {puedeEditar && (
+        <div className="flex items-center gap-2">
+          <label className={`${boton} cursor-pointer px-2 py-1 text-xs ${ocupado ? "pointer-events-none opacity-50" : ""}`}>
+            <Upload className="h-3.5 w-3.5" /> {url ? "Cambiar" : "Subir"}
+            <input
+              type="file"
+              accept="image/png,image/jpeg"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (!f) return;
+                const fd = new FormData();
+                fd.set("archivo", f);
+                onSubir(tipo, fd);
+              }}
+            />
+          </label>
+          {url && (
+            <button type="button" disabled={ocupado} className="text-xs text-text-tertiary underline" onClick={() => onQuitar(tipo)}>
+              Quitar
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

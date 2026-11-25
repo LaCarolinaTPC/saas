@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CAUSAS_REABRIBLES, cambioQueReabre, cambiosDesdeChat, type DatosProcesoChat } from "./actualizacion-chat";
+import { CAUSAS_REABRIBLES, cambioQueReabre, cambiosDesdeChat, procesoTerminado, type DatosProcesoChat } from "./actualizacion-chat";
 import { CAUSAS_NO_CONTRATO, CAUSAS_PRESELECCION } from "@/lib/contratacion/constants";
 
 const base: DatosProcesoChat = { edad: 37, ciudad_residencia: "Bogotá", dispuesto_traslado: false, licencia_categoria: "C2", experiencia_meses: 6 };
@@ -54,4 +54,22 @@ test("proceso cerrado solo: se reabre si la persona vuelve y cambió justo lo qu
   assert.equal(CAUSAS_REABRIBLES.edad, CAUSAS_PRESELECCION.edad);
   assert.equal(CAUSAS_REABRIBLES.autorizacion, CAUSAS_PRESELECCION.autorizacion);
   assert.ok((CAUSAS_NO_CONTRATO as readonly string[]).includes(CAUSAS_REABRIBLES.incomunicado));
+});
+
+test("proceso terminado: cerrar por cualquier razón detiene todo (24-nov-2026)", () => {
+  // Una persona lo cierra desde el tablero, con cualquier causa (también texto libre).
+  assert.equal(procesoTerminado("cierre", "Desistimiento", "usuario"), true);
+  assert.equal(procesoTerminado("cierre", "Se fue a vivir a otra ciudad", "usuario"), true);
+  // Aunque la causa sea de las que se reabren solas, si la puso una persona, terminó.
+  assert.equal(procesoTerminado("cierre", CAUSAS_REABRIBLES.incomunicado, "usuario"), true);
+  // El cierre automático reabrible no: el asistente retoma si la persona vuelve.
+  assert.equal(procesoTerminado("cierre", CAUSAS_REABRIBLES.incomunicado, "sistema"), false);
+  assert.equal(procesoTerminado("cierre", CAUSAS_REABRIBLES.residencia, "sistema"), false);
+  // Otros cierres del sistema (exámenes, antecedentes) sí terminan.
+  assert.equal(procesoTerminado("cierre", "Exámenes médicos", "sistema"), true);
+  // «Ya trabaja en la empresa» lo atienden las reglas del vínculo.
+  assert.equal(procesoTerminado("cierre", "Ya trabaja en la empresa", "sistema"), false);
+  // Abierto o contratado: no.
+  assert.equal(procesoTerminado("en_examenes", null, null), false);
+  assert.equal(procesoTerminado("contratado", null, null), false);
 });
