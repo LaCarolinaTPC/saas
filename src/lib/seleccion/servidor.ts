@@ -482,6 +482,35 @@ export async function fuentesOpcionales(): Promise<FuenteAntecedentes[]> {
   });
 }
 
+/** Los datos del prefiltro tal como quedaron guardados en el proceso. */
+function prefiltroDelProceso(p: {
+  cedula?: unknown;
+  cedula_fecha_expedicion?: unknown;
+  edad?: unknown;
+  fecha_nacimiento?: unknown;
+  ciudad_residencia?: unknown;
+  dispuesto_traslado?: unknown;
+  licencia_categoria?: unknown;
+  experiencia_meses?: unknown;
+  hoja_vida_recibida_at?: unknown;
+  autorizacion_datos?: unknown;
+}): Partial<DatosPrefiltro> {
+  const texto = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+  const numero = (v: unknown) => (v == null || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
+  return {
+    cedula: texto(p.cedula),
+    fecha_expedicion: texto(p.cedula_fecha_expedicion),
+    edad: numero(p.edad),
+    fecha_nacimiento: texto(p.fecha_nacimiento),
+    ciudad: texto(p.ciudad_residencia),
+    dispuesto_traslado: typeof p.dispuesto_traslado === "boolean" ? p.dispuesto_traslado : null,
+    licencia: texto(p.licencia_categoria),
+    experiencia_meses: numero(p.experiencia_meses),
+    hoja_vida: Boolean(p.hoja_vida_recibida_at),
+    autorizacion: p.autorizacion_datos === "si" ? "si" : p.autorizacion_datos === "no" ? "no" : null,
+  };
+}
+
 /**
  * «Listo para citar» (pedido de GH del 17-nov-2026): prefiltro completo,
  * autorización aceptada, preselección sin rojos y, con Croma configurado,
@@ -493,7 +522,9 @@ export async function marcarListoParaCitar(procesoId: string, datos?: DatosPrefi
   const db = createAdminClient();
   const { data: p } = await db
     .from("procesos_contratacion")
-    .select("estado, autorizacion_datos, preseleccion, reingreso, licencia_runt, licencia_categoria, licencia_verificada_runt")
+    .select(
+      "estado, autorizacion_datos, preseleccion, reingreso, licencia_runt, licencia_categoria, licencia_verificada_runt, cedula, cedula_fecha_expedicion, edad, fecha_nacimiento, ciudad_residencia, dispuesto_traslado, experiencia_meses, hoja_vida_recibida_at"
+    )
     .eq("id", procesoId)
     .maybeSingle();
   if (!p || p.autorizacion_datos !== "si") return false;
@@ -507,7 +538,10 @@ export async function marcarListoParaCitar(procesoId: string, datos?: DatosPrefi
     .order("ultimo_mensaje_at", { ascending: false, nullsFirst: false })
     .limit(1)
     .maybeSingle();
-  const prefiltro = (datos ?? (conv?.prefiltro as Partial<DatosPrefiltro> | null)) ?? null;
+  // Sin los datos del chat ni el prefiltro de una conversación (p. ej. después de «Lo revisé a
+  // mano» en un candidato del chat de prueba, 26-nov-2026), lo que ya guarda el proceso: sin
+  // esto quedaba quieto hasta el siguiente mensaje del aspirante.
+  const prefiltro = (datos ?? (conv?.prefiltro as Partial<DatosPrefiltro> | null)) ?? prefiltroDelProceso(p);
   // La licencia verificada en el RUNT cuenta aunque no la haya escrito: con ella el
   // asistente ya no se la pregunta (18-nov-2026), y sin esto nunca quedaría listo.
   const licenciaRunt = p.licencia_verificada_runt && p.licencia_categoria ? (p.licencia_categoria as string) : null;

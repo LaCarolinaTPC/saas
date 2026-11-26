@@ -7,6 +7,8 @@
  * cuando uno está fallando. Solo servidor (evaluarEventos es puro).
  */
 
+import { PORTALES_FUENTE } from "@/lib/verificacion/portales";
+
 export type IdServicio = "croma" | "ia" | "whatsapp" | "correo";
 export type NivelServicio = "ok" | "fallando" | "sin_datos" | "pausado" | "sin_configurar";
 
@@ -29,6 +31,27 @@ export interface EstadoServicio {
   ultimoOkAt: string | null;
   /** Qué hacer, en una línea. */
   consejo: string | null;
+  /**
+   * Croma por fuente (26-nov-2026): una fuente puede caerse mientras las demás
+   * responden (el RNMC, por ejemplo), y juntas nunca sumaban errores seguidos.
+   */
+  partes?: ParteServicio[];
+}
+
+/** Una fuente de Croma (RNMC, Policía, SIMIT…), evaluada por separado. */
+export interface ParteServicio {
+  id: string;
+  nombre: string;
+  nivel: NivelServicio;
+  seguidos: number;
+  errores24h: number;
+  total24h: number;
+  ultimoError: { texto: string; at: string } | null;
+  ultimoOkAt: string | null;
+  /** La solución mientras no responde. */
+  consejo: string | null;
+  /** Consulta ciudadana para revisarla a mano, si la fuente tiene. */
+  portal: string | null;
 }
 
 const HORA = 3_600_000;
@@ -76,6 +99,100 @@ const CONSEJO: Record<IdServicio, string> = {
   correo: "Revise el SMTP del servidor; las órdenes que no salieron se envían a mano desde Selección › Laboratorios.",
 };
 
+// ── Croma por fuente ────────────────────────────────────────────────────────
+
+export const FUENTES_CROMA: Record<string, { nombre: string; consejo: string }> = {
+  rnmc: {
+    nombre: "RNMC (medidas correctivas)",
+    consejo:
+      "Para que el proceso siga, revíselo a mano: en la ficha del candidato, pestaña Antecedentes › «Lo revisé a mano» (abre el portal de la Policía; adjunte el certificado). Gestivo sigue reintentando solo.",
+  },
+  policia: {
+    nombre: "Policía (antecedentes judiciales)",
+    consejo: "Revíselo a mano en la ficha del candidato, pestaña Antecedentes › «Lo revisé a mano» (portal de antecedentes de la Policía). Gestivo sigue reintentando solo.",
+  },
+  procuraduria: {
+    nombre: "Procuraduría",
+    consejo: "Revíselo a mano en la ficha del candidato, pestaña Antecedentes › «Lo revisé a mano» (portal de la Procuraduría). Gestivo sigue reintentando solo.",
+  },
+  contraloria: {
+    nombre: "Contraloría",
+    consejo: "Revíselo a mano en la ficha del candidato, pestaña Antecedentes › «Lo revisé a mano» (portal de la Contraloría). Gestivo sigue reintentando solo.",
+  },
+  simit: {
+    nombre: "SIMIT (multas)",
+    consejo: "Registre el SIMIT a mano en la ficha del candidato («Lo revisé a mano», portal del SIMIT) para que no se quede esperando.",
+  },
+  runt: {
+    nombre: "RUNT (licencia)",
+    consejo:
+      "Verifique la licencia a mano en la ficha («Lo revisé a mano»: categoría y vigencia, en el portal del RUNT o con la foto de la licencia). Si el RUNT está como obligatorio, puede dejarlo opcional en Tiempos y reglas mientras vuelve.",
+  },
+  adres: {
+    nombre: "ADRES (nombre)",
+    consejo: "Solo afecta el nombre: el asistente lo toma del RNMC o del RUNT. Si el nombre queda «por confirmar», corríjalo en la ficha.",
+  },
+};
+
+/**
+ * Errores que no son caídas: la fuente respondió, pero el dato no sirve (la
+ * fecha de expedición no coincide, el RNMC sin nombre). No cuentan para decir
+ * que la fuente está fallando.
+ */
+export function esErrorDeDato(error: string | null | undefined): boolean {
+  return /no coincide con la c[eé]dula|respondi[oó] sin el nombre/i.test(String(error ?? ""));
+}
+
+/**
+ * Croma por fuente: cada una con sus últimos resultados. Croma está fallando
+ * si alguna fuente lo está; con tres o más a la vez, el problema es de Croma
+ * (la clave, el saldo o el servicio) y el consejo es pausarlo.
+ */
+export function evaluarCroma(
+  filas: { fuente: string; ok: boolean; at: string; error?: string | null }[],
+  ahora: Date = new Date()
+): { partes: ParteServicio[]; resumen: Pick<EstadoServicio, "nivel" | "seguidos" | "errores24h" | "total24h" | "ultimoError" | "ultimoOkAt" | "nombre" | "consejo"> } {
+  const evento = (f: { ok: boolean; at: string; error?: string | null }): EventoServicio => ({ ok: f.ok || esErrorDeDato(f.error), at: f.at, error: f.error ?? null });
+  const porFuente = new Map<string, EventoServicio[]>();
+  for (const f of [...filas].sort((a, b) => b.at.localeCompare(a.at))) {
+    const lista = porFuente.get(f.fuente) ?? [];
+    // 30 por fuente, como antes para todo Croma.
+    if (lista.length < 30) lista.push(evento(f));
+    porFuente.set(f.fuente, lista);
+  }
+  const partes: ParteServicio[] = [...porFuente.entries()]
+    .map(([id, ev]) => {
+      const r = evaluarEventos(ev, ahora);
+      const info = FUENTES_CROMA[id];
+      return { id, nombre: info?.nombre ?? id, ...r, consejo: r.nivel === "fallando" ? (info?.consejo ?? null) : null, portal: PORTALES_FUENTE[id] ?? null };
+    })
+    .sort((a, b) => Number(b.nivel === "fallando") - Number(a.nivel === "fallando") || a.nombre.localeCompare(b.nombre, "es"));
+
+  const todo = evaluarEventos(filas.map(evento), ahora);
+  const caidas = partes.filter((p) => p.nivel === "fallando");
+  if (!caidas.length) return { partes, resumen: { ...todo, nombre: NOMBRES.croma, consejo: todo.nivel === "fallando" ? CONSEJO.croma : null } };
+  const peor = caidas[0];
+  const general = caidas.length >= 3 || todo.nivel === "fallando";
+  const nombres = caidas.map((p) => p.nombre);
+  return {
+    partes,
+    resumen: {
+      nivel: "fallando",
+      seguidos: peor.seguidos,
+      errores24h: todo.errores24h,
+      total24h: todo.total24h,
+      ultimoError: peor.ultimoError,
+      ultimoOkAt: peor.ultimoOkAt,
+      nombre: general ? NOMBRES.croma : `Croma: ${nombres.join(", ")}`,
+      consejo: general
+        ? CONSEJO.croma
+        : caidas.length === 1
+          ? peor.consejo
+          : `${nombres.join(" y ")}: revíselos a mano en la ficha del candidato, pestaña Antecedentes › «Lo revisé a mano». Gestivo sigue reintentando solo.`,
+    },
+  };
+}
+
 let cache: { hasta: number; datos: Promise<EstadoServicio[]> } | null = null;
 
 /** Los cuatro servicios. Un minuto en memoria (lo piden varias pantallas). */
@@ -95,7 +212,8 @@ async function calcular(): Promise<EstadoServicio[]> {
   const { correoConfigurado } = await import("@/lib/correo/enviar");
   const db = createAdminClient();
   const [croma, ia, wa, correo, pausado] = await Promise.all([
-    db.from("verificaciones_externas").select("estado, error, created_at").eq("proveedor", "croma").in("estado", ["ok", "hallazgo", "error"]).order("created_at", { ascending: false }).limit(30),
+    // Por fuente (26-nov-2026): las suficientes para tener las últimas de cada una.
+    db.from("verificaciones_externas").select("fuente, estado, error, created_at").eq("proveedor", "croma").in("estado", ["ok", "hallazgo", "error"]).order("created_at", { ascending: false }).limit(300),
     db.from("wa_agente_ejecuciones").select("resultado, error, created_at").in("resultado", ["respondido", "transferido", "error"]).order("created_at", { ascending: false }).limit(30),
     db
       .from("wa_mensajes")
@@ -109,8 +227,7 @@ async function calcular(): Promise<EstadoServicio[]> {
     cromaPausado(),
   ]);
   const filas = (r: { data: unknown }) => (r.data ?? []) as Record<string, unknown>[];
-  const eventos: Record<IdServicio, EventoServicio[]> = {
-    croma: filas(croma).map((f) => ({ ok: f.estado !== "error", at: f.created_at as string, error: f.error as string | null })),
+  const eventos: Record<Exclude<IdServicio, "croma">, EventoServicio[]> = {
     // «WhatsApp rechazó el envío» queda como error del asistente, pero es de WhatsApp.
     ia: filas(ia)
       .filter((f) => !/WhatsApp rechaz/i.test(String(f.error ?? "")))
@@ -118,12 +235,18 @@ async function calcular(): Promise<EstadoServicio[]> {
     whatsapp: filas(wa).map((f) => ({ ok: f.estado !== "failed", at: f.created_at as string, error: f.error_mensaje as string | null })),
     correo: filas(correo).map((f) => ({ ok: f.resultado !== "fallido", at: f.created_at as string, error: f.error as string | null })),
   };
-  return (Object.keys(NOMBRES) as IdServicio[]).map((id) => {
+  const porFuente = evaluarCroma(
+    filas(croma).map((f) => ({ fuente: String(f.fuente ?? "otra"), ok: f.estado !== "error", at: f.created_at as string, error: f.error as string | null }))
+  );
+  return (Object.keys(NOMBRES) as IdServicio[]).map((id): EstadoServicio => {
+    if (id === "croma") {
+      const nivel: NivelServicio = !process.env.CROMA_API_KEY?.trim() ? "sin_configurar" : pausado ? "pausado" : porFuente.resumen.nivel;
+      const fallando = nivel === "fallando";
+      return { id, ...porFuente.resumen, nivel, nombre: fallando ? porFuente.resumen.nombre : NOMBRES.croma, consejo: fallando ? porFuente.resumen.consejo : null, partes: porFuente.partes };
+    }
     const ev = evaluarEventos(eventos[id]);
     let nivel = ev.nivel;
-    if (id === "croma" && !process.env.CROMA_API_KEY?.trim()) nivel = "sin_configurar";
-    else if (id === "croma" && pausado) nivel = "pausado";
-    else if (id === "correo" && !correoConfigurado()) nivel = "sin_configurar";
+    if (id === "correo" && !correoConfigurado()) nivel = "sin_configurar";
     return { id, nombre: NOMBRES[id], ...ev, nivel, consejo: nivel === "fallando" ? CONSEJO[id] : null };
   });
 }

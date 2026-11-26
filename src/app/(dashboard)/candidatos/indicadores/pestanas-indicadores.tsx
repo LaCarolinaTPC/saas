@@ -5,12 +5,13 @@ import Link from "next/link";
  * WhatsApp (esta estuvo en Comunicaciones hasta el 21-nov-2026). Cada una lee
  * su periodo de la URL; al cambiar se conserva `dias`, `desde` y `hasta`.
  */
-export function PestanasIndicadores({ actual, periodo }: { actual: "seleccion" | "whatsapp"; periodo?: URLSearchParams }) {
+export function PestanasIndicadores({ actual, periodo }: { actual: "seleccion" | "whatsapp" | "proveedores"; periodo?: URLSearchParams }) {
   const q = periodo?.toString();
   const con = (ruta: string) => (q ? `${ruta}?${q}` : ruta);
   const pestanas = [
     { id: "seleccion", nombre: "Selección", href: con("/candidatos/indicadores") },
     { id: "whatsapp", nombre: "Atención del WhatsApp", href: con("/candidatos/indicadores/whatsapp") },
+    { id: "proveedores", nombre: "Proveedores", href: con("/candidatos/indicadores/proveedores") },
   ] as const;
   return (
     <nav className="mb-4 flex w-fit gap-1 rounded-xl border border-border bg-white p-1" aria-label="Indicadores">

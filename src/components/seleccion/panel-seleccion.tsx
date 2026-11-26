@@ -5,7 +5,7 @@
  * preselección con la propuesta de cierre, autorización de datos, SIMIT,
  * postulaciones anteriores (B3) e historial de cambios (NF6).
  */
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Bot, ExternalLink, History, Search, ShieldCheck, ShieldX, TriangleAlert } from "lucide-react";
 import { estadoInfo, type ProcesoContratacion } from "@/lib/contratacion/constants";
@@ -374,6 +374,7 @@ export function PanelSeleccion({
   version = 0,
   destino,
   lateral = false,
+  onCambio,
 }: {
   proceso: ProcesoContratacion;
   puedeEditar: boolean;
@@ -390,6 +391,8 @@ export function PanelSeleccion({
   destino?: EtapaConPaso | null;
   /** En la columna derecha de la ficha (sin el margen ni la línea de arriba). */
   lateral?: boolean;
+  /** Algo cambió desde el panel (p. ej. «Lo revisé a mano»): quien lo muestra vuelve a leer el proceso (26-nov-2026). */
+  onCambio?: () => void;
 }) {
   const router = useRouter();
   const [eventos, setEventos] = useState<EventoProcesoVista[] | null>(null);
@@ -403,6 +406,13 @@ export function PanelSeleccion({
   const [pendiente, startTransition] = useTransition();
   // Cambia al guardar una revisión manual, para volver a leer consultas e historial.
   const [recarga, setRecarga] = useState(0);
+  const onCambioRef = useRef(onCambio);
+  useEffect(() => {
+    onCambioRef.current = onCambio;
+  }, [onCambio]);
+  useEffect(() => {
+    if (recarga > 0) onCambioRef.current?.();
+  }, [recarga]);
   const [pestana, setPestana] = useState<Pestana>(destino ? pestanaDeEtapa(destino) : "resumen");
   // Cambia cuando el paso del tablero hace avanzar el proceso: se releen las secciones.
   const [avances, setAvances] = useState(0);

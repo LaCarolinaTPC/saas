@@ -8,8 +8,10 @@
  * adjuntar el certificado en PDF (por ejemplo, el del RNMC).
  */
 import { useRef, useState } from "react";
-import { ExternalLink, FileUp, Loader2, TriangleAlert } from "lucide-react";
-import { revisarFuenteAMano, type FuenteRevision } from "@/lib/contratacion/actions";
+import { ExternalLink, FileUp, Loader2, Sparkles, TriangleAlert } from "lucide-react";
+import { leerCertificadoAMano, revisarFuenteAMano, type FuenteRevision } from "@/lib/contratacion/actions";
+import type { LecturaCertificado } from "@/lib/verificacion/lectura-certificado";
+import { PORTALES_FUENTE } from "@/lib/verificacion/portales";
 
 export interface FuentePendiente {
   fuente: FuenteRevision;
@@ -30,15 +32,8 @@ const NOMBRE: Record<FuenteRevision, string> = {
   runt: "RUNT (licencia)",
 };
 
-// Consultas ciudadanas gratuitas de cada fuente.
-const PORTAL: Record<FuenteRevision, string> = {
-  policia: "https://antecedentes.policia.gov.co:7005/WebJudicial/",
-  procuraduria: "https://www.procuraduria.gov.co/Pages/Consulta-de-Antecedentes.aspx",
-  contraloria: "https://www.contraloria.gov.co/web/guest/persona-natural",
-  rnmc: "https://srvcnpc.policia.gov.co/PSC/frm_cnp_consulta.aspx",
-  simit: "https://www.fcm.org.co/simit/#/home-public",
-  runt: "https://www.runt.gov.co/actores/ciudadano/consulta-por-tipo-de-documento",
-};
+// Consultas ciudadanas gratuitas de cada fuente (compartidas con la barra de estado).
+const PORTAL: Record<FuenteRevision, string> = PORTALES_FUENTE as Record<FuenteRevision, string>;
 
 function leerPdf(archivo: File): Promise<string> {
   return new Promise((ok, mal) => {
@@ -57,7 +52,13 @@ export function RevisionManual({ procesoId, pendientes, onGuardado }: { procesoI
   const [nota, setNota] = useState("");
   const [pdf, setPdf] = useState<{ base64: string; nombre: string } | null>(null);
   const [ocupado, setOcupado] = useState(false);
+  // Guardadas en esta pantalla mientras la ficha se vuelve a leer (puede tardar unos segundos).
+  const [guardadas, setGuardadas] = useState<FuenteRevision[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // El certificado leído por la IA (26-nov-2026): llena el formulario; la persona revisa y guarda.
+  const [leyendo, setLeyendo] = useState(false);
+  const [lectura, setLectura] = useState<LecturaCertificado | null>(null);
+  const [errorIa, setErrorIa] = useState<string | null>(null);
   const archivoRef = useRef<HTMLInputElement>(null);
 
   if (pendientes.length === 0) return null;
@@ -70,6 +71,8 @@ export function RevisionManual({ procesoId, pendientes, onGuardado }: { procesoI
     setNota("");
     setPdf(null);
     setError(null);
+    setLectura(null);
+    setErrorIa(null);
   }
 
   async function elegirPdf(archivo: File | undefined) {
@@ -77,11 +80,28 @@ export function RevisionManual({ procesoId, pendientes, onGuardado }: { procesoI
     if (!archivo) return;
     if (archivo.type !== "application/pdf" && !archivo.name.toLowerCase().endsWith(".pdf")) return setError("El archivo debe ser un PDF.");
     if (archivo.size > 700_000) return setError("El PDF pesa más de 700 KB. Descárgalo de nuevo del portal o redúcelo.");
+    const fuente = abierta;
+    let base64: string;
     try {
-      setPdf({ base64: await leerPdf(archivo), nombre: archivo.name });
+      base64 = await leerPdf(archivo);
+      setPdf({ base64, nombre: archivo.name });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "No se pudo leer el archivo.");
+      return setError(e instanceof Error ? e.message : "No se pudo leer el archivo.");
     }
+    if (!fuente) return;
+    // La IA lo lee y llena el formulario; nada se guarda hasta que la persona lo confirme.
+    setLectura(null);
+    setErrorIa(null);
+    setLeyendo(true);
+    const r = await leerCertificadoAMano(procesoId, fuente, { base64, nombre: archivo.name }).catch((e: Error) => ({ ok: false as const, error: e.message }));
+    setLeyendo(false);
+    if (!r.ok) return setErrorIa(r.error);
+    const l = r.lectura;
+    setLectura(l);
+    if (fuente === "simit" && l.valor != null) setValor(String(l.valor));
+    else if (fuente === "runt") setLicencia((x) => ({ categoria: l.categoria ?? x.categoria, vence: l.vence ?? x.vence, restricciones: l.restricciones ?? x.restricciones }));
+    else if (l.hallazgo != null) setHallazgo(l.hallazgo);
+    setNota((n) => (n.trim() ? n : `Leído por la IA del certificado${l.fecha ? ` del ${l.fecha}` : ""}: ${l.detalle}`.slice(0, 500)));
   }
 
   async function guardar() {
@@ -102,6 +122,7 @@ export function RevisionManual({ procesoId, pendientes, onGuardado }: { procesoI
     }).catch((e: Error) => ({ ok: false as const, error: e.message }));
     setOcupado(false);
     if (!r.ok) return setError(r.error ?? "No se pudo guardar.");
+    setGuardadas((g) => [...g, abierta]);
     setAbierta(null);
     onGuardado();
   }
@@ -133,7 +154,11 @@ export function RevisionManual({ procesoId, pendientes, onGuardado }: { procesoI
                 <a href={PORTAL[p.fuente]} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-[#4F46E5]">
                   Abrir el portal <ExternalLink className="h-3 w-3" />
                 </a>
-                {abierta !== p.fuente && (
+                {guardadas.includes(p.fuente) ? (
+                  <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                    <Loader2 className="h-3 w-3 animate-spin" /> Guardado · actualizando la ficha…
+                  </span>
+                ) : abierta !== p.fuente && (
                   <button type="button" onClick={() => abrir(p.fuente)} className="rounded-lg bg-[#4F46E5] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#4338CA]">
                     Lo revisé a mano
                   </button>
@@ -188,7 +213,32 @@ export function RevisionManual({ procesoId, pendientes, onGuardado }: { procesoI
                     <FileUp className="h-3.5 w-3.5" /> {pdf ? "Cambiar el PDF" : p.fuente === "rnmc" ? "Adjuntar el certificado del RNMC (PDF)" : "Adjuntar el certificado (PDF)"}
                   </button>
                   {pdf && <span className="truncate text-xs text-gray-600">{pdf.nombre}</span>}
+                  {!pdf && <span className="text-[11px] text-gray-500">La IA lo lee y llena la revisión.</span>}
                 </div>
+                {leyendo && (
+                  <p className="flex items-center gap-1.5 rounded-lg bg-indigo-50 px-3 py-2 text-xs text-indigo-800">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Leyendo el certificado con la IA…
+                  </p>
+                )}
+                {errorIa && <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">{errorIa}</p>}
+                {lectura && (
+                  <div className="space-y-1 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-900">
+                    <p className="flex items-center gap-1.5 font-semibold">
+                      <Sparkles className="h-3.5 w-3.5" /> La IA leyó el certificado y llenó la revisión: revísela y guarde.
+                    </p>
+                    {lectura.detalle && <p>«{lectura.detalle}»</p>}
+                    <p className="text-indigo-700">
+                      {[lectura.nombre, lectura.cedula ? `cédula ${lectura.cedula}${lectura.cedulaCoincide ? " (coincide)" : ""}` : null, lectura.fecha ? `del ${lectura.fecha}` : null]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </p>
+                    {lectura.avisos.map((a) => (
+                      <p key={a} className="rounded bg-amber-100 px-2 py-1 font-medium text-amber-900">
+                        ⚠ {a}
+                      </p>
+                    ))}
+                  </div>
+                )}
                 {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{error}</p>}
                 <div className="flex justify-end gap-2">
                   <button type="button" onClick={() => setAbierta(null)} disabled={ocupado} className="rounded-lg border border-[#E2E8F0] px-3 py-1.5 text-xs font-medium text-gray-700">

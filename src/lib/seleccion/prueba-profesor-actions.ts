@@ -148,7 +148,8 @@ export async function candidatosDePrueba(): Promise<CandidatoDePrueba[]> {
     .eq("origen", "chat_prueba")
     .not("estado", "in", "(cierre,contratado)")
     .order("updated_at", { ascending: false })
-    .limit(15);
+    // 50 (26-nov-2026): con varias personas probando a la vez, 15 se quedaban cortos.
+    .limit(50);
   return (data ?? []) as CandidatoDePrueba[];
 }
 

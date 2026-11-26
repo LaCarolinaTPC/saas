@@ -6,7 +6,7 @@
  * llamada (la respuesta); la ficha «Así se vería en Candidatos» se lee sola.
  * La simulación de silencio no usa IA.
  */
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ArrowLeft, Bot, Clapperboard, CornerUpLeft, Download, FileText, Image as ImageIcon, Loader2, Mic, Paperclip, Play, Send, Smile, Timer,
 } from "lucide-react";
@@ -16,6 +16,7 @@ import type { ProcesoContratacion } from "@/lib/contratacion/constants";
 import type { ChequeoCaso, MensajeSimulado } from "@/lib/seleccion/simulacion";
 import type { ResumenRunt } from "@/lib/verificacion/proveedores";
 import { ESCENARIO_BASE, resumenEscenario, type EscenarioCroma } from "@/lib/seleccion/escenario-croma";
+import { guardarChatRemoto, leerChatRemoto } from "./chats-prueba-remoto";
 import { pareceAvisoDeRevision, type FechaRechazada } from "@/lib/comunicaciones/agente/motor";
 import { combinarLecturas, fotosADescartar, resumenLectura, type LecturaCedula, type MotivoDescarte } from "@/lib/seleccion/lectura-cedula";
 import {
@@ -242,7 +243,7 @@ export function ChatPrueba({
   profesor?: ReactNode;
   /** La conversación con los laboratorios (pestaña «Laboratorios» del panel lateral). */
   laboratorios?: ReactNode;
-  /** Identificador del chat: con él se guarda en el navegador para retomarlo al volver a la página. */
+  /** Identificador del chat: con él se guarda en la base (y en el navegador) para retomarlo desde cualquier equipo. */
   idChat?: number;
 }) {
   const [lado, setLado] = useState<"candidato" | "profesor" | "laboratorios" | "pruebas">("candidato");
@@ -395,59 +396,101 @@ export function ChatPrueba({
     finRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [chat.length, probando]);
 
-  // ── Guardado en el navegador: al volver a la página, el chat sigue donde quedó ──
+  // ── Guardado en la base y en el navegador: el chat sigue donde quedó, desde cualquier equipo ──
   const claveGuardado = idChat ? `${PREFIJO_GUARDADO}${idChat}` : null;
   const [restaurado, setRestaurado] = useState(!claveGuardado);
   // El candidato guardado mientras se vuelve a leer su ficha (23-nov-2026): las
   // acciones del servidor van en fila y tardan; sin esto se guardaba
   // `procesoId: null` y, si se recargaba antes, el chat perdía su candidato.
   const procesoPendienteRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!claveGuardado) return;
-    try {
-      const s = JSON.parse(localStorage.getItem(claveGuardado) ?? "null") as ChatGuardado | null;
-      if (s && s.v === 1) {
-        setChat(s.chat ?? []);
-        idRef.current = Math.max(0, ...(s.chat ?? []).map((m) => m.id));
-        setBorrador(s.borrador ?? "");
-        setPanel(s.panel ?? null);
-        setRunt(s.runt ?? null);
-        setSimit(s.simit ?? "0");
-        setSimitCedula(s.simitCedula ?? null);
-        setEstadoCroma(s.estadoCroma ?? null);
-        setFechaRechazada(s.fechaRechazada ?? null);
-        setVerificacionDemorada(Boolean(s.verificacionDemorada));
-        setRnmc(s.rnmc ?? null);
-        setTransferencia(s.transferencia ?? null);
-        setHora(s.hora ?? "");
-        fechasRechazadas.current = new Set(s.fechasRechazadas ?? []);
-        cedulasReconsultadas.current = new Set(s.cedulasReconsultadas ?? []);
-        if (s.procesoId) {
-          const pendiente = s.procesoId;
-          procesoPendienteRef.current = pendiente;
-          void fichaPrueba(pendiente)
-            .then((f) => {
-              // Si se reinició el chat mientras tanto, no se vuelve a enlazar.
-              if (procesoPendienteRef.current !== pendiente) return;
-              procesoPendienteRef.current = null;
-              if (!f) return;
-              // Chats guardados antes de este cambio: la cédula del candidato enlazado ya se consultó.
-              const ced = String(f.cedula ?? "").replace(/\D/g, "");
-              if (ced) cedulasReconsultadas.current.add(ced);
-              setProcesoPrueba(f);
-              setFichaVersion((n) => n + 1);
-            })
-            // Falló la lectura (servidor caído, sesión vencida): se conserva el enlace para la próxima vez.
-            .catch(() => undefined);
-        }
-      }
-    } catch {
-      // Sin acceso al almacenamiento del navegador: el chat funciona igual, sin guardarse.
+  // En la base (26-nov-2026): la conversación se comparte entre equipos. Lo último
+  // guardado o leído de la base (para no reenviar lo mismo ni pisar lo de otro equipo),
+  // su versión (updated_at) y lo que falta por subir.
+  const ultimoRemotoRef = useRef<string | null>(null);
+  const versionRemotaRef = useRef<string | null>(null);
+  const pendienteRef = useRef<string | null>(null);
+  const temporizadorRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Pone en el chat una conversación guardada (del navegador o de la base). */
+  const aplicarGuardado = (s: ChatGuardado) => {
+    setChat(s.chat ?? []);
+    idRef.current = Math.max(0, ...(s.chat ?? []).map((m) => m.id));
+    setBorrador(s.borrador ?? "");
+    setPanel(s.panel ?? null);
+    setRunt(s.runt ?? null);
+    setSimit(s.simit ?? "0");
+    setSimitCedula(s.simitCedula ?? null);
+    setEstadoCroma(s.estadoCroma ?? null);
+    setFechaRechazada(s.fechaRechazada ?? null);
+    setVerificacionDemorada(Boolean(s.verificacionDemorada));
+    setRnmc(s.rnmc ?? null);
+    setTransferencia(s.transferencia ?? null);
+    setHora(s.hora ?? "");
+    fechasRechazadas.current = new Set(s.fechasRechazadas ?? []);
+    cedulasReconsultadas.current = new Set(s.cedulasReconsultadas ?? []);
+    if (s.procesoId && s.procesoId !== procesoPrueba?.id) {
+      const pendiente = s.procesoId;
+      procesoPendienteRef.current = pendiente;
+      void fichaPrueba(pendiente)
+        .then((f) => {
+          // Si se reinició el chat mientras tanto, no se vuelve a enlazar.
+          if (procesoPendienteRef.current !== pendiente) return;
+          procesoPendienteRef.current = null;
+          if (!f) return;
+          // Chats guardados antes de este cambio: la cédula del candidato enlazado ya se consultó.
+          const ced = String(f.cedula ?? "").replace(/\D/g, "");
+          if (ced) cedulasReconsultadas.current.add(ced);
+          setProcesoPrueba(f);
+          setFichaVersion((n) => n + 1);
+        })
+        // Falló la lectura (servidor caído, sesión vencida): se conserva el enlace para la próxima vez.
+        .catch(() => undefined);
     }
-    setRestaurado(true);
+  };
+  // Al abrir el chat: primero la base (lo último de cualquier equipo); si no responde
+  // o el chat no está allá, lo guardado en este navegador (y se sube a la base).
+  useEffect(() => {
+    if (!claveGuardado || idChat == null) return;
+    let vivo = true;
+    let local: ChatGuardado | null = null;
+    try {
+      local = JSON.parse(localStorage.getItem(claveGuardado) ?? "null") as ChatGuardado | null;
+    } catch {
+      // Sin acceso al almacenamiento del navegador: el chat funciona igual.
+    }
+    void leerChatRemoto(idChat).then((r) => {
+      if (!vivo) return;
+      const remoto = r?.estado && (r.estado as ChatGuardado).v === 1 ? (r.estado as ChatGuardado) : null;
+      if (remoto && r) {
+        ultimoRemotoRef.current = JSON.stringify(remoto);
+        versionRemotaRef.current = r.updated_at;
+      }
+      const s = remoto ?? (local?.v === 1 ? local : null);
+      if (s) aplicarGuardado(s);
+      setRestaurado(true);
+    });
+    return () => {
+      vivo = false;
+    };
     // Solo al abrir el chat.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /** Sube a la base la conversación pendiente. */
+  const subirPendiente = useCallback(
+    async (keepalive = false) => {
+      const json = pendienteRef.current;
+      if (!json || idChat == null) return;
+      pendienteRef.current = null;
+      if (temporizadorRef.current) clearTimeout(temporizadorRef.current);
+      temporizadorRef.current = null;
+      const r = await guardarChatRemoto({ id: idChat, estado: JSON.parse(json) as unknown }, { keepalive });
+      if (r) {
+        ultimoRemotoRef.current = json;
+        versionRemotaRef.current = r.updated_at;
+      }
+    },
+    [idChat]
+  );
   useEffect(() => {
     if (!claveGuardado || !restaurado) return;
     const guardado: ChatGuardado = {
@@ -469,12 +512,50 @@ export function ChatPrueba({
       fechasRechazadas: [...fechasRechazadas.current],
       cedulasReconsultadas: [...cedulasReconsultadas.current],
     };
+    const json = JSON.stringify(guardado);
     try {
-      localStorage.setItem(claveGuardado, JSON.stringify(guardado));
+      localStorage.setItem(claveGuardado, json);
     } catch {
-      // Lleno o bloqueado: no se guarda, sin afectar el chat.
+      // Lleno o bloqueado: no se guarda en el navegador, sin afectar el chat.
     }
-  }, [claveGuardado, restaurado, chat, borrador, panel, runt, simit, simitCedula, estadoCroma, fechaRechazada, verificacionDemorada, rnmc, transferencia, hora, procesoPrueba?.id]);
+    // A la base, agrupando los cambios seguidos (cada tecla del borrador no es un viaje).
+    if (idChat == null || json === ultimoRemotoRef.current) return;
+    pendienteRef.current = json;
+    if (temporizadorRef.current) clearTimeout(temporizadorRef.current);
+    temporizadorRef.current = setTimeout(() => void subirPendiente(), 1000);
+  }, [claveGuardado, restaurado, chat, borrador, panel, runt, simit, simitCedula, estadoCroma, fechaRechazada, verificacionDemorada, rnmc, transferencia, hora, procesoPrueba?.id, idChat, subirPendiente]);
+  // Al cerrar la pestaña o salir del chat no se pierde lo último.
+  useEffect(() => {
+    const vaciar = () => {
+      if (pendienteRef.current) void subirPendiente(true);
+    };
+    window.addEventListener("pagehide", vaciar);
+    return () => {
+      window.removeEventListener("pagehide", vaciar);
+      vaciar();
+    };
+  }, [subirPendiente]);
+  // Lo que otro equipo siguió en este chat: se trae al volver a él o a la ventana,
+  // si aquí no hay nada en curso ni sin subir.
+  useEffect(() => {
+    if (!activo || !restaurado || idChat == null || probando) return;
+    const traer = () => {
+      if (pendienteRef.current) return;
+      void leerChatRemoto(idChat).then((r) => {
+        if (!r?.estado || r.updated_at === versionRemotaRef.current || pendienteRef.current) return;
+        versionRemotaRef.current = r.updated_at;
+        const json = JSON.stringify(r.estado);
+        if (json === ultimoRemotoRef.current || (r.estado as ChatGuardado).v !== 1) return;
+        ultimoRemotoRef.current = json;
+        aplicarGuardado(r.estado as ChatGuardado);
+      });
+    };
+    traer();
+    window.addEventListener("focus", traer);
+    return () => window.removeEventListener("focus", traer);
+    // aplicarGuardado solo usa setters y refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activo, restaurado, idChat, probando]);
 
   const ultimoMensaje = chat[chat.length - 1];
   const nombreChat = procesoPrueba?.nombre ?? null;
@@ -1174,6 +1255,14 @@ export function ChatPrueba({
           <FichaPrueba
             proceso={procesoPrueba}
             version={fichaVersion}
+            onCambio={() => {
+              // Un cambio desde la ficha (p. ej. «Lo revisé a mano»): el encabezado y el estado al día.
+              const id = procesoPrueba?.id;
+              if (!id) return;
+              void fichaPrueba(id)
+                .then((f) => f && setProcesoPrueba(f))
+                .catch(() => undefined);
+            }}
             extraido={panel?.extraido ?? null}
             runt={runt}
             simit={{ valor: simitNum, consultado: simitCedula != null && simitCedula === panel?.extraido?.cedula }}

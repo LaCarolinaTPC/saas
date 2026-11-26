@@ -24,6 +24,7 @@ import { SOLO_ADMIN, esPestana, type Pestana } from "./pestanas";
 import PestanaCanal, { type CanalActual } from "./PestanaCanal";
 import type { AgenteConfig, Proveedor } from "@/lib/comunicaciones/agente/opciones";
 import { ChatsPrueba } from "@/components/seleccion/chats-prueba";
+import { BarraServicios } from "@/components/estado-servicios/barra-servicios";
 import { MarcoProfesorPrueba } from "@/components/seleccion/marco-profesor-prueba";
 import { LaboratoriosPrueba } from "@/components/seleccion/laboratorios-prueba";
 
@@ -326,7 +327,9 @@ export default function SeleccionClient({
       </div>
 
       {pestana === "probar" ? (
-        <div className="mt-3">
+        <div className="mt-3 space-y-2">
+          {/* Estado de los servicios (26-nov-2026): si Croma o la IA no responden, qué hacer sin salir de la prueba. */}
+          <BarraServicios />
           <ChatsPrueba
             descripcion="Prueba el asistente con la configuración guardada, como lo vería un aspirante, en varios chats a la vez. No se envía nada por WhatsApp. Cada mensaje usa dos llamadas a la IA."
             profesor={<MarcoProfesorPrueba puedeEditar={puedeEditar} compacto />}

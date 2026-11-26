@@ -9,6 +9,7 @@ import { configDocumentos, modeloSolicitado } from "./config";
 import { errorProveedorLegible, fallaDeRed, type ProveedorError } from "@/lib/ia/errores";
 import type { TurnoModelo } from "./motor";
 import { conGrabacion } from "@/lib/ia/grabacion";
+import { medirLlamada } from "@/lib/servicios/registro-llamadas";
 import { precioModelo } from "@/lib/seleccion/consumos";
 
 /**
@@ -239,7 +240,13 @@ export async function generarConAdjuntos(
   return conGrabacion(
     "documentos",
     { proveedor: config.proveedor, modelo: opciones.modelo || modeloSolicitado(config), sistema, instruccion, archivos, maxTokens: opciones.maxTokens },
-    () => generarConAdjuntosSinGrabar(config, claves, sistema, instruccion, archivos, opciones),
+    // Cada llamada real queda en las estadísticas de proveedores (las repetidas de una grabación no).
+    () =>
+      medirLlamada(
+        { servicio: "ia", proveedor: config.proveedor, fuente: "documentos", modelo: opciones.modelo || modeloSolicitado(config) },
+        () => generarConAdjuntosSinGrabar(config, claves, sistema, instruccion, archivos, opciones),
+        (r) => ({ ok: true, modelo: r.modeloUsado })
+      ),
     { sinCosto: sinCostoModelo }
   );
 }
@@ -382,7 +389,12 @@ export async function generarRespuesta(
   return conGrabacion(
     "chat",
     { proveedor: config.proveedor, modelo: modeloSolicitado(config), modo: config.openrouterModo, sistema, turnos },
-    () => generarRespuestaSinGrabar(config, claves, sistema, turnos),
+    () =>
+      medirLlamada(
+        { servicio: "ia", proveedor: config.proveedor, fuente: "chat", modelo: modeloSolicitado(config) },
+        () => generarRespuestaSinGrabar(config, claves, sistema, turnos),
+        (r) => ({ ok: true, modelo: r.modeloUsado })
+      ),
     { sinCosto: sinCostoModelo }
   );
 }

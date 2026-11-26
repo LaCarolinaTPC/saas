@@ -68,6 +68,14 @@ export function interpretarConsulta(fuente: string, resultado: unknown): DatoInt
       break;
     }
     case "runt": {
+      // Revisión manual («Lo revisé a mano»): la licencia como la anotó la persona, no la forma de Croma (26-nov-2026).
+      if (r.manual === true) {
+        add("Categorías", lista(r.categorias).map(txt).filter(Boolean).join(", ") || "Sin dato");
+        add("Vence", txt(r.vence) ?? "Sin dato");
+        add("Restricciones", txt(r.restricciones) ?? "Ninguna");
+        add("Revisó", txt(r.revisado_por));
+        break;
+      }
       add("¿Aparece en el RUNT?", siNo(r.found !== false));
       const p = o(r.person);
       add("Nombre en el RUNT", txt(p?.full_name));

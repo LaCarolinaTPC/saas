@@ -9,6 +9,7 @@
  */
 import { getClaveIA } from "./claves";
 import { conGrabacion } from "./grabacion";
+import { medirLlamada } from "@/lib/servicios/registro-llamadas";
 
 /** «Voz» en Candidatos › Selección › IA (antes, el ajuste `transcripcion_modelo` de selección). */
 export type ModeloTranscripcion = "gpt4o_mini" | "whisper";
@@ -152,9 +153,11 @@ async function transcribirAudioSinGrabar(
   const contentType = mime.split(";")[0].trim() || `audio/${ext}`;
   const datos = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
   const errores: string[] = [];
+  // Cada intento queda en las estadísticas de proveedores (26-nov-2026).
+  const evaluar = (r: ResultadoTranscripcion) => ({ ok: r.ok, error: r.ok ? null : r.error });
   const intentos = [
-    claveOR ? () => porOpenRouter(claveOR, datos, ext, modelo) : null,
-    claveOA ? () => porOpenAI(claveOA, datos, ext, contentType, modelo) : null,
+    claveOR ? () => medirLlamada({ servicio: "ia", proveedor: "openrouter", fuente: "voz", modelo }, () => porOpenRouter(claveOR, datos, ext, modelo), evaluar) : null,
+    claveOA ? () => medirLlamada({ servicio: "ia", proveedor: "openai", fuente: "voz", modelo }, () => porOpenAI(claveOA, datos, ext, contentType, modelo), evaluar) : null,
   ];
   if (opciones.proveedor === "openai") intentos.reverse();
   for (const intento of intentos) {

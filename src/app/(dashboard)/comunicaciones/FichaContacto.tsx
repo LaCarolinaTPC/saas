@@ -6,6 +6,7 @@ import {
   Phone, Copy, Check, IdCard, Bus, Clock, MessageCircle, ExternalLink, UserRound, X, UserPlus, ClipboardList, StickyNote,
 } from "lucide-react";
 import type { FichaContacto as Ficha } from "@/lib/comunicaciones/ficha";
+import { FichaCandidatoLateral } from "./ficha-candidato-lateral";
 import { estadoInfo } from "@/lib/contratacion/constants";
 import { iniciales, telefonoBonito } from "@/lib/comunicaciones/formato";
 import { TipoContacto } from "./TipoContacto";
@@ -64,12 +65,15 @@ export default function FichaContacto({
   ultimoEntranteAt,
   onCerrar,
   onCrearCandidato,
+  onVerFicha,
 }: {
   ficha: Ficha;
   ventanaAbierta: boolean;
   ultimoEntranteAt: string | null;
   onCerrar: () => void;
   onCrearCandidato: () => void;
+  /** Abre la ficha de Candidatos aquí mismo (26-nov-2026); sin esto, solo el enlace a Candidatos. */
+  onVerFicha?: () => void;
 }) {
   const [copiado, setCopiado] = useState(false);
   const nombre =
@@ -151,13 +155,32 @@ export default function FichaContacto({
               <Dato etiqueta="Creado" valor={fecha(ficha.proceso.fechaCreacion)} />
               <Dato etiqueta="Origen" valor={ficha.proceso.desdeConversacion ? "Esta conversación" : "Módulo Candidatos"} />
             </dl>
+            {onVerFicha && (
+              <button
+                type="button"
+                onClick={onVerFicha}
+                className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg bg-primary px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-primary/90 cursor-pointer"
+                title="La misma ficha de Candidatos, sin salir de la conversación. No pausa al asistente."
+              >
+                Abrir la ficha del candidato
+              </button>
+            )}
             <Link
               href={`/candidatos?q=${encodeURIComponent(ficha.proceso.cedula)}`}
               className="mt-2 flex items-center justify-center gap-1.5 rounded-lg border border-border bg-white px-2.5 py-1.5 text-xs font-medium text-text-secondary hover:bg-slate-50"
             >
-              Ver proceso de contratación <ExternalLink className="h-3 w-3" />
+              Ver en Candidatos <ExternalLink className="h-3 w-3" />
             </Link>
           </Seccion>
+        ) : null}
+        {ficha.proceso ? (
+          // La ficha del candidato aquí mismo (26-nov-2026): los cambios manuales sin salir de la conversación.
+          <section className="border-t border-border py-3">
+            <h3 className="mb-1.5 flex items-center gap-1.5 px-4 text-[11px] font-semibold uppercase tracking-wide text-text-tertiary">
+              <ClipboardList className="h-3 w-3" /> Ficha del candidato
+            </h3>
+            <FichaCandidatoLateral procesoId={ficha.proceso.id} estado={ficha.proceso.estado} />
+          </section>
         ) : (
           <Seccion titulo="Candidato" icono={<ClipboardList className="h-3 w-3" />}>
             <p className="mb-2 text-xs leading-relaxed text-text-tertiary">

@@ -17,6 +17,8 @@ import {
 import { alternarAgenteConversacion } from "@/lib/comunicaciones/agente/actions";
 import { fechaRelativa, etiquetaDia, claveDia, horaCorta, iniciales, tonoAvatar, telefonoBonito } from "@/lib/comunicaciones/formato";
 import { ProcesoFormDialog, type VacanteOption } from "@/components/contratacion/procesos-client";
+import { procesoParaFicha } from "@/lib/contratacion/actions";
+import type { ProcesoContratacion } from "@/lib/contratacion/constants";
 import { toast } from "sonner";
 import { usePermisos } from "@/components/permisos/permisos-provider";
 import PlantillaModal from "./PlantillaModal";
@@ -233,6 +235,23 @@ export default function BandejaClient({
   const router = useRouter();
   // Citar exige `candidatos.editar` (también en el servidor).
   const puedeCitar = usePermisos()("candidatos.editar");
+  const puedeVerCandidatos = usePermisos()("candidatos");
+  // La ficha de Candidatos dentro de Comunicaciones (26-nov-2026): revisar a mano lo que
+  // Croma no respondió, mover de etapa, etc., sin salir de la conversación ni pausar la IA.
+  const [fichaProceso, setFichaProceso] = useState<ProcesoContratacion | null>(null);
+  const [abriendoFicha, setAbriendoFicha] = useState(false);
+  const abrirFichaProceso = async (id: string) => {
+    setAbriendoFicha(true);
+    try {
+      const p = await procesoParaFicha(id);
+      if (p) setFichaProceso(p);
+      else toast.error("No se encontró el proceso del candidato.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo abrir la ficha.");
+    } finally {
+      setAbriendoFicha(false);
+    }
+  };
   const [isPending, startTransition] = useTransition();
   const [busqueda, setBusqueda] = useState(busquedaServidor ?? "");
   /** URL de la bandeja conservando lo cargado (?n=) y la búsqueda (?q=). */
@@ -597,7 +616,10 @@ export default function BandejaClient({
       <div
         className={`grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[300px_minmax(0,1fr)] ${
           conv && ficha && panel
-            ? "2xl:grid-cols-[340px_minmax(0,1fr)_300px]"
+            ? ficha.proceso
+              ? // Con candidato, la columna derecha lleva su ficha (26-nov-2026): más ancha.
+                "2xl:grid-cols-[300px_minmax(0,1fr)_440px]"
+              : "2xl:grid-cols-[340px_minmax(0,1fr)_300px]"
             : "2xl:grid-cols-[340px_minmax(0,1fr)]"
         }`}
       >
@@ -869,15 +891,26 @@ export default function BandejaClient({
                     <span className="truncate text-sm font-semibold text-text-primary">
                       {conv.nombre ?? telefonoBonito(conv.telefono)}
                     </span>
-                    {ficha?.proceso && (
-                      <Link
-                        href={`/candidatos?q=${encodeURIComponent(ficha.proceso.cedula)}`}
-                        className="hidden shrink-0 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700 hover:bg-violet-100 @md:inline"
-                        title={ficha.proceso.desdeConversacion ? "Candidato creado desde esta conversación" : "Este número ya tiene un proceso de contratación"}
-                      >
-                        Candidato
-                      </Link>
-                    )}
+                    {ficha?.proceso &&
+                      (puedeVerCandidatos ? (
+                        <button
+                          type="button"
+                          onClick={() => void abrirFichaProceso(ficha.proceso!.id)}
+                          disabled={abriendoFicha}
+                          className="shrink-0 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700 hover:bg-violet-100 disabled:opacity-60 cursor-pointer"
+                          title="Abrir la ficha del candidato aquí (no pausa al asistente)"
+                        >
+                          {abriendoFicha ? "Abriendo…" : "Candidato · ficha"}
+                        </button>
+                      ) : (
+                        <Link
+                          href={`/candidatos?q=${encodeURIComponent(ficha.proceso.cedula)}`}
+                          className="hidden shrink-0 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700 hover:bg-violet-100 @md:inline"
+                          title={ficha.proceso.desdeConversacion ? "Candidato creado desde esta conversación" : "Este número ya tiene un proceso de contratación"}
+                        >
+                          Candidato
+                        </Link>
+                      ))}
                     {ficha?.proceso && puedeCitar && ["pendiente", "antecedentes", "citado"].includes(ficha.proceso.estado) && (
                       <button
                         onClick={() => setModal("citar")}
@@ -1153,6 +1186,7 @@ export default function BandejaClient({
               ultimoEntranteAt={conv.ultimoEntranteAt}
               onCerrar={alternarPanel}
               onCrearCandidato={() => setModal("candidato")}
+              onVerFicha={ficha.proceso && puedeVerCandidatos ? () => void abrirFichaProceso(ficha.proceso!.id) : undefined}
             />
           </div>
         )}
@@ -1161,7 +1195,7 @@ export default function BandejaClient({
       {conv && ficha && panelFlotante && (
         <div className="fixed inset-0 z-[60] flex justify-end bg-slate-900/20 2xl:hidden" onClick={() => setPanelFlotante(false)}>
           <div
-            className="grid h-full w-full max-w-[340px] grid-rows-[minmax(0,1fr)] p-3"
+            className={`grid h-full w-full ${ficha.proceso ? "max-w-[460px]" : "max-w-[340px]"} grid-rows-[minmax(0,1fr)] p-3`}
             onClick={(e) => e.stopPropagation()}
           >
             <FichaContacto
@@ -1173,6 +1207,14 @@ export default function BandejaClient({
                 setPanelFlotante(false);
                 setModal("candidato");
               }}
+              onVerFicha={
+                ficha.proceso && puedeVerCandidatos
+                  ? () => {
+                      setPanelFlotante(false);
+                      void abrirFichaProceso(ficha.proceso!.id);
+                    }
+                  : undefined
+              }
             />
           </div>
         </div>
@@ -1198,6 +1240,17 @@ export default function BandejaClient({
           onHecho={(r, reprogramada) => {
             setModal(null);
             toast.success(`${reprogramada ? "Cita reprogramada" : "Citado"}. ${textoEnvio(r.envio)}`);
+            router.refresh();
+          }}
+        />
+      )}
+      {fichaProceso && (
+        // La misma ficha que en Candidatos (datos, pestañas, «Lo revisé a mano»). Guardar no pausa al asistente.
+        <ProcesoFormDialog
+          proceso={fichaProceso}
+          vacancies={vacantes}
+          onClose={() => {
+            setFichaProceso(null);
             router.refresh();
           }}
         />

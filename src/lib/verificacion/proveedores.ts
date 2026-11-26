@@ -99,22 +99,64 @@ export function interpretarTrabajoCroma(env: JobEnvelope): ResultadoSimit {
   return { estado: "error", valor: null, crudo: env, error: env.error?.message ?? `El trabajo de Croma terminó en «${estado ?? "desconocido"}».` };
 }
 
+/** La fuente de Croma según la ruta (para las estadísticas de proveedores). */
+export function fuenteDeRutaCroma(ruta: string): string {
+  if (ruta.startsWith("/jobs/")) return "trabajo";
+  if (ruta.includes("/policia-rnmc/")) return "rnmc";
+  if (ruta.includes("/policia/")) return "policia";
+  const m = /^\/co\/([a-z]+)\//.exec(ruta);
+  return m?.[1] ?? "otra";
+}
+
+/**
+ * Trabajos que Croma dejó en curso: de qué fuente son y cuándo se pidieron, para
+ * registrar la llamada completa cuando terminen (en este mismo proceso; si los
+ * retoma el cron, quedan como «trabajo»).
+ */
+const trabajosEnCurso = new Map<string, { fuente: string; inicio: number }>();
+
 async function llamarCroma(
   config: { url: string; clave: string },
   init: { metodo: "GET" | "POST"; ruta: string; cuerpo?: unknown; timeoutMs?: number; esperaSegundos?: number }
 ) {
   const espera = init.esperaSegundos ?? ESPERA_SEGUNDOS;
-  const res = await fetch(`${config.url}${init.ruta}`, {
-    method: init.metodo,
-    headers: {
-      Authorization: `Bearer ${config.clave}`,
-      "Content-Type": "application/json",
-      Prefer: `wait=${espera}`,
-    },
-    body: init.cuerpo ? JSON.stringify(init.cuerpo) : undefined,
-    signal: AbortSignal.timeout(init.timeoutMs ?? (init.esperaSegundos != null ? (espera + MARGEN_SEGUNDOS) * 1000 : TIMEOUT_MS)),
-  });
+  const inicio = Date.now();
+  const esTrabajo = init.ruta.startsWith("/jobs/");
+  const idTrabajo = esTrabajo ? decodeURIComponent(init.ruta.slice("/jobs/".length)) : null;
+  const pedido = idTrabajo ? trabajosEnCurso.get(idTrabajo) : undefined;
+  const fuente = pedido?.fuente ?? fuenteDeRutaCroma(init.ruta);
+  const registrar = (ok: boolean, status: number | null, error: string | null) => {
+    registrarLlamada({ servicio: "croma", proveedor: "croma", fuente, ok, status, error, duracionMs: Date.now() - (pedido?.inicio ?? inicio) });
+    if (idTrabajo) trabajosEnCurso.delete(idTrabajo);
+  };
+  let res: Response;
+  try {
+    res = await fetch(`${config.url}${init.ruta}`, {
+      method: init.metodo,
+      headers: {
+        Authorization: `Bearer ${config.clave}`,
+        "Content-Type": "application/json",
+        Prefer: `wait=${espera}`,
+      },
+      body: init.cuerpo ? JSON.stringify(init.cuerpo) : undefined,
+      signal: AbortSignal.timeout(init.timeoutMs ?? (init.esperaSegundos != null ? (espera + MARGEN_SEGUNDOS) * 1000 : TIMEOUT_MS)),
+    });
+  } catch (e) {
+    // Sin respuesta: se cortó por tiempo o no hubo conexión.
+    registrar(false, null, e instanceof Error ? e.message : String(e));
+    throw e;
+  }
   const json = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+  // Estadísticas (26-nov-2026): una respuesta definitiva se registra; «en curso» espera a que termine.
+  const trabajo = (json?.job ?? null) as { id?: string; status?: string } | null;
+  const estadoTrabajo = trabajo?.status;
+  if (res.status >= 400) registrar(false, res.status, errorCroma(res.status, json).error ?? null);
+  else if (estadoTrabajo === "queued" || estadoTrabajo === "running" || res.status === 202) {
+    if (!esTrabajo && trabajo?.id) trabajosEnCurso.set(trabajo.id, { fuente, inicio });
+  } else if (esTrabajo && estadoTrabajo && estadoTrabajo !== "completed") {
+    const e = (json?.error ?? null) as { message?: string } | null;
+    registrar(false, res.status, e?.message ?? `El trabajo de Croma terminó en «${estadoTrabajo}».`);
+  } else registrar(true, res.status, null);
   return { status: res.status, json };
 }
 
@@ -292,6 +334,7 @@ export function primerApellido(nombreCompleto: string | null | undefined): strin
 
 // Comparación de nombres: en ./nombres (pura; también la usan las reglas de antecedentes).
 import { nombresCoinciden } from "./nombres";
+import { registrarLlamada } from "@/lib/servicios/registro-llamadas";
 export { nombresCoinciden };
 
 export interface ResultadoRunt {

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { evaluarEventos } from "./estado-servicios";
+import { esErrorDeDato, evaluarCroma, evaluarEventos } from "./estado-servicios";
 
 const ahora = new Date("2026-11-24T15:00:00Z");
 const hace = (min: number) => new Date(ahora.getTime() - min * 60_000).toISOString();
@@ -48,4 +48,42 @@ test("alerta por correo: en pruebas lo dice en el asunto y al comienzo; en produ
   const ok = armarCorreoAlerta("recuperado", s, { desarrollo: false, url: "http://x", desdeAt: hace(120) });
   assert.match(ok.asunto, /volvió a funcionar/);
   assert.equal(armarCorreoAlerta("recordatorio", s, { desarrollo: false, url: "u" }).asunto, "Gestivo: Croma (RUNT, SIMIT y antecedentes) sigue fallando");
+});
+
+test("estado de servicios: una fuente de Croma caída entre respuestas buenas de las demás (RNMC, 26-nov-2026)", () => {
+  const filas = [
+    { fuente: "rnmc", ok: false, at: hace(5), error: "The operation was aborted due to timeout" },
+    { fuente: "runt", ok: true, at: hace(7) },
+    { fuente: "rnmc", ok: false, at: hace(50), error: "The operation was aborted due to timeout" },
+    { fuente: "rnmc", ok: false, at: hace(53), error: "The operation was aborted due to timeout" },
+    { fuente: "policia", ok: true, at: hace(54) },
+    { fuente: "contraloria", ok: true, at: hace(55) },
+    { fuente: "rnmc", ok: false, at: hace(56), error: "The operation was aborted due to timeout" },
+    { fuente: "simit", ok: true, at: hace(57) },
+  ];
+  // Juntas, como antes, nunca suman tres errores seguidos.
+  assert.equal(evaluarEventos(filas, ahora).nivel, "ok");
+  const r = evaluarCroma(filas, ahora);
+  assert.equal(r.resumen.nivel, "fallando");
+  assert.equal(r.resumen.nombre, "Croma: RNMC (medidas correctivas)");
+  assert.match(r.resumen.consejo ?? "", /Lo revisé a mano/);
+  assert.equal(r.resumen.seguidos, 4);
+  assert.equal(r.partes[0].id, "rnmc");
+  assert.equal(r.partes.find((p) => p.id === "runt")?.nivel, "ok");
+});
+
+test("estado de servicios: errores de dato (fecha que no coincide, RNMC sin nombre) no son caídas", () => {
+  assert.equal(esErrorDeDato("La fecha de expedición 2004-12-02 no coincide con la cédula según el RNMC."), true);
+  assert.equal(esErrorDeDato("El RNMC respondió sin el nombre de la persona y el RUNT no la ha confirmado"), true);
+  assert.equal(esErrorDeDato("The operation was aborted due to timeout"), false);
+  const filas = [1, 2, 3, 4].map((i) => ({ fuente: "rnmc", ok: false, at: hace(i * 5), error: "La fecha de expedición no coincide con la cédula según el RNMC." }));
+  assert.equal(evaluarCroma(filas, ahora).resumen.nivel, "ok");
+});
+
+test("estado de servicios: tres fuentes caídas a la vez es Croma completo (consejo de pausar)", () => {
+  const filas = ["rnmc", "policia", "simit"].flatMap((fuente) => [1, 2, 3].map((i) => ({ fuente, ok: false, at: hace(i * 3), error: "502" })));
+  const r = evaluarCroma(filas, ahora);
+  assert.equal(r.resumen.nivel, "fallando");
+  assert.equal(r.resumen.nombre, "Croma (RUNT, SIMIT y antecedentes)");
+  assert.match(r.resumen.consejo ?? "", /páuselo/);
 });

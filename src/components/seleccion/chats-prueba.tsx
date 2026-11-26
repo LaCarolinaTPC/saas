@@ -5,8 +5,8 @@
  * Comunicaciones: la lista de conversaciones a la izquierda y el chat abierto a
  * la derecha. Cada chat se abre con «Nuevo chat», que pregunta cómo se comporta
  * Gestivo (Croma de verdad o simulado, con qué escenario, y si se guarda en
- * Candidatos). Los chats viven mientras la página esté abierta; los candidatos
- * guardados quedan en Candidatos.
+ * Candidatos). Los chats se guardan en la base (seleccion_chats_prueba) y se ven
+ * desde cualquier equipo; los candidatos guardados quedan en Candidatos.
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Bot, FlaskConical, Loader2, MessageCirclePlus, Plus, X } from "lucide-react";
@@ -25,8 +25,9 @@ import {
   type RespuestaRunt,
 } from "@/lib/seleccion/escenario-croma";
 import { ChatPrueba, PREFIJO_GUARDADO, type ConfigChatPrueba, type ResumenChatPrueba } from "./chat-prueba";
+import { cerrarChatRemoto, guardarChatRemoto, listarChatsRemotos } from "./chats-prueba-remoto";
 
-/** Lo guardado en el navegador: la lista de chats de prueba (cada chat guarda lo suyo con PREFIJO_GUARDADO). */
+/** Copia en el navegador de la lista de chats de prueba (cada chat guarda lo suyo con PREFIJO_GUARDADO). La fuente es la base. */
 const CLAVE_LISTA = "gestivo:seleccion:chats-prueba";
 
 interface ChatAbierto {
@@ -34,6 +35,8 @@ interface ChatAbierto {
   numero: number;
   config: ConfigChatPrueba;
   resumen: ResumenChatPrueba | null;
+  /** Quién lo abrió (correo), si viene de la base. */
+  creadoPor?: string | null;
 }
 
 const TONOS = [
@@ -71,25 +74,104 @@ export function ChatsPrueba({
   const [nuevo, setNuevo] = useState(false);
   const [siguiente, setSiguiente] = useState(1);
   const [refAlto, altoPx] = useAltoDisponible();
-  // Guardado en el navegador: al volver a la página siguen los mismos chats (cada uno guarda su conversación).
+  // En la base (26-nov-2026): los chats se comparten entre equipos. Sin la base
+  // (falta la migración o no responde) se guardan solo en este navegador, como antes.
+  const [remoto, setRemoto] = useState(false);
+  // Solo se montan los chats que se abren en esta página: con los de todo el equipo en
+  // la lista, montarlos todos multiplicaría las consultas (y cada uno guardaría su copia).
+  const [montados, setMontados] = useState<Set<number>>(() => new Set());
+  const montadosRef = useRef(montados);
+  useEffect(() => {
+    montadosRef.current = montados;
+  }, [montados]);
+  const elegir = useCallback((id: number | null) => {
+    setActivo(id);
+    if (id !== null) setMontados((s) => (s.has(id) ? s : new Set(s).add(id)));
+  }, []);
+
+  /**
+   * Trae la lista de la base y la junta con la de esta página. Los chats que
+   * estaban solo en este navegador se suben (una vez). Un chat que otro equipo
+   * cerró desaparece; uno recién abierto aquí se conserva aunque la base todavía
+   * no lo tenga.
+   */
+  const sincronizar = useCallback(async (locales: ChatAbierto[] | null) => {
+    let lista = await listarChatsRemotos();
+    if (!lista) return false;
+    if (locales?.length) {
+      const enBase = new Set(lista.map((c) => c.id));
+      const faltan = locales.filter((c) => !enBase.has(c.id));
+      for (const c of faltan) {
+        let estado: unknown = undefined;
+        try {
+          estado = JSON.parse(localStorage.getItem(`${PREFIJO_GUARDADO}${c.id}`) ?? "null") ?? undefined;
+        } catch {
+          // Sin almacenamiento: se sube sin la conversación.
+        }
+        await guardarChatRemoto({ id: c.id, numero: c.numero, config: c.config, resumen: c.resumen ? { ...c.resumen, probando: false } : null, ...(estado ? { estado } : {}) });
+      }
+      if (faltan.length) lista = (await listarChatsRemotos()) ?? lista;
+    }
+    const base = lista;
+    setRemoto(true);
+    setChats((prev) => {
+      const previos = new Map(prev.map((c) => [c.id, c]));
+      const deBase = base.map((r): ChatAbierto => {
+        const p = previos.get(r.id);
+        // El resumen de un chat abierto aquí es el vivo; el de los demás, el de la base.
+        const resumen = p && montadosRef.current.has(r.id) ? p.resumen : r.resumen ? { ...r.resumen, probando: false } : (p?.resumen ?? null);
+        return { id: r.id, numero: r.numero, config: r.config, resumen, creadoPor: r.creado_por };
+      });
+      const ids = new Set(base.map((r) => r.id));
+      const recientes = prev.filter((c) => !ids.has(c.id) && Date.now() - c.id < 60_000);
+      return [...recientes, ...deBase].sort((a, b) => b.id - a.id);
+    });
+    setSiguiente((n) => Math.max(n, ...base.map((r) => r.numero + 1)));
+    return true;
+  }, []);
+
+  // Al abrir la página: lo del navegador de inmediato y, enseguida, lo de la base.
   const [restaurado, setRestaurado] = useState(false);
   useEffect(() => {
     // Diferido: se lee del navegador después de montar (en el servidor no hay almacenamiento).
     const t = setTimeout(() => {
+      let locales: ChatAbierto[] = [];
       try {
         const s = JSON.parse(localStorage.getItem(CLAVE_LISTA) ?? "null") as { v: 1; chats: ChatAbierto[]; activo: number | null; siguiente: number } | null;
         if (s?.v === 1 && Array.isArray(s.chats)) {
+          locales = s.chats;
           setChats(s.chats);
-          setActivo(s.activo ?? s.chats[0]?.id ?? null);
+          elegir(s.activo ?? s.chats[0]?.id ?? null);
           setSiguiente(s.siguiente ?? s.chats.length + 1);
         }
       } catch {
-        // Sin almacenamiento: los chats viven mientras la página esté abierta.
+        // Sin almacenamiento: los chats salen solo de la base.
       }
       setRestaurado(true);
+      void sincronizar(locales);
     }, 0);
     return () => clearTimeout(t);
-  }, []);
+  }, [elegir, sincronizar]);
+  // Los chats que abren o cierran otros equipos: al volver a la ventana y cada 30 s.
+  useEffect(() => {
+    if (!remoto) return;
+    const refrescar = () => {
+      if (document.visibilityState === "visible") void sincronizar(null);
+    };
+    const intervalo = setInterval(refrescar, 30_000);
+    window.addEventListener("focus", refrescar);
+    return () => {
+      clearInterval(intervalo);
+      window.removeEventListener("focus", refrescar);
+    };
+  }, [remoto, sincronizar]);
+  // Si el chat abierto desapareció (lo cerró otro equipo), se abre el primero.
+  useEffect(() => {
+    if (activo !== null && !chats.some((c) => c.id === activo)) {
+      const t = setTimeout(() => elegir(chats[0]?.id ?? null), 0);
+      return () => clearTimeout(t);
+    }
+  }, [chats, activo, elegir]);
   useEffect(() => {
     if (!restaurado) return;
     try {
@@ -103,23 +185,45 @@ export function ChatsPrueba({
     const id = Date.now();
     setChats((c) => [{ id, numero: siguiente, config, resumen: null }, ...c]);
     setSiguiente((n) => n + 1);
-    setActivo(id);
+    elegir(id);
     setNuevo(false);
+    void guardarChatRemoto({ id, numero: siguiente, config });
   };
   const cerrar = (id: number) => {
     const c = chats.find((x) => x.id === id);
-    if (c?.resumen?.ultimo && !confirm("Se cierra este chat de prueba y se pierde la conversación (el candidato guardado sigue en Candidatos). ¿Cerrarlo?")) return;
+    const aviso = remoto
+      ? "Se cierra este chat de prueba para todos los equipos y se pierde la conversación (el candidato guardado sigue en Candidatos). ¿Cerrarlo?"
+      : "Se cierra este chat de prueba y se pierde la conversación (el candidato guardado sigue en Candidatos). ¿Cerrarlo?";
+    if (c?.resumen?.ultimo && !confirm(aviso)) return;
     try {
       localStorage.removeItem(`${PREFIJO_GUARDADO}${id}`);
     } catch {
       // Sin almacenamiento: nada que borrar.
     }
+    if (remoto) void cerrarChatRemoto(id);
     const resto = chats.filter((x) => x.id !== id);
     setChats(resto);
-    if (activo === id) setActivo(resto[0]?.id ?? null);
+    setMontados((s) => {
+      const n = new Set(s);
+      n.delete(id);
+      return n;
+    });
+    if (activo === id) elegir(resto[0]?.id ?? null);
   };
+  // El resumen va a la base para la lista de los otros equipos, agrupado (cambia con cada mensaje).
+  const resumenesPendientes = useRef(new Map<number, ReturnType<typeof setTimeout>>());
   const alResumen = useCallback((id: number, r: ResumenChatPrueba) => {
     setChats((c) => c.map((x) => (x.id === id ? { ...x, resumen: r } : x)));
+    const pendientes = resumenesPendientes.current;
+    const previo = pendientes.get(id);
+    if (previo) clearTimeout(previo);
+    pendientes.set(
+      id,
+      setTimeout(() => {
+        pendientes.delete(id);
+        void guardarChatRemoto({ id, resumen: { ...r, probando: false } });
+      }, 1500)
+    );
   }, []);
 
   return (
@@ -167,11 +271,11 @@ export function ChatsPrueba({
                     key={c.id}
                     role="button"
                     tabIndex={0}
-                    onClick={() => setActivo(c.id)}
+                    onClick={() => elegir(c.id)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === " ") {
                         e.preventDefault();
-                        setActivo(c.id);
+                        elegir(c.id);
                       }
                     }}
                     aria-current={seleccionado ? "true" : undefined}
@@ -239,6 +343,11 @@ export function ChatsPrueba({
                             {est.label}
                           </span>
                         )}
+                        {c.creadoPor && (
+                          <span className="truncate text-[10px] text-text-muted" title={`Lo abrió ${c.creadoPor}`}>
+                            {c.creadoPor.split("@")[0]}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -248,7 +357,7 @@ export function ChatsPrueba({
           </div>
         </div>
 
-        {/* Chat abierto. Los demás siguen montados (ocultos) para no perder su conversación. */}
+        {/* Chat abierto. Los que ya se abrieron en esta página siguen montados (ocultos) para no perder lo que estén haciendo. */}
         <div className={`min-h-0 min-w-0 xl:h-full ${activo ? "" : "hidden lg:block"}`}>
           {chats.length === 0 && (
             <div className="flex h-[640px] flex-col items-center justify-center rounded-2xl border border-border bg-surface-raised p-8 text-center xl:h-full">
@@ -268,7 +377,7 @@ export function ChatsPrueba({
               </button>
             </div>
           )}
-          {chats.map((c) => (
+          {chats.filter((c) => montados.has(c.id)).map((c) => (
             <div key={c.id} className={c.id === activo ? "xl:h-full" : "hidden"}>
               <ChatPrueba
                 formulario={formulario}
@@ -276,7 +385,7 @@ export function ChatsPrueba({
                 numero={c.numero}
                 idChat={c.id}
                 activo={c.id === activo}
-                onVolver={() => setActivo(null)}
+                onVolver={() => elegir(null)}
                 onResumen={(r) => alResumen(c.id, r)}
                 profesor={c.id === activo ? profesor : undefined}
                 laboratorios={c.id === activo ? laboratorios : undefined}

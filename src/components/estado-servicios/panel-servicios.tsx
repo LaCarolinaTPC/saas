@@ -52,6 +52,27 @@ export function PanelServicios() {
               </p>
             )}
             {s.consejo && <p className="mt-0.5 pl-4 text-red-700">{s.consejo}</p>}
+            {/* Croma por fuente (26-nov-2026): una puede caerse mientras las demás responden. */}
+            {s.partes && s.partes.length > 0 && (
+              <ul className="mt-1 space-y-0.5 pl-4">
+                {s.partes.map((p) => (
+                  <li key={p.id} className="flex flex-wrap items-center gap-2">
+                    <span className={`h-2 w-2 shrink-0 rounded-full ${TONO_NIVEL[p.nivel].punto}`} />
+                    <span className="text-text-secondary">{p.nombre}</span>
+                    <span className={TONO_NIVEL[p.nivel].texto}>{ETIQUETA_NIVEL[p.nivel]}</span>
+                    {p.portal && (
+                      <a href={p.portal} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+                        portal
+                      </a>
+                    )}
+                    <span className="ml-auto text-text-tertiary">
+                      {p.total24h ? `${p.errores24h} de ${p.total24h} con error en 24 h` : "sin uso en 24 h"}
+                      {p.ultimoOkAt ? ` · última buena ${haceCuanto(p.ultimoOkAt)}` : ""}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </li>
         ))}
       </ul>

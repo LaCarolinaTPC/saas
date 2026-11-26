@@ -12,6 +12,7 @@ import { edadEfectiva, type DatosPrefiltro } from "@/lib/seleccion/extraccion";
 import { requiereLentes } from "@/lib/seleccion/preseleccion";
 import type { ResumenRunt } from "@/lib/verificacion/proveedores";
 import { PanelSeleccion } from "./panel-seleccion";
+import { usePermisos } from "@/components/permisos/permisos-provider";
 import { SemaforoDetalle } from "./semaforo";
 
 interface Vista {
@@ -118,6 +119,7 @@ function simulada(
 export function FichaPrueba({
   proceso,
   version,
+  onCambio,
   extraido,
   runt,
   simit,
@@ -131,6 +133,8 @@ export function FichaPrueba({
   proceso: ProcesoContratacion | null;
   /** Cambia cada vez que se vuelve a leer la ficha, para recargar consultas e historial. */
   version: number;
+  /** Algo cambió desde el panel: el chat vuelve a leer el candidato. */
+  onCambio?: () => void;
   extraido: DatosPrefiltro | null;
   runt: ResumenRunt | null;
   simit: { valor: number | null; consultado: boolean };
@@ -142,6 +146,7 @@ export function FichaPrueba({
   /** Nombre según el RNMC (validado con la fecha de expedición). */
   nombreRegistro?: string | null;
 }) {
+  const puede = usePermisos();
   const v = proceso ? desdeProceso(proceso) : extraido ? simulada(extraido, runt, simit, preseleccion, estado, hoy, rnmc, nombreRegistro) : null;
   return (
     <div className="space-y-3 rounded-xl border border-border bg-white p-3">
@@ -201,7 +206,9 @@ export function FichaPrueba({
           {proceso ? (
             // El mismo panel, con las mismas pestañas que en Candidatos (Resumen, Citas y
             // profesor, Croma, Documentos, Historial). Citar se hace en el recuadro de arriba.
-            <PanelSeleccion key={proceso.id} proceso={proceso} puedeEditar={false} onCerrado={() => undefined} modoCitas="prueba" version={version} />
+            // Desde el 26-nov-2026 se puede editar aquí (p. ej. «Lo revisé a mano» si Croma no
+            // responde), con el mismo permiso que en Candidatos, sin salir de la prueba.
+            <PanelSeleccion key={proceso.id} proceso={proceso} puedeEditar={puede("candidatos.editar")} onCerrado={() => undefined} modoCitas="prueba" version={version} onCambio={onCambio} />
           ) : (
             v.preseleccion && <SemaforoDetalle resultado={v.preseleccion} />
           )}

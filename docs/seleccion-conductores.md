@@ -61,6 +61,52 @@ y respuestas de Croma) y `npm run test:comunicaciones` (reglas del asistente).
 El chat de prueba de Comunicaciones › Agente de IA muestra, debajo de la
 conversación, los datos que quedarían en el proceso.
 
+## Servicios caídos, cambios manuales y proveedores (26-nov-2026)
+
+Pedido del 26-nov-2026, cuando el RNMC de Croma dejó de responder mientras las demás fuentes funcionaban.
+
+- **Barra de estado de los servicios** (`components/estado-servicios/barra-servicios.tsx`): siempre visible en
+  Candidatos, Comunicaciones y el chat de prueba; verde si todo responde, roja con «Qué hacer» y el enlace al
+  portal oficial (`lib/verificacion/portales.ts`) cuando algo falla. Se calcula con las respuestas recibidas
+  (no consulta a nadie) y se actualiza sola cada 2 minutos (`/api/estado-servicios`). **Croma va por fuente**
+  (`evaluarCroma` en `lib/estado-servicios.ts`): antes, los errores de una fuente quedaban entre las respuestas
+  buenas de las demás y nunca sumaban «seguidos». «La fecha de expedición no coincide» y «RNMC sin nombre» no son
+  caídas. Con tres fuentes caídas a la vez, el consejo es pausar Croma. La alerta por correo sigue con el
+  servicio «croma» (el CHECK de `alertas_servicios`) y dice qué fuente falla.
+- **La ficha del candidato a la derecha**, sin salir de la página: en Comunicaciones, debajo de los datos del
+  contacto (`comunicaciones/ficha-candidato-lateral.tsx`; la columna se ensancha a 440 px cuando hay candidato), y en
+  el chat de prueba (`ficha-prueba.tsx`, ahora editable). Es el mismo panel de Candidatos, con el permiso
+  `candidatos.editar`. «Candidato · ficha» y «Abrir la ficha del candidato» abren además el formulario completo.
+  Nada de esto pausa al asistente: solo lo pausa un mensaje escrito por una persona (`comunicaciones/registro.ts`).
+- **«Lo revisé a mano»** quedó en `lib/contratacion/revision-manual.ts` (la acción solo valida el permiso).
+  Después de la revisión, el proceso sigue solo: «Listo para citar» y la cita automática. Para eso
+  `marcarListoParaCitar` usa los datos guardados en el proceso cuando no hay prefiltro de conversación (antes, un
+  candidato del chat de prueba se quedaba quieto hasta el siguiente mensaje). Si lo revisado a mano fue el RUNT o el
+  SIMIT, los antecedentes se consultan con el siguiente mensaje o el cron, no dentro del botón.
+- **El certificado lo lee la IA.** Al adjuntar el PDF en «Lo revisé a mano», la IA de «Documentos» lo lee
+  (`lib/verificacion/lectura-certificado.ts`, la llamada en `lectura-certificado-servidor.ts`, acción
+  `leerCertificadoAMano`) y llena la revisión: sin novedad o con hallazgo, el valor de los comparendos del SIMIT,
+  y la categoría, el vencimiento y las restricciones del RUNT. También avisa si la cédula no es la del candidato,
+  si el archivo no parece ese certificado, si tiene más de 30 días o si la licencia está vencida. No guarda nada
+  sola: la persona revisa y guarda. Respeta el tope mensual y el costo queda como «lectura». El PDF queda en la
+  carpeta del aspirante («Certificados de antecedentes»).
+- **El chat de prueba se entera de los cambios del panel** (`onCambio` de `PanelSeleccion`): después de «Lo revisé
+  a mano», el encabezado y el estado del chat se actualizan solos. La lista «Sigue con uno ya guardado» trae los
+  50 candidatos de prueba más recientes (antes 15).
+- **Chats de prueba en la base** (`seleccion_chats_prueba`, migración `20261126183515`; ruta
+  `/api/seleccion/chats-prueba`): se ven y se siguen desde cualquier equipo, con quién abrió cada uno; cerrar un chat
+  lo cierra para todos. Solo se montan los chats que se abren en la página. Sin la tabla, siguen en el navegador.
+- **Proveedores** (Candidatos › Indicadores › Proveedores): por proveedor y fuente, cuántas llamadas respondieron,
+  el tiempo típico y el de las más lentas, las caídas (3 errores seguidos) y cuánto duraron, el costo, y qué hacer
+  (caída en curso, responde menos del 80 % con 10 o más llamadas, o lento). Cada llamada a Croma y a la IA (chat,
+  documentos, voz) queda en `servicios_llamadas` (migración `20261126191610`, `lib/servicios/registro-llamadas.ts`;
+  las repetidas de una grabación no cuentan). Para los días anteriores se usa el resultado final de cada consulta a
+  Croma (sin tiempo) y cada respuesta del asistente.
+- **Pruebas.** `npx tsx --env-file=.env.local --tsconfig tsconfig.json scripts/seleccion-probar-servicio-caido.mts`:
+  el RNMC caído, todos los antecedentes caídos, el RUNT y el SIMIT caídos, la revisión con hallazgo, lo que la
+  revisión rechaza, que Croma no repita la fuente revisada, que no se pause el asistente, la barra de estado y las
+  estadísticas. No consulta Croma ni envía WhatsApp.
+
 ## Pregunta «¿vienes recomendado?» y apadrinados (21-nov-2026)
 
 Migración `20261121181420_seleccion_pregunta_recomendado_y_apadrinados.sql` (columnas `recomendado`, `recomendado_at`
