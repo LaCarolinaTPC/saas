@@ -1,7 +1,7 @@
 "use client";
 
 import { usePermisos } from "@/components/permisos/permisos-provider";
-import { useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { BarChart3, Brain, CalendarClock, ClipboardList, LayoutGrid, List, Users, Trash2, MoreHorizontal, Eye, Briefcase, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { KanbanProcesos } from "@/components/candidatos/kanban-procesos";
@@ -12,7 +12,7 @@ import { CandidateTable } from "@/components/candidatos/candidate-table";
 import { ContratacionClient, type ProcesosData } from "@/components/contratacion/procesos-client";
 import { formatDateBogota } from "@/lib/utils";
 import { Paginador, usePaginacion } from "@/components/shared/paginacion";
-import { deleteCandidate, assignCandidateToVacancy } from "@/lib/actions";
+import { deleteCandidate, assignCandidateToVacancy, getAllCandidates, getCandidatesPipeline } from "@/lib/actions";
 import Link from "next/link";
 import {
   DropdownMenu,
@@ -31,8 +31,6 @@ interface Vacancy {
 }
 
 interface CandidatosClientProps {
-  pipeline: any[];
-  allCandidates: any[];
   vacancies: Vacancy[];
   /** Procesos para el tablero (en curso y cerrados recientes). */
   tablero: ProcesoContratacion[];
@@ -48,16 +46,34 @@ function getInitials(name: string): string {
     .join("");
 }
 
-export function CandidatosClient({ pipeline, allCandidates, vacancies, tablero, procesos }: CandidatosClientProps) {
+export function CandidatosClient({ vacancies, tablero, procesos }: CandidatosClientProps) {
   const [view, setView] = useState<View>("procesos");
   const [vacancyFilter, setVacancyFilter] = useState("all");
 
   const isKanban = view === "kanban";
 
+  // Se cargan al abrir su pestaña (27-nov-2026): antes venían con la página en cada carga.
+  const [pipeline, setPipeline] = useState<any[] | null>(null);
+  const [allCandidates, setAllCandidates] = useState<any[] | null>(null);
+  const cargarPipeline = useCallback(() => {
+    void getCandidatesPipeline()
+      .then((d) => setPipeline(d ?? []))
+      .catch(() => setPipeline([]));
+  }, []);
+  const cargarTodos = useCallback(() => {
+    void getAllCandidates()
+      .then((d) => setAllCandidates(d ?? []))
+      .catch(() => setAllCandidates([]));
+  }, []);
+  useEffect(() => {
+    if (view === "tabla") cargarPipeline();
+    if (view === "todos") cargarTodos();
+  }, [view, cargarPipeline, cargarTodos]);
+
   const filteredPipeline =
     vacancyFilter === "all"
-      ? pipeline
-      : pipeline.filter((r) => r.vacancy_id === vacancyFilter);
+      ? (pipeline ?? [])
+      : (pipeline ?? []).filter((r) => r.vacancy_id === vacancyFilter);
   const filteredTablero =
     vacancyFilter === "all" ? tablero : tablero.filter((p) => p.vacancy_id === vacancyFilter);
 
@@ -121,7 +137,7 @@ export function CandidatosClient({ pipeline, allCandidates, vacancies, tablero, 
               {isKanban ? "Tablero de procesos" : "Candidatos"}
             </h1>
             <span className="rounded-full bg-[#EEF2FF] px-2.5 py-0.5 text-xs font-semibold text-[#4F46E5]">
-              {isKanban ? filteredTablero.length : allCandidates.length}
+              {isKanban ? filteredTablero.length : view === "tabla" ? (pipeline ? filteredPipeline.length : "…") : (allCandidates?.length ?? "…")}
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -151,10 +167,12 @@ export function CandidatosClient({ pipeline, allCandidates, vacancies, tablero, 
         </div>
       ) : (
         <div className="mx-auto max-w-[1400px] px-6">
-          {view === "tabla" ? (
+          {(view === "tabla" ? pipeline : allCandidates) === null ? (
+            <p className="py-10 text-center text-sm text-gray-500">Cargando…</p>
+          ) : view === "tabla" ? (
             <CandidateTable pipeline={filteredPipeline} />
           ) : (
-            <AllCandidatesView candidates={allCandidates} vacancies={vacancies} />
+            <AllCandidatesView candidates={allCandidates ?? []} vacancies={vacancies} onCambio={cargarTodos} />
           )}
         </div>
       )}
@@ -162,7 +180,7 @@ export function CandidatosClient({ pipeline, allCandidates, vacancies, tablero, 
   );
 }
 
-function AllCandidatesView({ candidates, vacancies }: { candidates: any[]; vacancies: Vacancy[] }) {
+function AllCandidatesView({ candidates, vacancies, onCambio }: { candidates: any[]; vacancies: Vacancy[]; onCambio: () => void }) {
   const [search, setSearch] = useState("");
 
   const filtered = candidates.filter((c) => {
@@ -255,7 +273,7 @@ function AllCandidatesView({ candidates, vacancies }: { candidates: any[]; vacan
                       {formatDateBogota(c.created_at)}
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <CandidateActions id={c.id} name={c.full_name} hasVacancy={!!cv} vacancies={vacancies} />
+                      <CandidateActions id={c.id} name={c.full_name} hasVacancy={!!cv} vacancies={vacancies} onCambio={onCambio} />
                     </td>
                   </tr>
                 );
@@ -269,7 +287,7 @@ function AllCandidatesView({ candidates, vacancies }: { candidates: any[]; vacan
   );
 }
 
-function CandidateActions({ id, name, hasVacancy, vacancies }: { id: string; name: string | null; hasVacancy: boolean; vacancies: Vacancy[] }) {
+function CandidateActions({ id, name, hasVacancy, vacancies, onCambio }: { id: string; name: string | null; hasVacancy: boolean; vacancies: Vacancy[]; onCambio: () => void }) {
   const [isPending, startTransition] = useTransition();
   // Asignar exige `candidatos.editar` y eliminar `candidatos.eliminar` (también en el servidor).
   const puede = usePermisos();
@@ -281,6 +299,7 @@ function CandidateActions({ id, name, hasVacancy, vacancies }: { id: string; nam
     if (!confirm(`¿Eliminar candidato "${name ?? "Sin nombre"}"? Esta acción no se puede deshacer.`)) return;
     startTransition(async () => {
       await deleteCandidate(id);
+      onCambio();
     });
   }
 
@@ -288,6 +307,7 @@ function CandidateActions({ id, name, hasVacancy, vacancies }: { id: string; nam
     startTransition(async () => {
       await assignCandidateToVacancy(id, vacancyId);
       setShowAssign(false);
+      onCambio();
     });
   }
 

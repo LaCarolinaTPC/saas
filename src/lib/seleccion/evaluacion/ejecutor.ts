@@ -20,7 +20,7 @@ import {
   type RequisitosCargo,
 } from "@/lib/comunicaciones/agente/motor";
 import { generarRespuesta, generarRespuestaLocal, type RespuestaModelo } from "@/lib/comunicaciones/agente/proveedores";
-import { notaRevision, type RespuestaConfigurada, type MotivoRegreso, type CitaAsistente, type FechaRechazada, type LicenciaVerificada, type TurnoModelo } from "@/lib/comunicaciones/agente/motor";
+import { notaRevision, type RespuestaConfigurada, type MotivoRegreso, type CitaAsistente, type FechaRechazada, type LicenciaVerificada, type ReglasSeleccion, type TurnoModelo } from "@/lib/comunicaciones/agente/motor";
 import { SISTEMA_EXTRACCION, interpretarExtraccion, transcribir, type DatosPrefiltro } from "../extraccion";
 import type { ReglasPreseleccion } from "../preseleccion";
 import { simularPreseleccion, type MensajeSimulado, type ResultadoConversacion } from "../simulacion";
@@ -62,6 +62,12 @@ export interface ContextoSimulacion {
   nombreAsistente?: string;
   /** Respuestas del catálogo para casos frecuentes. */
   respuestas?: RespuestaConfigurada[];
+  /** Candidato de prueba con el mensaje de exámenes: la pregunta que espera respuesta (banco o rutas). */
+  preguntaExamen?: "banco" | "rutas" | null;
+  /** Candidato de prueba con cita de exámenes en pie: cuándo y dónde. */
+  examen?: ReglasSeleccion["examen"];
+  /** Candidato de prueba: en qué va el correo para la prueba psicosensotécnica. */
+  correoPsico?: ReglasSeleccion["correoPsico"];
   /** Solo pruebas: todo (asistente, extracción y aspirante) va a un servidor local tipo LM Studio. */
   local?: { url: string; modelo: string | null };
 }
@@ -111,6 +117,9 @@ export async function responderSimulado(
       autorizada: ctx.autorizada ?? false,
       cita: ctx.cita ?? null,
       regreso: ctx.regreso ?? null,
+      preguntaExamen: ctx.preguntaExamen ?? null,
+      correoPsico: ctx.correoPsico ?? null,
+      examen: ctx.examen ?? null,
       bienvenida: historial.some((m) => m.direccion === "saliente") ? "" : ctx.bienvenida ?? "",
       nombreAsistente: ctx.nombreAsistente ?? "",
       respuestas: ctx.respuestas ?? [],

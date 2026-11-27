@@ -137,3 +137,20 @@ test("cargo de la carta y la orden: el del ajuste en mayúsculas, o CONDUCTOR - 
   assert.equal(cargoDocumentos("  conductor   de buseta "), "CONDUCTOR DE BUSETA");
   assert.equal(cargoDocumentos(12), "CONDUCTOR - COBRADOR");
 });
+
+test("laboratorios: no atiende festivos ni las fechas en que avisó que no atiende (27-nov-2026)", async () => {
+  const { motivoNoAtiende, fechasSinAtencionValidas } = await import("./laboratorios");
+  const rescate = { nombre: "Rescate", dias_atencion: [1, 2, 3, 4, 5, 6], fechas_sin_atencion: ["2026-11-30"] };
+  // 8 de diciembre: martes festivo.
+  assert.equal(atiende(rescate, "2026-12-08"), false);
+  assert.match(motivoNoAtiende(rescate, "2026-12-08") ?? "", /festivo/);
+  // Lunes 30: avisó que no atiende.
+  assert.equal(atiende(rescate, "2026-11-30"), false);
+  assert.match(motivoNoAtiende(rescate, "2026-11-30") ?? "", /avisó/);
+  // Domingo: no es su día.
+  assert.match(motivoNoAtiende(rescate, "2026-11-29") ?? "", /domingos/);
+  assert.equal(motivoNoAtiende(rescate, "2026-12-01"), null);
+  // El reparto salta los tres.
+  assert.equal(primeraFechaAtendida("2026-11-29", [{ activo: true, ...rescate }], (f) => { const d = new Date(`${f}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); }), "2026-12-01");
+  assert.deepEqual(fechasSinAtencionValidas(["2026-12-24", "2026-11-01", "malo", "2026-12-24", "2026-12-07"], "2026-11-27"), ["2026-12-07", "2026-12-24"]);
+});

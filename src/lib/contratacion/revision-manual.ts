@@ -12,6 +12,7 @@
  * Candidatos, en Comunicaciones y en el chat de prueba. No toca la
  * conversación: no pausa al asistente.
  */
+import { after } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { registrarEvento, type ActorProceso } from "@/lib/contratacion/servidor";
 import { marcarListoParaCitar, marcarRevisionAntecedentes, reevaluarPreseleccion } from "@/lib/seleccion/servidor";
@@ -27,6 +28,15 @@ export interface DatosRevisionManual {
   pdf?: { base64: string; nombre?: string | null } | null;
   /** RUNT (24-nov-2026): la licencia revisada en el portal o en la foto que mandó el aspirante. */
   licencia?: { categoria: string; vence?: string | null; restricciones?: string | null } | null;
+}
+
+/** Corre después de responder (after de Next); fuera de una petición (baterías), enseguida. */
+function diferir(fn: () => Promise<unknown>) {
+  try {
+    after(fn);
+  } catch {
+    void fn();
+  }
 }
 
 export async function revisarFuenteManual(
@@ -90,6 +100,14 @@ export async function revisarFuenteManual(
       .eq("proceso_id", procesoId)
       .eq("fuente", fuente)
       .eq("estado", "pendiente");
+    // Guardada dos veces seguidas (la ficha tardó y se volvió a guardar): la anterior se reemplaza.
+    await admin
+      .from("verificaciones_externas")
+      .delete()
+      .eq("proceso_id", procesoId)
+      .eq("fuente", fuente)
+      .eq("proveedor", "manual")
+      .gte("created_at", new Date(Date.now() - 10 * 60_000).toISOString());
     const { error } = await admin.from("verificaciones_externas").insert({
       proceso_id: procesoId,
       cedula,
@@ -129,7 +147,9 @@ export async function revisarFuenteManual(
     );
     await reevaluarPreseleccion(procesoId);
     await marcarListoParaCitar(procesoId).catch(() => false);
-    await marcarRevisionAntecedentes(procesoId).catch(() => null);
+    // El aviso al aspirante (WhatsApp) y el correo a Gestión Humana, después de responder
+    // (27-nov-2026): con una anotación esperaba a Meta y la ficha tardaba un montón.
+    diferir(() => marcarRevisionAntecedentes(procesoId).catch(() => null));
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "No se pudo guardar la revisión." };

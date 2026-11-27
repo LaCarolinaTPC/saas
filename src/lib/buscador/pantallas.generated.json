@@ -65,6 +65,11 @@
     "soloAdmin": false
   },
   {
+    "href": "/candidatos/indicadores/proveedores",
+    "titulo": "Croma, por fuente",
+    "soloAdmin": false
+  },
+  {
     "href": "/candidatos/indicadores/whatsapp",
     "titulo": "Whatsapp",
     "soloAdmin": false

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { esErrorDeDato, evaluarCroma, evaluarEventos } from "./estado-servicios";
+import { esErrorDeDato, evaluarCroma, evaluarEventos, interpretarPaginaEstado } from "./estado-servicios";
 
 const ahora = new Date("2026-11-24T15:00:00Z");
 const hace = (min: number) => new Date(ahora.getTime() - min * 60_000).toISOString();
@@ -86,4 +86,11 @@ test("estado de servicios: tres fuentes caídas a la vez es Croma completo (cons
   assert.equal(r.resumen.nivel, "fallando");
   assert.equal(r.resumen.nombre, "Croma (RUNT, SIMIT y antecedentes)");
   assert.match(r.resumen.consejo ?? "", /páuselo/);
+});
+
+test("página de estado de Croma (27-nov-2026): operativa, con problemas o ilegible", () => {
+  assert.deepEqual(interpretarPaginaEstado("<html><h1>Croma Status</h1><div>All Systems Operational</div><span>API</span><span>Operational</span></html>"), { estado: "operativo", texto: "All Systems Operational" });
+  assert.equal(interpretarPaginaEstado("<div>API</div><div>Major Outage</div>").estado, "problemas");
+  assert.equal(interpretarPaginaEstado("<p>Degraded Performance</p>").texto, "Degraded Performance");
+  assert.equal(interpretarPaginaEstado("<p>Hola</p>").estado, "desconocido");
 });

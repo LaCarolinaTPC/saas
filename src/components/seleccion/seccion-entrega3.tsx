@@ -6,10 +6,9 @@
  * las condiciones para contratar (Resumen).
  */
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { CheckCircle2, Circle, ExternalLink, FileUp, FolderOpen, Route, Stethoscope, TriangleAlert, UserCheck } from "lucide-react";
-import {
-  agregarReferenciaFicha, anularAdjuntoFicha, aprobarContratacionFicha, contratarFicha, decidirNoAptoFicha, datosEntrega3, marcarItemCarpetaFicha,
+import { revalidarCandidatosFicha,
+  agregarReferenciaFicha, anularAdjuntoFicha, aprobarContratacionFicha, contratarFicha, decidirNoAptoFicha, marcarItemCarpetaFicha,
   registrarExamenFicha, registrarRutaFicha, rutasDisponibles, validarReferenciaFicha, type DatosEntrega3,
 } from "@/app/(dashboard)/candidatos/entrega3-actions";
 import type { AdjuntoVista } from "@/lib/seleccion/carpeta-servidor";
@@ -17,6 +16,8 @@ import { ETIQUETA_RESULTADO } from "@/lib/seleccion/examenes";
 import { LaboratorioFicha } from "./laboratorio-ficha";
 import { CorreoPsicoFicha } from "./correo-psico-ficha";
 import type { EstadoCarpeta } from "@/lib/seleccion/contratacion";
+import { marcarGuardado } from "@/lib/guardado-reciente";
+import { leerFicha } from "@/lib/lectura-ficha";
 
 /** Tipo de archivo de los certificados de antecedentes (el de carpeta-servidor › tipoDeItem(«Certificados de antecedentes»)). */
 const TIPO_CERTIFICADOS = "carpeta:certificados-de-antecedentes";
@@ -35,7 +36,7 @@ export function useEntrega3(procesoId: string, version: number) {
   const [propia, setPropia] = useState(0);
   useEffect(() => {
     let vivo = true;
-    datosEntrega3(procesoId)
+    leerFicha("datosEntrega3", procesoId)
       .then((d) => vivo && setDatos(d))
       .catch(() => undefined);
     return () => {
@@ -46,20 +47,26 @@ export function useEntrega3(procesoId: string, version: number) {
   return { datos, recargar };
 }
 
-/** Corre una acción, muestra el resultado y refresca. */
+/**
+ * Corre una acción, muestra el resultado y refresca. Las acciones del servidor ya
+ * revalidan /candidatos (Next trae la página nueva con la respuesta): volver a
+ * pedirla con router.refresh() la cargaba dos veces (27-nov-2026, «estaba lenta»).
+ * Solo la subida de archivos, que va por una ruta, pide `refrescarPagina` (revalida Candidatos;
+ * en el chat real o en el de prueba no recarga nada).
+ */
 export function useAccion(recargar: () => void) {
-  const router = useRouter();
   const [mensaje, setMensaje] = useState<string | null>(null);
   const [ocupado, enTransicion] = useTransition();
-  const correr = (accion: () => Promise<{ ok: boolean; error?: string }>, exito: string, despues?: () => void) => {
+  const correr = (accion: () => Promise<{ ok: boolean; error?: string }>, exito: string, despues?: () => void, opciones: { refrescarPagina?: boolean } = {}) => {
     setMensaje(null);
     enTransicion(async () => {
       const r = await accion();
       setMensaje(r.ok ? exito : (r.error ?? "No se pudo completar."));
       if (r.ok) {
+        marcarGuardado();
         despues?.();
         recargar();
-        router.refresh();
+        if (opciones.refrescarPagina) await revalidarCandidatosFicha().catch(() => undefined);
       }
     });
   };
@@ -180,7 +187,7 @@ export function SeccionExamenesRutas({ procesoId, abierto, version }: { procesoI
                 <ListaArchivos archivos={otros.filter((a) => a.tipo === `examen_f${f}`)} puedeEditar={datos.puede.editar} onAnular={(id, m) => correr(() => anularAdjuntoFicha(id, m), "Archivo anulado.")} />
                 {datos.puede.editar && (
                   <div className="mt-2">
-                    <BotonSubir procesoId={procesoId} tipo={`examen_f${f}`} texto="Subir resultado" onSubido={(r) => correr(async () => r, "Archivo subido.")} />
+                    <BotonSubir procesoId={procesoId} tipo={`examen_f${f}`} texto="Subir resultado" onSubido={(r) => correr(async () => r, "Archivo subido.", undefined, { refrescarPagina: true })} />
                   </div>
                 )}
               </div>
@@ -380,7 +387,7 @@ export function SeccionCarpeta({ procesoId, version }: { procesoId: string; vers
                 </span>
                 {editar && (
                   <span className="flex flex-wrap gap-1.5">
-                    <BotonSubir procesoId={procesoId} tipo={i.tipo} texto="Subir" onSubido={(r) => correr(async () => r, "Archivo subido.")} />
+                    <BotonSubir procesoId={procesoId} tipo={i.tipo} texto="Subir" onSubido={(r) => correr(async () => r, "Archivo subido.", undefined, { refrescarPagina: true })} />
                     {i.estado !== "validado" && (
                       <button type="button" disabled={ocupado} className={botonPri} onClick={() => correr(() => marcarItemCarpetaFicha(procesoId, i.item, "validado", null), `${i.item}: validado.`)}>
                         Validar
@@ -485,7 +492,7 @@ export function SeccionCarpeta({ procesoId, version }: { procesoId: string; vers
           <ListaArchivos archivos={c.otros.filter((a) => a.tipo === "otro")} puedeEditar={editar} onAnular={(id, m) => correr(() => anularAdjuntoFicha(id, m), "Archivo anulado.")} />
         </section>
       )}
-      {editar && <BotonSubir procesoId={procesoId} tipo="otro" texto="Subir otro archivo" onSubido={(r) => correr(async () => r, "Archivo subido.")} />}
+      {editar && <BotonSubir procesoId={procesoId} tipo="otro" texto="Subir otro archivo" onSubido={(r) => correr(async () => r, "Archivo subido.", undefined, { refrescarPagina: true })} />}
       {mensaje && <p className="text-sm text-gray-700">{mensaje}</p>}
     </div>
   );

@@ -3,7 +3,7 @@
  * webhook de WhatsApp con after(), ya respondido el 200 a Meta, así que nada
  * de esto bloquea ni hace reintentar el webhook.
  */
-import { citaDeConversacion, reprogramarPorAsistente } from "@/lib/seleccion/agenda-servidor";
+import { examenDeConversacion, citaDeConversacion, reprogramarPorAsistente } from "@/lib/seleccion/agenda-servidor";
 import { ACTOR_AGENTE } from "@/lib/contratacion/servidor";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { enviarBotones, enviarTexto, MAX_CUERPO_BOTONES } from "../whatsapp";
@@ -477,6 +477,8 @@ export async function responderConAgente(
     const pedirLicencia = sigue ? await pedirLicenciaDeConversacion(conversacionId).catch(() => false) : false;
     // 24-nov-2026: la pregunta del mensaje de exámenes (banco o rutas) que espera respuesta.
     const preguntaExamen = sigue ? await preguntaExamenDeConversacion(conversacionId).catch(() => null) : null;
+    // 27-nov-2026: la cita de exámenes en pie (sin ella dijo «como la fecha ya pasó» de la de mañana).
+    const examen = sigue ? await examenDeConversacion(conversacionId).catch(() => null) : null;
     // Primera respuesta (nadie le ha escrito todavía): va el saludo del catálogo de mensajes.
     const primeraRespuesta = enSeleccion && !regreso && !(await tieneSalientes(conversacionId));
     const sistema = construirSistema(config.prompt, contacto.nombre, new Date(), {
@@ -499,6 +501,7 @@ export async function responderConAgente(
       correoPsico,
       pedirLicencia,
       preguntaExamen,
+      examen,
       bienvenida: primeraRespuesta ? ctx?.bienvenida ?? "" : "",
       nombreAsistente: ctx?.nombreAsistente ?? "",
       respuestas: ctx?.respuestas ?? [],

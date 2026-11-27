@@ -6,7 +6,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fechaRegistro, getPoliticaPorId, getPoliticas, hoyBogota, validar } from "./datos";
-import { bloqueantesNoCumplidos, hitosPorBeneficiario, politicaVigente } from "./reglas";
+import { bloqueantesNoCumplidos, hitosPorBeneficiario, politicaVigente, resumenDecision } from "./reglas";
 import type { LetraEsquema } from "./politica";
 import { estadoReferidoPorHitos, evaluarHito, filaIncentivo, type HechosPermanencia } from "./hitos";
 
@@ -23,17 +23,66 @@ export async function bitacora(referidoId: string, accion: string, detalle: Reco
   if (error) console.error("[padrino] no se pudo escribir la bitácora:", error.message);
 }
 
+/** revalidatePath fuera de una petición de Next (baterías de prueba) lanza: aquí no debe impedir nada. */
+function revalidar(ruta: string) {
+  try {
+    revalidatePath(ruta);
+  } catch {
+    /* fuera de Next */
+  }
+}
+
 /**
- * Si el proceso del referido elegible ya está en "contratado", lo pasa a
- * Contratado con la fecha de ingreso: la de contrato del proceso; si no la
- * tiene, la de (re)ingreso del conductor; si tampoco, hoy. La llaman la
- * decisión de elegibilidad y Procesos de contratación al guardar. Nunca
- * lanza: un fallo aquí no debe impedir guardar el proceso.
+ * Si el proceso del referido ya está en "contratado", lo pasa a Contratado con
+ * la fecha de ingreso: la de contrato del proceso; si no la tiene, la de
+ * (re)ingreso del conductor; si tampoco, hoy. La llaman la decisión de
+ * elegibilidad y Procesos de contratación al guardar. Nunca lanza: un fallo
+ * aquí no debe impedir guardar el proceso.
+ *
+ * 27-nov-2026 (reunión de soporte: el plan se activa el día que se contrata):
+ * si al contratar el referido seguía en Registrado o En validación, se
+ * revalida con la fecha de contratación; si ningún requisito que bloquea
+ * falla, queda elegible solo (con lo que hay que revisar anotado en la
+ * bitácora) y sigue a Contratado. Si alguno bloquea, se queda en validación
+ * con los requisitos al día para que Gestión Humana decida.
  */
 export async function sincronizarConProceso(procesoId: string | null, actor: Actor) {
   if (!procesoId) return;
   try {
     const admin = createAdminClient();
+    const { data: p } = await admin.from("procesos_contratacion").select("estado, fecha_contrato").eq("id", procesoId).maybeSingle();
+    if (p?.estado !== "contratado") return;
+    const { data: pendientes } = await admin
+      .from("padrino_referidos")
+      .select("*")
+      .eq("proceso_id", procesoId)
+      .in("estado", ["registrado", "en_validacion"])
+      .is("anulado_at", null);
+    for (const r of pendientes ?? []) {
+      const fecha = await fechaIngresoDe(r.cedula_referido as string, (p.fecha_contrato as string | null) ?? null);
+      const { validacion } = await validar(procesoId, r.cedula_padrino as string, admin, {
+        referidoId: r.id as string,
+        experienciaCertificada: r.certificado_validado_at ? Boolean(r.experiencia_certificada) : null,
+        fechaIngreso: fecha.fecha,
+        registradoEl: fechaRegistro(r),
+      });
+      const res = resumenDecision(validacion);
+      const ahora = new Date().toISOString();
+      if (res.bloqueantes) {
+        await admin.from("padrino_referidos").update({ validacion, validacion_at: ahora, updated_at: ahora }).eq("id", r.id);
+        await bitacora(r.id as string, "contratado_sin_decidir", { fecha_ingreso: fecha.fecha, bloqueantes: res.bloqueantes, nota: "Se contrató con requisitos que bloquean: Gestión Humana decide la elegibilidad (o la aprueba como excepción)." }, actor);
+        continue;
+      }
+      const { error: eE } = await admin
+        .from("padrino_referidos")
+        .update({ estado: "elegible", validacion, validacion_at: ahora, elegibilidad_observacion: "Elegible al contratar (sin requisitos que bloqueen).", elegibilidad_at: ahora, updated_at: ahora })
+        .eq("id", r.id)
+        .in("estado", ["registrado", "en_validacion"]);
+      if (!eE) {
+        const revisar = [...validacion.padrino, ...validacion.referido].filter((x) => x.estado === "revisar").map((x) => `${x.codigo}: ${x.dato}`);
+        await bitacora(r.id as string, "elegible_al_contratar", { fecha_ingreso: fecha.fecha, revisar }, actor);
+      }
+    }
     const { data: refs, error } = await admin
       .from("padrino_referidos")
       .select("id, cedula_referido")
@@ -42,12 +91,8 @@ export async function sincronizarConProceso(procesoId: string | null, actor: Act
       .is("anulado_at", null);
     // Sin la migración aplicada la tabla no existe: no hay nada que sincronizar.
     if (error || !refs?.length) return;
-    const { data: p } = await admin.from("procesos_contratacion").select("estado, fecha_contrato").eq("id", procesoId).maybeSingle();
-    if (p?.estado !== "contratado") return;
     for (const r of refs) {
-      const { data: c } = await admin.from("conductores").select("fecha_ingreso, fecha_reingreso").eq("cedula", r.cedula_referido).maybeSingle();
-      const fecha = (p.fecha_contrato as string | null) ?? (c?.fecha_reingreso as string | null) ?? (c?.fecha_ingreso as string | null) ?? hoyBogota();
-      const fuente = p.fecha_contrato ? "fecha de contrato del proceso" : c?.fecha_reingreso || c?.fecha_ingreso ? "ingreso del conductor" : "fecha de hoy";
+      const { fecha, fuente } = await fechaIngresoDe(r.cedula_referido as string, (p.fecha_contrato as string | null) ?? null);
       const { error: e } = await admin
         .from("padrino_referidos")
         .update({ estado: "contratado", fecha_ingreso: fecha, updated_at: new Date().toISOString() })
@@ -59,9 +104,88 @@ export async function sincronizarConProceso(procesoId: string | null, actor: Act
         await crearHitos(r.id as string, actor);
       }
     }
-    revalidatePath("/candidatos/plan-padrino");
+    revalidar("/candidatos/plan-padrino");
   } catch (e) {
     console.error("[padrino] no se pudo sincronizar con el proceso:", e);
+  }
+}
+
+/** Fecha de ingreso del referido: la de contrato del proceso; si no, la de (re)ingreso del conductor; si no, hoy. */
+async function fechaIngresoDe(cedula: string, fechaContrato: string | null): Promise<{ fecha: string; fuente: string }> {
+  if (fechaContrato) return { fecha: fechaContrato, fuente: "fecha de contrato del proceso" };
+  const { data: c } = await createAdminClient().from("conductores").select("fecha_ingreso, fecha_reingreso").eq("cedula", cedula).maybeSingle();
+  const delConductor = (c?.fecha_reingreso as string | null) ?? (c?.fecha_ingreso as string | null) ?? null;
+  return delConductor ? { fecha: delConductor, fuente: "ingreso del conductor" } : { fecha: hoyBogota(), fuente: "fecha de hoy" };
+}
+
+/** Estados del referido que se cierran solos si el proceso no termina en contratación. */
+const ABIERTOS_ANTES_DE_CONTRATAR = ["registrado", "en_validacion", "elegible"];
+
+/**
+ * El proceso de selección se cerró sin contratar (27-nov-2026): el referido que
+ * seguía antes de la contratación pasa a «No contratado» con la causa, y queda
+ * en la bitácora. Antes había que cerrarlo a mano y la lista crecía con
+ * aspirantes que nunca se contrataron. Nunca lanza.
+ */
+export async function cerrarReferidoPorProceso(procesoId: string, causa: string | null, actor: Actor) {
+  try {
+    const admin = createAdminClient();
+    const { data: refs, error } = await admin
+      .from("padrino_referidos")
+      .select("id, estado")
+      .eq("proceso_id", procesoId)
+      .in("estado", ABIERTOS_ANTES_DE_CONTRATAR)
+      .is("anulado_at", null);
+    if (error || !refs?.length) return;
+    const observacion = `Proceso de selección cerrado${causa ? `: ${causa}` : ""}.`;
+    for (const r of refs) {
+      const { error: e } = await admin
+        .from("padrino_referidos")
+        .update({ estado: "no_contratado", cierre_observacion: observacion, updated_at: new Date().toISOString() })
+        .eq("id", r.id)
+        .in("estado", ABIERTOS_ANTES_DE_CONTRATAR);
+      if (!e) await bitacora(r.id as string, "no_contratado", { automatico: true, causa, estado_anterior: r.estado }, actor);
+    }
+    revalidar("/candidatos/plan-padrino");
+  } catch (e) {
+    console.error("[padrino] no se pudo cerrar el referido con el proceso:", e);
+  }
+}
+
+/**
+ * El proceso se reabrió (la persona volvió a escribir o Gestión Humana lo
+ * reabrió): el referido que se había cerrado solo vuelve a «En validación»
+ * para decidir otra vez. Solo los cerrados automáticamente. Nunca lanza.
+ */
+export async function reabrirReferidoPorProceso(procesoId: string, actor: Actor) {
+  try {
+    const admin = createAdminClient();
+    const { data: refs, error } = await admin
+      .from("padrino_referidos")
+      .select("id")
+      .eq("proceso_id", procesoId)
+      .eq("estado", "no_contratado")
+      .is("anulado_at", null);
+    if (error || !refs?.length) return;
+    for (const r of refs) {
+      const { data: ultimo } = await admin
+        .from("padrino_eventos")
+        .select("accion, detalle")
+        .eq("referido_id", r.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (ultimo?.accion !== "no_contratado" || (ultimo.detalle as { automatico?: boolean } | null)?.automatico !== true) continue;
+      const { error: e } = await admin
+        .from("padrino_referidos")
+        .update({ estado: "en_validacion", cierre_observacion: null, updated_at: new Date().toISOString() })
+        .eq("id", r.id)
+        .eq("estado", "no_contratado");
+      if (!e) await bitacora(r.id as string, "reabierto", { automatico: true, motivo: "El proceso de selección se reabrió." }, actor);
+    }
+    revalidar("/candidatos/plan-padrino");
+  } catch (e) {
+    console.error("[padrino] no se pudo reabrir el referido con el proceso:", e);
   }
 }
 
@@ -114,7 +238,7 @@ export async function enlazarPrerregistro(procesoId: string | null, actor: Actor
       .select("id");
     if (e || !upd?.length) return;
     await bitacora(r.id as string, "enlazado_proceso", { proceso_id: procesoId, proceso_creado: p.fecha_creacion, politica: politica?.version ?? null, validacion }, actor);
-    revalidatePath("/candidatos/plan-padrino");
+    revalidar("/candidatos/plan-padrino");
   } catch (e) {
     console.error("[padrino] no se pudo enlazar el prerregistro con el proceso:", e);
   }
@@ -330,7 +454,7 @@ export async function evaluarHitos(hoy: string, actor: Actor) {
     }
   }
   for (const id of tocados) await actualizarEstadoReferido(id, actor);
-  revalidatePath("/candidatos/plan-padrino");
+  revalidar("/candidatos/plan-padrino");
   return resumen;
 }
 

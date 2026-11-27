@@ -20,6 +20,7 @@ import { movimientoAlSoltar, type EtapaConPaso } from "@/lib/seleccion/mover-tab
 import { ProcesoFormDialog, type VacanteOption } from "@/components/contratacion/procesos-client";
 import { SemaforoPuntos } from "@/components/seleccion/semaforo";
 import { timeAgoBogota } from "@/lib/utils";
+import { leerFicha } from "@/lib/lectura-ficha";
 
 type Columnas = Record<string, ProcesoContratacion[]>;
 
@@ -33,7 +34,20 @@ export function KanbanProcesos({ procesos, vacancies }: { procesos: ProcesoContr
   const router = useRouter();
   const edita = usePermisos()("candidatos.editar");
   const [columnas, setColumnas] = useState<Columnas>(() => agrupar(procesos));
-  const [abierto, setAbierto] = useState<ProcesoContratacion | null>(null);
+  const [abierto, setAbiertoCompleto] = useState<ProcesoContratacion | null>(null);
+  // La tarjeta trae solo lo que muestra (27-nov-2026): al abrirla se trae el proceso completo.
+  const [abriendo, setAbriendo] = useState<string | null>(null);
+  const setAbierto = useCallback((p: ProcesoContratacion | null) => {
+    if (!p) return setAbiertoCompleto(null);
+    setAbriendo(p.id);
+    void leerFicha("procesoCompleto", p.id)
+      .then((completo) => {
+        if (completo) setAbiertoCompleto(completo);
+        else toast.error("Ese proceso ya no existe.");
+      })
+      .catch((e: unknown) => toast.error(e instanceof Error ? e.message : "No se pudo abrir el proceso."))
+      .finally(() => setAbriendo(null));
+  }, []);
   // Arrastrada hacia adelante: la ficha se abre con lo que pide esa etapa (24-nov-2026).
   const [destino, setDestino] = useState<EtapaConPaso | null>(null);
   const [cierre, setCierre] = useState<{ proceso: ProcesoContratacion; causa: string } | null>(null);
@@ -153,7 +167,8 @@ export function KanbanProcesos({ procesos, vacancies }: { procesos: ProcesoContr
                               onKeyDown={(e) => {
                                 if (e.key === "Enter") setAbierto(p);
                               }}
-                              className={`w-full cursor-pointer rounded-lg border border-[#E2E8F0] bg-white p-3 text-left shadow-sm transition-shadow hover:shadow focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4F46E5]/40 ${snap.isDragging ? "shadow-lg ring-2 ring-[#4F46E5]/30" : ""}`}
+                              className={`w-full cursor-pointer rounded-lg border border-[#E2E8F0] bg-white p-3 text-left shadow-sm transition-shadow hover:shadow focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4F46E5]/40 ${snap.isDragging ? "shadow-lg ring-2 ring-[#4F46E5]/30" : ""} ${abriendo === p.id ? "cursor-wait opacity-60" : ""}`}
+                              aria-busy={abriendo === p.id}
                             >
                               <div className="flex items-start justify-between gap-2">
                                 <span className="text-sm font-medium leading-snug text-gray-900">{p.nombre}</span>

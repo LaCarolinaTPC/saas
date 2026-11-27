@@ -8,7 +8,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { PROCESO_ESTADOS } from "@/lib/contratacion/constants";
-import { sincronizarConProceso } from "@/lib/padrino/servidor";
+import { cerrarReferidoPorProceso, reabrirReferidoPorProceso, sincronizarConProceso } from "@/lib/padrino/servidor";
 import { buscarFichaReal, notaDeRevision } from "@/lib/conductores/duplicados";
 
 export interface ActorProceso {
@@ -338,5 +338,8 @@ export async function cambiarEstadoProceso(
     await asegurarAltaContratado(proc);
     await sincronizarConProceso(id, opciones.actor);
   }
+  // Plan Padrino (27-nov-2026): al cerrar, el referido pasa solo a «No contratado»; al reabrir, vuelve a validación.
+  if (nuevo === "cierre") await cerrarReferidoPorProceso(id, causa, opciones.actor);
+  else if (anterior === "cierre") await reabrirReferidoPorProceso(id, opciones.actor);
   return { cambiado: true, anterior };
 }

@@ -1,5 +1,6 @@
 "use server";
 
+import { after } from "next/server";
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { soloLoCambiado } from "./solo-lo-cambiado";
@@ -428,6 +429,18 @@ export async function procesoParaFicha(id: string): Promise<ProcesoContratacion 
   return (data as ProcesoContratacion | null) ?? null;
 }
 
+/**
+ * El proceso completo, para abrir su ficha desde el tablero (27-nov-2026): el
+ * tablero solo trae lo que muestra la tarjeta.
+ */
+export async function procesoCompleto(id: string): Promise<ProcesoContratacion | null> {
+  const perms = await getCurrentPermissions();
+  if (!canAccess(perms, "candidatos")) throw new Error("Sin permisos para ver candidatos.");
+  const { data, error } = await createAdminClient().from("procesos_contratacion").select("*, vacancies(title)").eq("id", id).maybeSingle();
+  if (error) throw new Error(error.message);
+  return (data as ProcesoContratacion | null) ?? null;
+}
+
 export async function listarEventosProceso(id: string): Promise<EventoProcesoVista[]> {
   const perms = await getCurrentPermissions();
   if (!canAccess(perms, "candidatos")) throw new Error("Sin permisos para ver candidatos.");
@@ -595,14 +608,21 @@ export async function decidirAntecedentes(procesoId: string, aprobar: boolean, j
       .eq("id", procesoId);
     if (error) return { ok: false, error: `No se pudo guardar la decisión (¿falta aplicar la migración de la entrega 3?): ${error.message}` };
     const fuentes = ev.fuentes.filter((f) => f.estado === "hallazgo" || f.accion === "revision" || f.accion === "descarta").map((f) => f.fuente);
-    await registrarEvento(procesoId, { tipo: "dato", detalle: { decision_antecedentes: decision, justificacion: texto, fuentes, veredicto: ev.veredicto } }, actor);
+    // Las que tenían anotación al decidir: si después llega una en otra, el aval se anula (27-nov-2026).
+    const hallazgos = ev.fuentes.filter((f) => f.estado === "hallazgo").map((f) => f.fuente);
+    await registrarEvento(procesoId, { tipo: "dato", detalle: { decision_antecedentes: decision, justificacion: texto, fuentes, hallazgos, veredicto: ev.veredicto } }, actor);
     if (aprobar) {
-      await marcarListoParaCitar(procesoId).catch(() => false);
-      // 25-nov-2026: aprobados los hallazgos, puede quedar «Listo para contratar».
-      await revisarListoContratar(procesoId, actor);
+      // Después de responder (27-nov-2026, «aprobar estaba lento»): quedar listo para citar puede
+      // crear la cita y enviar la citación por WhatsApp; la ficha se actualiza en cuanto termina.
+      after(async () => {
+        await marcarListoParaCitar(procesoId).catch(() => false);
+        // 25-nov-2026: aprobados los hallazgos, puede quedar «Listo para contratar».
+        await revisarListoContratar(procesoId, actor);
+      });
     } else {
       await cambiarEstadoProceso(procesoId, "cierre", { actor, causa: CAUSA_ANTECEDENTES });
-      await avisarCierrePorAntecedentes(procesoId).catch((e) => console.error("[seleccion] aviso de cierre por antecedentes:", e));
+      // El aviso al aspirante (WhatsApp) también después de responder.
+      after(() => avisarCierrePorAntecedentes(procesoId).catch((e) => console.error("[seleccion] aviso de cierre por antecedentes:", e)));
     }
     revalidatePath("/candidatos");
     return { ok: true };
@@ -812,4 +832,29 @@ export async function exportarProcesos(
   const { data, error } = await q;
   if (error) return { rows: [], error: error.message };
   return { rows: (data ?? []) as Record<string, unknown>[] };
+}
+
+/**
+ * Lo que la ficha del proceso lee al abrirse y al recargarse, en UNA llamada
+ * (27-nov-2026): eran cinco acciones y Next corre las de una página de a una,
+ * así que iban en fila («Cargando las consultas…» varios segundos). Aquí corren
+ * en paralelo en el servidor. Cada parte falla sola sin tumbar las demás.
+ */
+export async function datosFichaProceso(p: { id: string; cedula: string | null; celular: string | null }): Promise<{
+  eventos: EventoProcesoVista[] | null;
+  anteriores: PostulacionAnterior[] | null;
+  consultas: ConsultaExternaVista[] | null;
+  documentos: DocumentoProceso[] | null;
+  vinculo: VinculoEmpresa | null;
+}> {
+  const perms = await getCurrentPermissions();
+  if (!canAccess(perms, "candidatos")) throw new Error("Sin permisos para ver candidatos.");
+  const [eventos, anteriores, consultas, documentos, vinculo] = await Promise.all([
+    listarEventosProceso(p.id).catch(() => null),
+    postulacionesAnteriores({ procesoId: p.id, cedula: p.cedula, telefono: p.celular }).catch(() => null),
+    listarConsultasExternas(p.id).catch(() => null),
+    listarDocumentosProceso(p.id).catch(() => null),
+    vinculoEmpresaProceso(p.id).catch(() => null),
+  ]);
+  return { eventos, anteriores, consultas, documentos, vinculo };
 }

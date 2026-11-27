@@ -9,7 +9,7 @@
  * desde cualquier equipo; los candidatos guardados quedan en Candidatos.
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { Bot, FlaskConical, Loader2, MessageCirclePlus, Plus, X } from "lucide-react";
+import { Bot, Clock, FlaskConical, Loader2, MessageCirclePlus, Plus, X } from "lucide-react";
 import type { AgenteFormulario } from "@/lib/comunicaciones/agente/formulario";
 import { estadoInfo } from "@/lib/contratacion/constants";
 import {
@@ -26,6 +26,10 @@ import {
 } from "@/lib/seleccion/escenario-croma";
 import { ChatPrueba, PREFIJO_GUARDADO, type ConfigChatPrueba, type ResumenChatPrueba } from "./chat-prueba";
 import { cerrarChatRemoto, guardarChatRemoto, listarChatsRemotos } from "./chats-prueba-remoto";
+import { activarReloj, adelantarReloj, adelantoActual, ahoraPrueba, cambiarVelocidad, estadoReloj, reiniciarReloj, suscribirReloj } from "./reloj-prueba";
+import { ETIQUETA_MENSAJE, avisarPrueba } from "./profesor-tipos";
+import { cronPrueba } from "@/lib/seleccion/prueba-profesor-actions";
+import type { ItemCronPrueba } from "@/lib/seleccion/cron-prueba-servidor";
 
 /** Copia en el navegador de la lista de chats de prueba (cada chat guarda lo suyo con PREFIJO_GUARDADO). La fuente es la base. */
 const CLAVE_LISTA = "gestivo:seleccion:chats-prueba";
@@ -226,8 +230,30 @@ export function ChatsPrueba({
     );
   }, []);
 
+  // Simulador del cron (27-nov-2026): lo que necesita de cada chat abierto en esta página.
+  const chatsRef = useRef(chats);
+  useEffect(() => {
+    chatsRef.current = chats;
+  }, [chats]);
+  const itemsCron = useCallback(
+    (): ItemCronPrueba[] =>
+      chatsRef.current
+        .filter((c) => montadosRef.current.has(c.id) && c.resumen)
+        .map((c) => ({
+          idChat: c.id,
+          procesoId: c.resumen?.procesoId ?? null,
+          ultimoEntranteAt: c.resumen?.ultimoEntranteAt ?? null,
+          ultimoEsNuestro: !!c.resumen?.ultimoEsNuestro,
+          hojaVida: !!c.resumen?.hojaVida,
+          buscaTrabajo: c.resumen?.buscaTrabajo !== false,
+          nombre: c.resumen?.nombre ?? null,
+        })),
+    []
+  );
+
   return (
     <div className="space-y-2">
+      <SimuladorCron items={itemsCron} />
       <p className="text-[11px] text-text-muted">
         {descripcion ??
           "Conversa como si fueras el aspirante. No se envía nada por WhatsApp. Cada mensaje usa dos llamadas a la IA: la respuesta y la lectura de los datos."}
@@ -580,6 +606,168 @@ function NuevoChatDialog({ onClose, onAbrir }: { onClose: () => void; onAbrir: (
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Simulador del cron (27-nov-2026) ─────────────────────────────────────────
+
+const VELOCIDADES: [number, string][] = [
+  [1, "×1 (tiempo real)"],
+  [10, "×10 (6 min = 1 h)"],
+  [60, "×60 (1 min = 1 h)"],
+  [240, "×240 (1 min = 4 h)"],
+];
+const SALTOS: [number, string][] = [
+  [30 * 60_000, "+30 min"],
+  [2 * 3_600_000, "+2 h"],
+  [86_400_000, "+1 día"],
+];
+const CADA_MS = 30_000;
+const CLAVE_VISTOS = "seleccion-cron-prueba-vistos";
+
+function duracion(ms: number): string {
+  const min = Math.round(ms / 60_000);
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60);
+  if (h < 48) return `${h} h${min % 60 ? ` ${min % 60} min` : ""}`;
+  return `${Math.floor(h / 24)} días ${h % 24} h`;
+}
+
+/**
+ * En desarrollo el cron no corre: aquí se simula mientras la página está
+ * abierta, solo para los candidatos de los chats de prueba abiertos, con un
+ * reloj que se puede acelerar y adelantar. Lo que le llegaría al aspirante
+ * entra a su chat; lo demás queda como nota.
+ */
+function SimuladorCron({ items }: { items: () => ItemCronPrueba[] }) {
+  const [reloj, setReloj] = useState(estadoReloj);
+  // La hora del reloj y lo adelantado, al día cada segundo (no se calcula en el render).
+  const [vista, setVista] = useState(() => ({ adelanto: adelantoActual(), real: 0 }));
+  const [ultimo, setUltimo] = useState<string | null>(null);
+  const [corriendo, setCorriendo] = useState(false);
+  const corriendoRef = useRef(false);
+  useEffect(() => suscribirReloj(() => setReloj(estadoReloj())), []);
+  // La hora del reloj se ve correr.
+  useEffect(() => {
+    const actualizar = () => setVista({ adelanto: adelantoActual(), real: Date.now() });
+    const primera = setTimeout(actualizar, 0);
+    const t = setInterval(actualizar, 1000);
+    return () => {
+      clearTimeout(primera);
+      clearInterval(t);
+    };
+  }, [reloj]);
+
+  const correr = useCallback(async () => {
+    if (corriendoRef.current) return;
+    const lista = items();
+    if (!lista.length) return setUltimo("Abre un chat de prueba para simular el cron.");
+    corriendoRef.current = true;
+    setCorriendo(true);
+    const r = await cronPrueba(lista, new Date(ahoraPrueba()).toISOString()).catch((e: Error) => ({ error: e.message }));
+    corriendoRef.current = false;
+    setCorriendo(false);
+    if ("error" in r) return setUltimo(`No se pudo simular: ${r.error}`);
+    let vistos: string[] = [];
+    try {
+      vistos = JSON.parse(sessionStorage.getItem(CLAVE_VISTOS) ?? "[]") as string[];
+    } catch {
+      vistos = [];
+    }
+    let mensajes = 0;
+    let notas = 0;
+    for (const c of r.chats) {
+      const destino = { idChat: c.idChat, ...(c.procesoId ? { procesoId: c.procesoId } : {}) };
+      for (const m of c.mensajes) {
+        avisarPrueba({ ...destino, texto: m.texto, etiqueta: `${ETIQUETA_MENSAJE[m.clave] ?? m.clave} (cron)`, clave: m.clave, adjuntos: m.adjuntos });
+        mensajes++;
+      }
+      for (const s of c.silencio) {
+        const k = `${c.idChat}:${s.clave}`;
+        if (vistos.includes(k)) continue;
+        vistos.push(k);
+        if (s.texto) {
+          avisarPrueba({ ...destino, texto: s.texto, etiqueta: `Reactivación por silencio (cron) · ${s.nota}` });
+          mensajes++;
+        } else {
+          avisarPrueba({ ...destino, nota: `Gestivo (cron): ${s.nota}` });
+          notas++;
+        }
+      }
+      if (c.notas.length) {
+        avisarPrueba({ ...destino, nota: c.notas.join(" · ") });
+        notas += c.notas.length;
+      }
+    }
+    try {
+      sessionStorage.setItem(CLAVE_VISTOS, JSON.stringify(vistos.slice(-500)));
+    } catch {
+      // Sin almacenamiento: puede repetir el aviso del silencio.
+    }
+    const hora = new Date(r.ahora).toLocaleString("es-CO", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+    setUltimo(`Última vuelta (${hora}): ${lista.length} chat(s), ${mensajes} mensaje(s), ${notas} nota(s).`);
+  }, [items]);
+
+  // Cada 30 s mientras está encendido y la pestaña se ve.
+  useEffect(() => {
+    if (!reloj.activo) return;
+    // La primera vuelta enseguida (fuera del cuerpo del efecto) y después cada 30 s.
+    const primera = setTimeout(() => void correr(), 0);
+    const t = setInterval(() => {
+      if (document.visibilityState === "visible") void correr();
+    }, CADA_MS);
+    return () => {
+      clearTimeout(primera);
+      clearInterval(t);
+    };
+  }, [reloj.activo, correr]);
+
+  const adelanto = vista.adelanto;
+  const ahora = vista.real ? new Date(vista.real + adelanto) : null;
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface-raised px-3 py-2 text-xs text-text-secondary">
+      <label className="flex cursor-pointer items-center gap-1.5 font-medium text-text-primary">
+        <input type="checkbox" checked={reloj.activo} onChange={(e) => activarReloj(e.target.checked)} className="h-4 w-4 accent-[#4F46E5]" />
+        Simular el cron
+      </label>
+      <select value={reloj.velocidad} onChange={(e) => cambiarVelocidad(Number(e.target.value))} className="rounded-lg border border-border bg-white px-2 py-1" aria-label="Velocidad del reloj">
+        {VELOCIDADES.map(([v, t]) => (
+          <option key={v} value={v}>
+            {t}
+          </option>
+        ))}
+      </select>
+      <span className="flex items-center gap-1 tabular-nums">
+        <Clock className="h-3.5 w-3.5" />
+        {ahora?.toLocaleString("es-CO", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) ?? "…"}
+        <span className="text-text-muted">{adelanto >= 60_000 ? `(+${duracion(adelanto)})` : "(hora real)"}</span>
+      </span>
+      {SALTOS.map(([ms, t]) => (
+        <button
+          key={t}
+          type="button"
+          onClick={() => {
+            adelantarReloj(ms);
+            void correr();
+          }}
+          className="rounded-lg border border-border bg-white px-2 py-1 hover:bg-slate-50"
+        >
+          {t}
+        </button>
+      ))}
+      {adelanto >= 60_000 && (
+        <button type="button" onClick={() => reiniciarReloj()} className="rounded-lg px-2 py-1 text-[#4F46E5] hover:underline">
+          Hora real
+        </button>
+      )}
+      <button type="button" onClick={() => void correr()} disabled={corriendo} className="rounded-lg border border-border bg-white px-2 py-1 hover:bg-slate-50 disabled:opacity-50">
+        {corriendo ? "Corriendo…" : "Correr ahora"}
+      </button>
+      <span className="basis-full text-[11px] text-text-muted">
+        {ultimo ??
+          "Corre los pasos del cron (cierre de quien no pasó la preselección, recordatorio y «No asistió» de la cita, aviso de rutas, correo de la psicosensotécnica, certificado y documentos, y la reactivación por silencio) solo para los candidatos de los chats abiertos, con este reloj. Cada 30 s mientras esté encendido. La IA del chat usa esta hora."}
+      </span>
     </div>
   );
 }

@@ -45,16 +45,24 @@ export interface ResultadoAgendaCron {
 type FilaCita = Cita & { procesos_contratacion: { id: string; nombre: string | null; celular: string | null; origen: string | null } | { id: string; nombre: string | null; celular: string | null; origen: string | null }[] | null };
 const uno = <T>(v: T | T[] | null): T | null => (Array.isArray(v) ? (v[0] ?? null) : v);
 
-export async function ejecutarAgenda(ahora: Date = new Date()): Promise<ResultadoAgendaCron> {
+/**
+ * `soloProcesos` (simulador del cron en el chat de prueba, 27-nov-2026): solo
+ * esos procesos, incluidos los del chat de prueba (a ellos no les sale nada).
+ * Sin la opción, el cron de siempre: sin candidatos del chat de prueba.
+ */
+export async function ejecutarAgenda(ahora: Date = new Date(), opciones: { soloProcesos?: string[] } = {}): Promise<ResultadoAgendaCron> {
   const r: ResultadoAgendaCron = { recordatorios: 0, alertas: 0, inasistencias: 0, escuela: 0, porReprogramar: 0 };
   const db = createAdminClient();
   const hoy = fechaBogota(ahora.toISOString());
-  const { data, error } = await db
+  const solo = opciones.soloProcesos;
+  let consultaCitas = db
     .from("seleccion_citas")
     .select("*, procesos_contratacion!inner(id, nombre, celular, origen, estado)")
     .eq("fecha", hoy)
     .in("tipo", [...TIPOS_CON_SEGUIMIENTO])
     .in("estado", ["programada", "confirmada", "pide_otra_fecha"]);
+  if (solo) consultaCitas = consultaCitas.in("proceso_id", solo.length ? solo : ["00000000-0000-0000-0000-000000000000"]);
+  const { data, error } = await consultaCitas;
   // Sin la migración de la entrega 2 no hay agenda.
   if (error) return { ...r, omitida: `consulta: ${error.message}` };
 
@@ -67,7 +75,7 @@ export async function ejecutarAgenda(ahora: Date = new Date()): Promise<Resultad
   // Ni candidatos del chat de prueba ni procesos ya cerrados o contratados.
   const citas = ((data ?? []) as FilaCita[]).filter((c) => {
     const p = uno(c.procesos_contratacion) as { origen?: string | null; estado?: string } | null;
-    return p?.origen !== "chat_prueba" && p?.estado !== "cierre" && p?.estado !== "contratado";
+    return (solo ? true : p?.origen !== "chat_prueba") && p?.estado !== "cierre" && p?.estado !== "contratado";
   });
   const ex = excepciones[0] ?? null;
   const sinCupo = new Set((ex ? citasAfectadas(citas, ex) : []).map((c) => c.id));
@@ -118,16 +126,18 @@ export async function ejecutarAgenda(ahora: Date = new Date()): Promise<Resultad
   const horaClase = horaDelDia(hoy, a, excepciones);
   const ya = horaBogota(ahora);
   if (enHora && horaClase && ya >= a.recordatorioEscuelaHora && ya < horaClase) {
-    const { data: enEscuela, error: eEscuela } = await db
+    let consultaEscuela = db
       .from("procesos_contratacion")
       .select("id, origen, escuela_recordatorio_fecha")
       .eq("estado", "en_escuela")
       .or(`escuela_recordatorio_fecha.is.null,escuela_recordatorio_fecha.neq.${hoy}`)
       .limit(200);
+    if (solo) consultaEscuela = consultaEscuela.in("id", solo.length ? solo : ["00000000-0000-0000-0000-000000000000"]);
+    const { data: enEscuela, error: eEscuela } = await consultaEscuela;
     if (!eEscuela) {
       // Solo a quien el profesor mandó a escuela con el registro nuevo: los procesos
       // viejos que quedaron en «En escuela» antes de la entrega 2 no reciben mensajes.
-      const candidatos = (enEscuela ?? []).filter((x) => x.origen !== "chat_prueba");
+      const candidatos = (enEscuela ?? []).filter((x) => solo || x.origen !== "chat_prueba");
       const { data: registrados } = candidatos.length
         ? await db.from("seleccion_pruebas_manejo").select("proceso_id").eq("resultado", "escuela").in("proceso_id", candidatos.map((x) => x.id as string))
         : { data: [] };

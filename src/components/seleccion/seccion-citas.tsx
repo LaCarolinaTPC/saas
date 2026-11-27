@@ -11,13 +11,13 @@ import { CalendarClock, GraduationCap } from "lucide-react";
 import { ESTADO_CITA_LABEL, citaVigente, fechaEnTexto, horaEnTexto, reprogramacionesDe, type Cita } from "@/lib/seleccion/agenda";
 import type { ResultadoAgenda } from "@/lib/seleccion/agenda-servidor";
 import type { HistorialProfesor } from "@/lib/seleccion/profesor-servidor";
-import { citasYProfesorDeProceso } from "@/app/(dashboard)/candidatos/agenda-actions";
 import { citasPrueba, historialProfesorPrueba } from "@/lib/seleccion/prueba-profesor-actions";
 import { CITAR_REAL } from "./acciones-reales";
 import { CITAR_PRUEBA } from "./acciones-prueba";
 import { CitarDialog } from "./citar-dialog";
 import { HistorialProfesorLista } from "./historial-profesor";
 import { textoEnvio } from "./profesor-tipos";
+import { leerFicha } from "@/lib/lectura-ficha";
 
 const TIPO: Record<Cita["tipo"], string> = {
   prueba_manejo: "Prueba de manejo",
@@ -60,7 +60,7 @@ export function SeccionCitas({
         .then(setHistorial)
         .catch(() => setHistorial(null));
     } else {
-      citasYProfesorDeProceso(proceso.id)
+      leerFicha("citasYProfesorDeProceso", proceso.id)
         .then((r) => {
           setCitas(r.citas);
           setHistorial(r.historial);

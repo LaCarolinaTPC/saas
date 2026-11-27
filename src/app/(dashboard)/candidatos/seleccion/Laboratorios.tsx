@@ -11,11 +11,12 @@ import { useCallback, useEffect, useMemo, useState, useTransition } from "react"
 import Link from "next/link";
 import { Download, FileText, Mail, MessageCircle, Plus, Send, TriangleAlert, Upload } from "lucide-react";
 import { DIAS_CORTOS, DIAS_SEMANA, type Laboratorio, type ModoReparto } from "@/lib/seleccion/laboratorios";
+import { fechaEnTexto } from "@/lib/seleccion/agenda";
 import type { VistaOrden } from "@/lib/seleccion/laboratorios-servidor";
 import { FRASE_APTO_POR_DEFECTO, type LecturaLaboratorio } from "@/lib/seleccion/laboratorio";
 import {
   asignarLaboratorioAccion, datosLaboratorios, documentosAspiranteAccion, enviarDocumentosAccion, enviarOrdenAccion, guardarLaboratorioAccion,
-  guardarRepartoAccion, procesosEnExamenesAccion, simularRepartoAccion, simularRespuestaLaboratorioAccion, subirPlantillaCartaAccion,
+  guardarLaboratorioFechaProfesorAccion, guardarRepartoAccion, procesosEnExamenesAccion, simularRepartoAccion, simularRespuestaLaboratorioAccion, subirPlantillaCartaAccion,
   subirPlantillaOrdenAccion, vistaOrdenAccion, datosFirmaCartaAccion, guardarFirmanteAccion, quitarImagenCartaAccion, subirImagenCartaAccion,
   type DocumentoDescarga, type PantallaLaboratorios, type ProcesoSimulador,
 } from "./laboratorios-actions";
@@ -119,7 +120,9 @@ function TarjetaLaboratorio({ lab, marcas, smtp, puedeEditar, onCambio, reparto,
     frase_apto: lab?.frase_apto || FRASE_APTO_POR_DEFECTO,
     frase_no_apto: lab?.frase_no_apto ?? "",
     frase_aplazado: lab?.frase_aplazado ?? "",
+    fechas_sin_atencion: (lab?.fechas_sin_atencion ?? []).filter((x) => x >= hoyBogota()),
   });
+  const [fechaNueva, setFechaNueva] = useState("");
   const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
   const [ocupado, enTransicion] = useTransition();
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
@@ -203,6 +206,39 @@ function TarjetaLaboratorio({ lab, marcas, smtp, puedeEditar, onCambio, reparto,
           <input type="number" min={0} max={100} className={campo} value={f.porcentaje} disabled={!puedeEditar} onChange={(e) => set("porcentaje", Number(e.target.value))} />
           <span className="text-[11px] text-text-tertiary">Últimos 30 días: {asignados} aspirante{asignados === 1 ? "" : "s"}</span>
         </label>
+      </div>
+      <div className="mt-2 text-xs text-text-secondary">
+        Fechas en que no atiende (además de los festivos, que nunca atiende)
+        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+          {f.fechas_sin_atencion.map((d) => (
+            <span key={d} className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-amber-800">
+              {fechaEnTexto(d)}
+              {puedeEditar && (
+                <button type="button" aria-label={`Quitar ${fechaEnTexto(d)}`} onClick={() => set("fechas_sin_atencion", f.fechas_sin_atencion.filter((x) => x !== d))}>
+                  ×
+                </button>
+              )}
+            </span>
+          ))}
+          {!f.fechas_sin_atencion.length && <span className="text-text-tertiary">Ninguna.</span>}
+          {puedeEditar && (
+            <>
+              <input type="date" min={hoyBogota()} value={fechaNueva} onChange={(e) => setFechaNueva(e.target.value)} className={`${campo} w-auto`} />
+              <button
+                type="button"
+                disabled={!fechaNueva}
+                className="rounded-lg border border-[#E2E8F0] px-2 py-1 disabled:opacity-50"
+                onClick={() => {
+                  if (fechaNueva && !f.fechas_sin_atencion.includes(fechaNueva)) set("fechas_sin_atencion", [...f.fechas_sin_atencion, fechaNueva].sort());
+                  setFechaNueva("");
+                }}
+              >
+                Agregar
+              </button>
+            </>
+          )}
+        </div>
+        <span className="text-[11px] text-text-tertiary">Esos días no se le cita a nadie en este laboratorio: el reparto y el profesor eligen otro día u otro laboratorio. Pulse «Guardar» para que cuente.</span>
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-4 text-sm text-text-secondary">
         <label className="flex items-center gap-1.5">
@@ -538,6 +574,45 @@ function Reparto({ modo, puedeEditar, onCambio }: { modo: ModoReparto; puedeEdit
   );
 }
 
+/** Laboratorio que se le propone al profesor cuando elige la fecha y la hora de la fase 1 (27-nov-2026). */
+function LaboratorioFechaProfesor({ valor, labs, puedeEditar, onCambio }: { valor: string | null; labs: Laboratorio[]; puedeEditar: boolean; onCambio: () => void }) {
+  const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
+  const [ocupado, enTransicion] = useTransition();
+  return (
+    <div className="rounded-xl border border-[#E2E8F0] bg-slate-50 p-3 text-sm">
+      <label className="text-xs text-text-secondary">
+        Cuando el profesor elige la fecha y la hora de exámenes, proponer
+        <select
+          className={`${campo} mt-1 max-w-md`}
+          value={valor ?? ""}
+          disabled={!puedeEditar || ocupado}
+          onChange={(e) =>
+            enTransicion(async () => {
+              const r = await guardarLaboratorioFechaProfesorAccion(e.target.value || null);
+              setAviso(r.ok ? { ok: true, texto: "Guardado." } : { ok: false, texto: r.error });
+              if (r.ok) onCambio();
+            })
+          }
+        >
+          <option value="">El que diga el reparto</option>
+          {labs
+            .filter((l) => l.activo)
+            .map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.nombre}
+              </option>
+            ))}
+        </select>
+      </label>
+      <p className="mt-1 text-xs text-text-tertiary">
+        En «Listo para exámenes» el profesor puede tocar «Elegir otra fecha y hora» (nunca antes de ese momento; puede ser el mismo día) y el laboratorio. Este es el que le sale
+        marcado; él puede cambiarlo. La orden le sale a ese laboratorio enseguida.
+      </p>
+      {aviso && <Mensaje {...aviso} />}
+    </div>
+  );
+}
+
 function SimuladorReparto() {
   const [fecha, setFecha] = useState(hoyBogota());
   const [r, setR] = useState<{ ok: boolean; texto: string } | null>(null);
@@ -598,6 +673,7 @@ export default function Laboratorios() {
     <div className="mt-4 gap-4 xl:columns-2 [&>*]:mb-4 [&>*]:break-inside-avoid">
       <Seccion titulo="Laboratorios" ayuda="A dónde van los aspirantes a los exámenes de ingreso y por dónde se le manda la orden a cada laboratorio. Lo que escriba un laboratorio desde su WhatsApp se lee como resultados.">
         <Reparto modo={datos.reparto} puedeEditar={datos.puedeEditar} onCambio={refrescar} />
+        <LaboratorioFechaProfesor valor={datos.laboratorioFechaProfesor} labs={labs} puedeEditar={datos.puedeEditar} onCambio={refrescar} />
         {labs.map((l) => (
           <TarjetaLaboratorio key={`${l.id}:${version}`} lab={l} marcas={datos.plantillas.ordenes[l.id]} smtp={datos.smtp} puedeEditar={datos.puedeEditar} onCambio={refrescar} reparto={datos.reparto} asignados={datos.asignados[l.id] ?? 0} />
         ))}

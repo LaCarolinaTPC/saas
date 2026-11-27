@@ -22,20 +22,24 @@ export interface ResultadoDocumentos {
   omitida?: string;
 }
 
-export async function ejecutarDocumentosPendientes(ahora: Date = new Date()): Promise<ResultadoDocumentos> {
+export async function ejecutarDocumentosPendientes(ahora: Date = new Date(), opciones: { soloProcesos?: string[] } = {}): Promise<ResultadoDocumentos> {
   const r: ResultadoDocumentos = { recordados: 0 };
   if (await topeAlcanzado()) return { ...r, omitida: "tope mensual del gasto alcanzado" };
   const dias = Math.max(1, Number(valorAjuste<unknown>(await leerAjustes(), "documentos_pendientes_dias", 2)) || 2);
   const limite = new Date(ahora.getTime() - dias * 86_400_000).toISOString();
   const db = createAdminClient();
-  const { data, error } = await db
+  let consulta = db
     .from("procesos_contratacion")
     .select("id, fecha_prueba_manejo, documentos_recordatorio_at")
     .in("estado", ESTADOS)
-    .neq("origen", "chat_prueba")
     .not("fecha_prueba_manejo", "is", null)
     .or(`documentos_recordatorio_at.is.null,documentos_recordatorio_at.lt.${limite}`)
     .limit(200);
+  // Simulador del cron en el chat de prueba: solo esos procesos; si no, sin los del chat de prueba.
+  consulta = opciones.soloProcesos
+    ? consulta.in("id", opciones.soloProcesos.length ? opciones.soloProcesos : ["00000000-0000-0000-0000-000000000000"])
+    : consulta.neq("origen", "chat_prueba");
+  const { data, error } = await consulta;
   // Sin la migración de la entrega 3 no existe documentos_recordatorio_at.
   if (error) return { ...r, omitida: `consulta: ${error.message}` };
   // El certificado bancario tiene su propio recordatorio (24-nov-2026): no se repite aquí.

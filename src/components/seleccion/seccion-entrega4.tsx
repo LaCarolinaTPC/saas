@@ -8,8 +8,6 @@ import { useCallback, useEffect, useState } from "react";
 import { Brain, ExternalLink, MessagesSquare, ScanText, UserCheck } from "lucide-react";
 import {
   cambiarClaseDocumento,
-  datosDiaContratacion,
-  documentosLeidos,
   revisarDocumentoLeido,
   registrarEntrevistaFicha,
   registrarInduccionFicha,
@@ -22,6 +20,7 @@ import { CLASES, NOMBRE_CLASE, etiquetaCampo } from "@/lib/seleccion/lectura/esq
 import { RESULTADOS_PSICO_EXTERNA } from "@/lib/seleccion/dia-contratacion";
 import { BotonSubir, ListaArchivos, botonPri, botonSec, campo, fechaHora, useAccion, useEntrega3 } from "./seccion-entrega3";
 import { CorreoPsicoFicha } from "./correo-psico-ficha";
+import { leerFicha } from "@/lib/lectura-ficha";
 
 /** Campo de ancho fijo: sin el w-full del estilo base, que gana sobre w-40/w-56. */
 const campoCorto = campo.replace("w-full ", "");
@@ -38,7 +37,7 @@ function useDiaContratacion(procesoId: string, version: number) {
   const [propia, setPropia] = useState(0);
   useEffect(() => {
     let vivo = true;
-    datosDiaContratacion(procesoId)
+    leerFicha("datosDiaContratacion", procesoId)
       .then((d) => vivo && setDatos(d))
       .catch(() => undefined);
     return () => {
@@ -155,7 +154,7 @@ export function SeccionDiaContratacion({ procesoId, version }: { procesoId: stri
             ))
           )}
           <ListaArchivos archivos={archivosPsico} puedeEditar={editar} onAnular={(id, m) => correr(() => anularAdjuntoFicha(id, m), "Archivo anulado.")} />
-          {editar && <BotonSubir procesoId={procesoId} tipo="psicotecnica" texto="Subir el PDF del resultado" onSubido={(r) => correr(async () => r, "Archivo subido.")} />}
+          {editar && <BotonSubir procesoId={procesoId} tipo="psicotecnica" texto="Subir el PDF del resultado" onSubido={(r) => correr(async () => r, "Archivo subido.", undefined, { refrescarPagina: true })} />}
         </div>
       </section>
 
@@ -442,7 +441,7 @@ export function SeccionDocumentosLeidos({ procesoId, version }: { procesoId: str
   const [propia, setPropia] = useState(0);
   useEffect(() => {
     let vivo = true;
-    documentosLeidos(procesoId)
+    leerFicha("documentosLeidos", procesoId)
       .then((d) => vivo && setDatos(d))
       .catch(() => undefined);
     return () => {

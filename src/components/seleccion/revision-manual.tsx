@@ -7,7 +7,7 @@
  * respondida y Croma no se vuelve a consultar para este proceso. Se puede
  * adjuntar el certificado en PDF (por ejemplo, el del RNMC).
  */
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ExternalLink, FileUp, Loader2, Sparkles, TriangleAlert } from "lucide-react";
 import { leerCertificadoAMano, revisarFuenteAMano, type FuenteRevision } from "@/lib/contratacion/actions";
 import type { LecturaCertificado } from "@/lib/verificacion/lectura-certificado";
@@ -60,6 +60,39 @@ export function RevisionManual({ procesoId, pendientes, onGuardado }: { procesoI
   const [lectura, setLectura] = useState<LecturaCertificado | null>(null);
   const [errorIa, setErrorIa] = useState<string | null>(null);
   const archivoRef = useRef<HTMLInputElement>(null);
+
+  // Borrador en la pestaña (27-nov-2026): si la ficha tarda y se recarga la página, lo escrito no se pierde.
+  const claveBorrador = `revision-manual:${procesoId}`;
+  useEffect(() => {
+    const t = setTimeout(() => {
+      try {
+        const b = JSON.parse(sessionStorage.getItem(claveBorrador) ?? "null") as {
+          abierta: FuenteRevision;
+          hallazgo: boolean | null;
+          valor: string;
+          licencia: { categoria: string; vence: string; restricciones: string };
+          nota: string;
+        } | null;
+        if (!b?.abierta) return;
+        setAbierta(b.abierta);
+        setHallazgo(b.hallazgo);
+        setValor(b.valor ?? "0");
+        if (b.licencia) setLicencia(b.licencia);
+        setNota(b.nota ?? "");
+      } catch {
+        // Sin almacenamiento o borrador dañado: se empieza de cero.
+      }
+    }, 0);
+    return () => clearTimeout(t);
+  }, [claveBorrador]);
+  useEffect(() => {
+    try {
+      if (abierta) sessionStorage.setItem(claveBorrador, JSON.stringify({ abierta, hallazgo, valor, licencia, nota }));
+      else sessionStorage.removeItem(claveBorrador);
+    } catch {
+      // Sin almacenamiento: sin borrador.
+    }
+  }, [claveBorrador, abierta, hallazgo, valor, licencia, nota]);
 
   if (pendientes.length === 0) return null;
 
@@ -244,7 +277,7 @@ export function RevisionManual({ procesoId, pendientes, onGuardado }: { procesoI
                   <button type="button" onClick={() => setAbierta(null)} disabled={ocupado} className="rounded-lg border border-[#E2E8F0] px-3 py-1.5 text-xs font-medium text-gray-700">
                     Cancelar
                   </button>
-                  <button type="button" onClick={guardar} disabled={ocupado} className="inline-flex items-center gap-1.5 rounded-lg bg-[#4F46E5] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">
+                  <button type="button" onClick={guardar} disabled={ocupado} aria-busy={ocupado} className="inline-flex items-center gap-1.5 rounded-lg bg-[#4F46E5] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">
                     {ocupado && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Guardar la revisión
                   </button>
                 </div>

@@ -213,7 +213,7 @@ export async function hechosReferido(procesoId: string | null, admin: Admin = cr
   if (procesoId) {
     const { data, error } = await admin
       .from("procesos_contratacion")
-      .select("id, cedula, nombre, candidate_id, fecha_creacion, simit, estado, licencia_categoria, antecedentes, fecha_examenes, fecha_examenes_fase2")
+      .select("id, cedula, nombre, candidate_id, fecha_creacion, fecha_contrato, simit, estado, licencia_categoria, antecedentes, fecha_examenes, fecha_examenes_fase2")
       .eq("id", procesoId)
       .maybeSingle();
     if (error || !data) throw new Error("El proceso de contratación no existe.");
@@ -264,6 +264,7 @@ export async function hechosReferido(procesoId: string | null, admin: Admin = cr
       antecedentes: (p.antecedentes as string | null) ?? null,
       fechaExamenes: (p.fecha_examenes as string | null) ?? null,
       fechaExamenesFase2: (p.fecha_examenes_fase2 as string | null) ?? null,
+      fechaContrato: (p.fecha_contrato as string | null | undefined) ?? null,
     },
     candidatoCreado: fechaDe(cand.data?.created_at as string | undefined),
     otrosProcesos: (otros.data ?? []).map((o) => ({ id: o.id as string, estado: o.estado as string, fechaCreacion: o.fecha_creacion as string })),

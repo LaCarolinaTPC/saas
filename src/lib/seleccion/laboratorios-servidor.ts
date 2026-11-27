@@ -29,7 +29,7 @@ import { marcasDePdf, rellenarPdf, type FirmaCarta } from "./documento-pdf";
 import { FIRMA_SELECCION, enviarMensajeSeleccion, prepararMensaje } from "./envio";
 import { marcarTipoContacto } from "./laboratorio-servidor";
 import {
-  DIAS_SEMANA, cargoDocumentos, archivoCarta, archivoOrden, armarCorreoOrden, atiende, elegirLaboratorio, faltantesLaboratorio, laboratorioPorTurno, primeraFechaAtendida,
+  DIAS_SEMANA, cargoDocumentos, archivoCarta, archivoOrden, armarCorreoOrden, atiende, elegirLaboratorio, faltantesLaboratorio, fechasSinAtencionValidas, laboratorioPorTurno, primeraFechaAtendida,
   type AspiranteOrden, type CorreoOrden, type Laboratorio, type ModoReparto,
 } from "./laboratorios";
 import { leerAjustes, leerMensaje, valorAjuste } from "./servidor";
@@ -38,6 +38,8 @@ import { primerNombre } from "./mensajes";
 const COLUMNAS_BASE = "id, nombre, direccion, telefono_contacto, canal, whatsapp, correos, correos_copia, asunto, plantilla_orden_ruta, activo, predeterminado, orden";
 /** Con el reparto y los días de atención (migración 20261121202736). */
 const COLUMNAS = `${COLUMNAS_BASE}, dias_atencion, dias_preferidos, porcentaje`;
+/** Con la migración 20261127162324: las fechas en que no atiende. */
+const COLUMNAS_FECHAS = `${COLUMNAS}, fechas_sin_atencion`;
 const RUTA_CARTA = "plantillas/carta-banco.docx";
 // 23-nov-2026: la carta también puede subirse en PDF (el Word guardado como PDF, con las marcas) y sale en PDF.
 const RUTA_CARTA_PDF = "plantillas/carta-banco.pdf";
@@ -51,7 +53,9 @@ const rutaOrden = (labId: string) => `plantillas/laboratorios/${labId}.docx`;
 export async function leerLaboratorios(): Promise<Laboratorio[]> {
   const db = createAdminClient();
   const leer = (cols: string) => db.from("seleccion_laboratorios").select(cols).order("orden").order("nombre");
-  let r = await leer(COLUMNAS);
+  let r = await leer(COLUMNAS_FECHAS);
+  // Sin la migración 20261127162324: sin fechas sin atención.
+  if (r.error) r = await leer(COLUMNAS);
   // Sin la migración 20261121202736: sin días ni porcentaje (atienden de lunes a sábado).
   if (r.error) r = await leer(COLUMNAS_BASE);
   if (r.error) return [];
@@ -73,6 +77,28 @@ export async function guardarReparto(modo: ModoReparto, usuario: string | null):
   if (modo !== "predeterminado" && modo !== "porcentaje") return { ok: false, error: "Reparto no válido." };
   const { data, error } = await createAdminClient().from("seleccion_ajustes").update({ valor: modo, actualizado_por: usuario }).eq("clave", "laboratorio_reparto").select("clave");
   if (error || !data?.length) return { ok: false, error: error?.message ?? "Falta aplicar la migración 20261121202736." };
+  return { ok: true };
+}
+
+/**
+ * Laboratorio que se propone cuando el profesor elige la fecha y la hora de la
+ * fase 1 (27-nov-2026; GH suele mandar a Rescate porque queda cerca). null si no
+ * está configurado o ya no está activo: entonces se propone el del reparto.
+ */
+export async function laboratorioFechaProfesor(): Promise<Laboratorio | null> {
+  const id = valorAjuste<unknown>(await leerAjustes(), "laboratorio_fecha_profesor", null);
+  const lab = typeof id === "string" && id ? await laboratorioPorId(id) : null;
+  return lab?.activo ? lab : null;
+}
+
+export async function guardarLaboratorioFechaProfesor(id: string | null, usuario: string | null): Promise<{ ok: boolean; error?: string }> {
+  if (id && !(await laboratorioPorId(id))) return { ok: false, error: "El laboratorio no existe." };
+  const { data, error } = await createAdminClient()
+    .from("seleccion_ajustes")
+    .update({ valor: id ?? null, actualizado_por: usuario, updated_at: new Date().toISOString() })
+    .eq("clave", "laboratorio_fecha_profesor")
+    .select("clave");
+  if (error || !data?.length) return { ok: false, error: error?.message ?? "Falta aplicar la migración del laboratorio para la fecha que elige el profesor." };
   return { ok: true };
 }
 
@@ -219,6 +245,8 @@ export interface DatosLaboratorio {
   frase_apto?: string | null;
   frase_no_apto?: string | null;
   frase_aplazado?: string | null;
+  /** Fechas (AAAA-MM-DD) en que no atiende. undefined: no se tocan. */
+  fechas_sin_atencion?: string[];
 }
 
 const diasValidos = (d: number[] | undefined) => [...new Set((d ?? []).map(Number).filter((x) => Number.isInteger(x) && x >= 0 && x <= 6))].sort();
@@ -275,6 +303,12 @@ export async function guardarLaboratorio(d: DatosLaboratorio, usuario: string | 
     if (!r.error) return { ok: false, error: "Se guardó el laboratorio, pero las frases no: falta aplicar la migración 20261124181735." };
   }
   if (r.error) return { ok: false, error: /duplicate|unique/i.test(r.error.message) ? "Ya hay un laboratorio con ese nombre." : r.error.message };
+  // Las fechas en que no atiende van aparte: sin la migración 20261127162324 se guarda lo demás y se avisa.
+  if (d.fechas_sin_atencion !== undefined && r.data?.id) {
+    const fechas = fechasSinAtencionValidas(d.fechas_sin_atencion, fechaBogota(new Date().toISOString()));
+    const { error: eF } = await db.from("seleccion_laboratorios").update({ fechas_sin_atencion: fechas }).eq("id", r.data.id);
+    if (eF) return { ok: false, id: r.data.id as string, error: "Se guardó el laboratorio, pero no las fechas en que no atiende: falta aplicar la migración 20261127162324." };
+  }
   if (whatsapp) {
     // Lo que escriba desde ese número se lee como resultados, y el asistente no le contesta.
     await obtenerOCrearConversacion(whatsapp, nombre);
@@ -938,9 +972,10 @@ async function ajustesOrdenAutomatica(): Promise<{ automatica: boolean; hora: st
  * Al citar a exámenes (fase 1 o 2), con el envío automático: al laboratorio por
  * WhatsApp le sale la orden enseguida; al de correo, la manda el cron en el
  * correo del día (enviarOrdenesDelDia). Los candidatos del chat de prueba van
- * enseguida por cualquier canal (simulado), para no esperar la hora. Nunca lanza.
+ * enseguida por cualquier canal (simulado), para no esperar la hora; también la
+ * cita con la fecha que eligió el profesor (`enseguida`). Nunca lanza.
  */
-export async function enviarOrdenAlCitar(citaId: string | null, actor: ActorProceso): Promise<void> {
+export async function enviarOrdenAlCitar(citaId: string | null, actor: ActorProceso, opciones: { enseguida?: boolean } = {}): Promise<void> {
   if (!citaId) return;
   try {
     if (!(await ajustesOrdenAutomatica()).automatica) return;
@@ -953,7 +988,8 @@ export async function enviarOrdenAlCitar(citaId: string | null, actor: ActorProc
     const p = (Array.isArray(c.procesos_contratacion) ? c.procesos_contratacion[0] : c.procesos_contratacion) as { origen: string | null } | null;
     const lab = await laboratorioDeProceso(c.proceso_id as string);
     if (!lab) return;
-    if (lab.canal === "whatsapp" || p?.origen === "chat_prueba") {
+    // `enseguida`: el profesor eligió la fecha (puede ser hoy): el correo del día solo lleva las del día siguiente.
+    if (lab.canal === "whatsapp" || p?.origen === "chat_prueba" || opciones.enseguida) {
       const r = await enviarOrdenLaboratorio(lab.id, c.fecha as string, actor, { citaIds: [citaId] });
       if (!r.ok) console.warn("[seleccion] orden automática al laboratorio:", r.error);
     }

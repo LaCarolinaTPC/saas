@@ -342,6 +342,9 @@ export async function simularCromaProceso(
   await evaluarAntecedentesProceso(procesoId);
 }
 
+/** Etapas después de «Antecedentes» en las que todavía puede faltar una fuente que no respondió. */
+const ESTADOS_DESPUES_DE_ANTECEDENTES = ["citado", "prueba_manejo", "en_escuela", "en_examenes", "en_examenes_fase2", "reconocimiento_ruta", "listo_contratar"];
+
 /**
  * SIMIT que Croma no completó (el trabajo terminó en error): el cron lo vuelve
  * a lanzar. Solo procesos del asistente de WhatsApp, en preselección, con
@@ -356,7 +359,8 @@ export async function relanzarSimitFallidos(limite = 3): Promise<{ relanzados: n
   const { data: procesos } = await admin
     .from("procesos_contratacion")
     .select("id")
-    .eq("estado", "pendiente")
+    // 27-nov-2026: también quien siguió sin el SIMIT (opcional o con aval): si llega tarde y no cumple, se avisa.
+    .in("estado", ["pendiente", "antecedentes", ...ESTADOS_DESPUES_DE_ANTECEDENTES])
     .eq("origen", "whatsapp_agente")
     .eq("autorizacion_datos", "si")
     .is("simit", null)
@@ -1495,6 +1499,29 @@ export async function lanzarAntecedentesPendientes(limite = 2): Promise<{ revisa
     const despues = await fechaExpedicionRechazada(p.id as string).catch(() => null);
     if (despues && despues.intentos !== antes?.intentos) fechaRechazada.push(p.id as string);
     revisados++;
+  }
+  // 27-nov-2026 (reunión de soporte): quien siguió sin una fuente (aval de una persona o fuente
+  // opcional) ya pasó de «Antecedentes»; se sigue consultando lo que falta, con el mismo freno.
+  // Si llega una anotación nueva, evaluarAntecedentesProceso anula el aval y avisa.
+  if (revisados < limite) {
+    const { data: siguieron } = await admin
+      .from("procesos_contratacion")
+      .select("id")
+      .in("estado", ESTADOS_DESPUES_DE_ANTECEDENTES)
+      .eq("autorizacion_datos", "si")
+      .eq("origen", "whatsapp_agente")
+      .gte("updated_at", desde)
+      .order("updated_at", { ascending: false })
+      .limit(50);
+    for (const p of siguieron ?? []) {
+      if (revisados >= limite) break;
+      const ev = await evaluarAntecedentesProceso(p.id as string);
+      if (!ev || ev.fuentes.every((f) => f.estado !== "sin_consultar" && f.estado !== "error")) continue;
+      if (!(await puedeReintentarAntecedentes(p.id as string))) continue;
+      await consultarAntecedentesProceso(p.id as string, ACTOR_SISTEMA).catch((e) => console.error("[seleccion] antecedentes (después del aval):", e));
+      await evaluarAntecedentesProceso(p.id as string).catch(() => null);
+      revisados++;
+    }
   }
   return { revisados, fechaRechazada };
 }

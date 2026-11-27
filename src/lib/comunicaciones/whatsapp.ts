@@ -129,11 +129,20 @@ async function postMensaje(payload: Record<string, unknown>): Promise<EnvioResul
     console.info(`[whatsapp] desarrollo: sale de verdad al número de prueba ${String(payload.to)}`);
   }
   const { token, phoneNumberId } = await getCanalObligatorio();
-  const res = await fetch(`${GRAPH}/${phoneNumberId}/messages`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ messaging_product: "whatsapp", recipient_type: "individual", ...payload }),
-  });
+  // Con tope de tiempo (27-nov-2026), como las demás llamadas a Meta: sin él, un Meta lento dejaba
+  // colgada la acción que enviaba (p. ej. «Lo revisé a mano» con anotación tardaba un montón).
+  let res: Response;
+  try {
+    res = await fetch(`${GRAPH}/${phoneNumberId}/messages`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ messaging_product: "whatsapp", recipient_type: "individual", ...payload }),
+      signal: AbortSignal.timeout(20000),
+    });
+  } catch (e) {
+    const tiempo = e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError");
+    return { ok: false, errorMensaje: tiempo ? "Meta no respondió a tiempo (20 s)." : e instanceof Error ? e.message : String(e) };
+  }
   const j = (await res.json().catch(() => ({}))) as {
     messages?: { id: string }[];
     error?: { code?: number; message?: string };

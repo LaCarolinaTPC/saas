@@ -10,12 +10,12 @@
  * identidad confirmada por el RUNT y las fuentes opcionales.
  */
 import { useEffect, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { RefreshCw, Search, ShieldCheck, ShieldX, TriangleAlert } from "lucide-react";
-import {
-  antecedentesDelProceso, consultarAntecedentes, decidirAntecedentes, reevaluarAntecedentes, type AntecedentesVista,
+import { consultarAntecedentes, decidirAntecedentes, reevaluarAntecedentes, type AntecedentesVista,
 } from "@/lib/contratacion/actions";
 import { NOMBRE_FUENTE, type EstadoFuente, type VeredictoAntecedentes } from "@/lib/seleccion/antecedentes";
+import { marcarGuardado } from "@/lib/guardado-reciente";
+import { leerFicha } from "@/lib/lectura-ficha";
 
 const fechaHora = (iso: string) =>
   new Intl.DateTimeFormat("es-CO", { dateStyle: "medium", timeStyle: "short", timeZone: "America/Bogota" }).format(new Date(iso));
@@ -53,7 +53,6 @@ export function SeccionAntecedentes({
   onCambio: () => void;
   onVerDetalle?: () => void;
 }) {
-  const router = useRouter();
   const [vista, setVista] = useState<AntecedentesVista | null>(null);
   const [justificacion, setJustificacion] = useState("");
   const [mensaje, setMensaje] = useState<string | null>(null);
@@ -62,7 +61,7 @@ export function SeccionAntecedentes({
 
   useEffect(() => {
     let vivo = true;
-    antecedentesDelProceso(procesoId)
+    leerFicha("antecedentesDelProceso", procesoId)
       .then((v) => vivo && setVista(v))
       .catch(() => undefined);
     return () => {
@@ -81,9 +80,10 @@ export function SeccionAntecedentes({
       const r = await accion();
       setMensaje(r.ok ? exito : (r.error ?? "No se pudo completar."));
       if (r.ok) {
+        // La acción ya revalida /candidatos: un router.refresh() aquí cargaba la página dos veces (27-nov-2026).
+        marcarGuardado();
         setPropia((n) => n + 1);
         onCambio();
-        router.refresh();
       }
     });
   };

@@ -10,7 +10,9 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { cambiarEstadoProceso, registrarEvento, type ActorProceso } from "@/lib/contratacion/servidor";
 import { fechaBogota } from "@/lib/tesoreria/recobros";
-import { horaDelDia, rutasAprendidas, siguienteDiaHabil, type ExcepcionProfesor } from "./agenda";
+import { horaBogota } from "@/lib/comunicaciones/seguimiento";
+import { fechaEnTexto, horaDelDia, rutasAprendidas, siguienteDiaHabil, validarFechaElegida, type ExcepcionProfesor } from "./agenda";
+import { motivoNoAtiende } from "./laboratorios";
 import {
   avisarProceso,
   cancelarReconocimientos,
@@ -24,7 +26,16 @@ import {
   type CitaDelDia,
   type EnvioAgenda,
 } from "./agenda-servidor";
-import { asegurarLaboratorio, enviarOrdenAlCitar, laboratorioQueLeToca, planFase1 } from "./laboratorios-servidor";
+import {
+  asegurarLaboratorio,
+  asignarLaboratorio,
+  enviarOrdenAlCitar,
+  laboratorioFechaProfesor,
+  laboratorioPorId,
+  laboratorioQueLeToca,
+  leerLaboratorios,
+  planFase1,
+} from "./laboratorios-servidor";
 import { avanceRutas, obligatoriasDe } from "./rutas";
 import { leerRutasReconocimiento, rutasObligatorias } from "./rutas-servidor";
 import { marcarBancoPreguntado, mensajeFase1PreguntaBanco } from "./respuestas-examenes-servidor";
@@ -94,24 +105,87 @@ async function pendienteDeExamenes(procesoId: string, estado: string): Promise<"
   return count ? null : "prueba";
 }
 
-/** Pasa a exámenes (fase 1): estado, cita en el laboratorio el siguiente día hábil y el mensaje. */
-async function pasarAExamenes(procesoId: string, actor: ActorProceso, motivo: string): Promise<Pick<ResultadoProfesor, "texto" | "envio" | "claveMensaje" | "documentos">> {
+/**
+ * Primer día para la fase 1 de exámenes: el siguiente día hábil después de hoy
+ * o, si la prueba de manejo estaba citada para un día posterior (se registró
+ * antes de tiempo), el siguiente después de ese día. Nunca el mismo día de la
+ * prueba ni antes: el 27-nov-2026 quedó un examen a las 6:30 del mismo sábado
+ * de la prueba de las 8:00.
+ */
+async function primerDiaExamenes(procesoId: string): Promise<string> {
+  const h = hoy();
+  const { data } = await createAdminClient()
+    .from("seleccion_citas")
+    .select("fecha")
+    .eq("proceso_id", procesoId)
+    .eq("tipo", "prueba_manejo")
+    .not("estado", "in", "(reprogramada,cancelada)")
+    .order("fecha", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const prueba = (data?.fecha as string | undefined) ?? h;
+  return siguienteDiaHabil(prueba > h ? prueba : h);
+}
+
+/** Fecha, hora y laboratorio de la fase 1 que eligió el profesor (27-nov-2026). */
+export interface ExamenesElegidos {
+  fecha: string;
+  hora: string;
+  laboratorioId: string;
+}
+
+/** Revisa lo que eligió el profesor: no antes de ahora y un laboratorio activo que atienda ese día. */
+async function validarElegidos(e: ExamenesElegidos): Promise<string | { fecha: string; hora: string; laboratorioId: string; laboratorio: string }> {
+  const fecha = String(e?.fecha ?? "");
+  const hora = String(e?.hora ?? "").slice(0, 5);
+  const mal = validarFechaElegida({ fecha, hora }, new Date());
+  if (mal) return mal;
+  const lab = await laboratorioPorId(typeof e?.laboratorioId === "string" ? e.laboratorioId : null);
+  if (!lab || !lab.activo) return "Elige el laboratorio.";
+  const noAtiende = motivoNoAtiende(lab, fecha);
+  if (noAtiende) return `El ${fechaEnTexto(fecha)} ${noAtiende}: elige otro día u otro laboratorio.`;
+  return { fecha, hora, laboratorioId: lab.id, laboratorio: lab.nombre };
+}
+
+/**
+ * Pasa a exámenes (fase 1): estado, cita en el laboratorio y el mensaje. Sin
+ * `elegidos`, el siguiente día hábil a la hora del laboratorio y el laboratorio
+ * del reparto; con ellos, la fecha, la hora y el laboratorio que eligió el profesor.
+ */
+async function pasarAExamenes(
+  procesoId: string,
+  actor: ActorProceso,
+  motivo: string,
+  elegidos?: { fecha: string; hora: string; laboratorioId: string; laboratorio: string }
+): Promise<Pick<ResultadoProfesor, "texto" | "envio" | "claveMensaje" | "documentos">> {
   const a = await leerAjustesAgenda();
-  // El día y el laboratorio: un día que atienda alguno, y el que diga el reparto (Rescate los sábados…).
-  const plan = await planFase1(siguienteDiaHabil(hoy())).catch(() => ({ fecha: siguienteDiaHabil(hoy()), laboratorio: null, motivo: "" }));
-  const cuando = { fecha: plan.fecha, hora: a.laboratorioHora };
-  await cambiarEstadoProceso(procesoId, "en_examenes", { actor, detalle: { motivo } });
+  let cuando: { fecha: string; hora: string };
+  if (elegidos) {
+    cuando = { fecha: elegidos.fecha, hora: elegidos.hora };
+  } else {
+    // El día y el laboratorio: un día que atienda alguno, y el que diga el reparto (Rescate los sábados…).
+    const desde = await primerDiaExamenes(procesoId);
+    const plan = await planFase1(desde).catch(() => ({ fecha: desde, laboratorio: null, motivo: "" }));
+    cuando = { fecha: plan.fecha, hora: a.laboratorioHora };
+  }
+  await cambiarEstadoProceso(procesoId, "en_examenes", { actor, detalle: { motivo, ...(elegidos ? { fecha_elegida: true, fecha: cuando.fecha, hora: cuando.hora, laboratorio: elegidos.laboratorio } : {}) } });
   await createAdminClient().from("procesos_contratacion").update({ fecha_examenes: cuando.fecha }).eq("id", procesoId);
   // El laboratorio del aspirante: sale en el mensaje y la fase 2 va al mismo.
-  await asegurarLaboratorio(procesoId, actor, cuando.fecha).catch((e) => console.error("[seleccion] laboratorio del aspirante:", e));
+  if (elegidos) {
+    const r = await asignarLaboratorio(procesoId, elegidos.laboratorioId, actor);
+    if (!r.ok) console.error("[seleccion] laboratorio elegido por el profesor:", r.error);
+  } else {
+    await asegurarLaboratorio(procesoId, actor, cuando.fecha).catch((e) => console.error("[seleccion] laboratorio del aspirante:", e));
+  }
   const citaId = await crearCitaSimple(procesoId, "examen_f1", cuando, actor);
   const { envio, texto: t } = await avisarProceso(procesoId, "examenes_fase1", cuando);
   // El mensaje pregunta si ya tiene cuenta en el Banco de Bogotá (24-nov-2026): la carta
   // del banco sale solo si responde que no (respuestas-examenes-servidor).
   // Solo si el mensaje que salió traía la pregunta (la plantilla vieja de Meta no la trae).
   if (await mensajeFase1PreguntaBanco(procesoId, envio, t).catch(() => true)) await marcarBancoPreguntado(procesoId).catch(() => undefined);
-  // Y la orden al laboratorio, si el envío es automático (23-nov-2026).
-  await enviarOrdenAlCitar(citaId, actor);
+  // Y la orden al laboratorio, si el envío es automático (23-nov-2026). Con la fecha del
+  // profesor sale enseguida: puede ser para hoy y el correo del día no la llevaría.
+  await enviarOrdenAlCitar(citaId, actor, { enseguida: !!elegidos });
   // El correo para la prueba psicosensotécnica se pide después de la respuesta del banco
   // (o, si no responde, a las 24 horas, en la revisión periódica): una pregunta a la vez.
   return { envio, texto: t, claveMensaje: "examenes_fase1", documentos: [] };
@@ -208,12 +282,25 @@ export async function registrarClase(
  * prueba «aprobó» o la clase «listo». Aquí sí se cita al laboratorio, se le
  * envía el mensaje con la carta del banco y, con el envío automático, la orden.
  */
-export async function enviarAExamenes(procesoId: string, actor: ActorProceso): Promise<ResultadoProfesor> {
+export async function enviarAExamenes(procesoId: string, actor: ActorProceso, elegidos?: ExamenesElegidos | null): Promise<ResultadoProfesor> {
   const p = await procesoAbierto(procesoId);
   if (typeof p === "string") return { ok: false, error: p };
   const pendiente = await pendienteDeExamenes(procesoId, p.estado);
   if (!pendiente) return { ok: false, error: "Este aspirante no tiene pendiente el paso a exámenes." };
-  return { ok: true, ...(await pasarAExamenes(procesoId, actor, pendiente === "escuela" ? "Terminó la escuela." : "Aprobó la prueba de manejo.")) };
+  const v = elegidos ? await validarElegidos(elegidos) : undefined;
+  if (typeof v === "string") return { ok: false, error: v };
+  return { ok: true, ...(await pasarAExamenes(procesoId, actor, pendiente === "escuela" ? "Terminó la escuela." : "Aprobó la prueba de manejo.", v)) };
+}
+
+/** Un laboratorio que el profesor puede elegir. */
+export interface LaboratorioElegible {
+  id: string;
+  nombre: string;
+  direccion: string | null;
+  /** Días en que atiende (0 = domingo … 6 = sábado). */
+  dias: number[];
+  /** Fechas en que avisó que no atiende. */
+  cerrado: string[];
 }
 
 export interface PlanExamenes {
@@ -221,14 +308,40 @@ export interface PlanExamenes {
   hora: string;
   laboratorio: string | null;
   direccion: string | null;
+  /** El laboratorio del plan (null si no hay laboratorios). */
+  laboratorioId: string | null;
+  /** Para «Elegir fecha y hora» (27-nov-2026): los laboratorios activos… */
+  laboratorios: LaboratorioElegible[];
+  /** …el que se propone en ese caso (el del ajuste o, si no hay, el del plan)… */
+  laboratorioFechaElegida: string | null;
+  /** …y ahora, en Bogotá, para no dejar elegir antes. */
+  ahora: { fecha: string; hora: string };
 }
 
 /** Lo que haría «Listo para exámenes», sin hacerlo: día, hora y laboratorio de la fase 1. */
 export async function planExamenes(procesoId: string): Promise<PlanExamenes> {
   const a = await leerAjustesAgenda();
-  const plan = await planFase1(siguienteDiaHabil(hoy())).catch(() => ({ fecha: siguienteDiaHabil(hoy()), laboratorio: null, motivo: "" }));
+  const desde = await primerDiaExamenes(procesoId);
+  const [plan, labs, delAjuste] = await Promise.all([
+    planFase1(desde).catch(() => ({ fecha: desde, laboratorio: null, motivo: "" })),
+    leerLaboratorios().catch(() => []),
+    laboratorioFechaProfesor().catch(() => null),
+  ]);
   const lab = await laboratorioQueLeToca(procesoId, plan.fecha).catch(() => null);
-  return { fecha: plan.fecha, hora: a.laboratorioHora, laboratorio: lab?.laboratorio.nombre ?? plan.laboratorio?.nombre ?? null, direccion: lab?.laboratorio.direccion ?? null };
+  const elegido = lab?.laboratorio ?? plan.laboratorio ?? null;
+  const ahora = new Date();
+  return {
+    fecha: plan.fecha,
+    hora: a.laboratorioHora,
+    laboratorio: elegido?.nombre ?? null,
+    direccion: lab?.laboratorio.direccion ?? null,
+    laboratorioId: elegido?.id ?? null,
+    laboratorios: labs
+      .filter((l) => l.activo)
+      .map((l) => ({ id: l.id, nombre: l.nombre, direccion: l.direccion, dias: l.dias_atencion?.length ? l.dias_atencion : [1, 2, 3, 4, 5, 6], cerrado: l.fechas_sin_atencion ?? [] })),
+    laboratorioFechaElegida: delAjuste?.id ?? elegido?.id ?? null,
+    ahora: { fecha: hoy(), hora: horaBogota(ahora) },
+  };
 }
 
 /** Una salida de reconocimiento de ruta. No cambia el estado (las condiciones para contratar son de la entrega 3). */

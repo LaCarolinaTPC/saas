@@ -35,6 +35,7 @@ import {
   registrarReconocimiento,
   registrarReconocimientos,
   rutasParaReconocimiento,
+  type ExamenesElegidos,
   type HistorialProfesor,
   type PendientesProfesor,
   type PlanExamenes,
@@ -126,9 +127,9 @@ export async function planExamenesDelProfesor(procesoId: string): Promise<PlanEx
   return planExamenes(procesoId);
 }
 
-export async function examenesDelProfesor(procesoId: string): Promise<ResultadoProfesor> {
+export async function examenesDelProfesor(procesoId: string, elegidos?: ExamenesElegidos | null): Promise<ResultadoProfesor> {
   try {
-    const r = await enviarAExamenes(procesoId, await exigirProfesor());
+    const r = await enviarAExamenes(procesoId, await exigirProfesor(), elegidos ?? null);
     refrescar();
     return r;
   } catch (e) {

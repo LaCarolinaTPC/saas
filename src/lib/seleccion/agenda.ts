@@ -244,6 +244,20 @@ export function proximaCita(ahora: Date, a: AjustesAgenda, excepciones: Excepcio
   return { fecha: sumarDias(hoy, 1), hora: a.citaHoraSemana };
 }
 
+/**
+ * Fecha y hora que elige el profesor para la fase 1 de exámenes (27-nov-2026):
+ * bien escritas, nunca antes de ahora (hora de Bogotá) y dentro de los próximos
+ * `maxDias` días. null si sirven; si no, el motivo para mostrarle.
+ */
+export function validarFechaElegida(c: { fecha: string; hora: string }, ahora: Date, maxDias = 60): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(c.fecha ?? ""))) return "Elige la fecha.";
+  if (!HORA_RE.test(hhmm(c.hora))) return "Elige la hora.";
+  const hoy = fechaBogota(ahora.toISOString());
+  if (`${c.fecha} ${hhmm(c.hora)}` < `${hoy} ${horaBogota(ahora)}`) return "La fecha y la hora no pueden ser anteriores a este momento.";
+  if (c.fecha > sumarDias(hoy, maxDias)) return `Elige una fecha de los próximos ${maxDias} días.`;
+  return null;
+}
+
 /** El siguiente día hábil (lunes a sábado, sin festivos) después de `fecha`. */
 export function siguienteDiaHabil(fecha: string): string {
   let d = fecha;

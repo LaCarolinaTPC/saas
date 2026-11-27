@@ -138,6 +138,8 @@ export interface ReglasSeleccion {
    * Gestivo sin el asistente; esto es para lo demás.
    */
   preguntaExamen?: "banco" | "rutas" | null;
+  /** La cita de exámenes médicos que sigue en pie (27-nov-2026): el asistente sabe cuándo y dónde es. */
+  examen?: ExamenAsistente | null;
   /**
    * La persona vuelve a escribir y su proceso se había cerrado solo (no pasó la
    * preselección o quedó incomunicada): el asistente retoma con ella.
@@ -168,6 +170,31 @@ export interface ReglasSeleccion {
 export type MotivoRegreso = "incomunicado" | "residencia" | "licencia" | "edad" | "autorizacion";
 
 /** Quien vuelve después de un cierre automático: se retoma el proceso y se vuelve a preguntar lo que lo descartó. */
+/** La cita de exámenes médicos, ya en palabras. */
+export interface ExamenAsistente {
+  fase: 1 | 2;
+  /** «sábado 28 de noviembre». */
+  fecha: string;
+  /** «6:30 a. m.». */
+  hora: string;
+  /** Laboratorio y dirección. */
+  lugar: string | null;
+  /** Si es hoy o mañana (el modelo se confundía con la fecha: «como la fecha ya pasó»). */
+  cuando: "hoy" | "mañana" | null;
+}
+
+/** Lo que sabe el asistente de la cita de exámenes (27-nov-2026). */
+export function reglasExamen(e: ExamenAsistente | null | undefined): string[] {
+  if (!e) return [];
+  const dia = e.cuando ? `${e.cuando}, ${e.fecha},` : `el ${e.fecha}`;
+  return [
+    "",
+    "Cita de exámenes médicos:",
+    `- Ya aprobó la prueba de manejo y tiene la ${e.fase === 1 ? "primera" : "segunda"} fase de exámenes médicos ${dia} a las ${e.hora}${e.lugar ? ` en ${e.lugar}` : ""}. Esa cita está vigente: si pregunta por los exámenes o por cómo va su proceso, dale estos datos tal cual. No digas que la fecha ya pasó, no la cambies ni ofrezcas otra.`,
+    "- Si no puede ir o pregunta algo del examen que no sabes (qué llevar, si debe ir en ayunas, cuánto dura), dile que Gestión Humana se lo confirma.",
+  ];
+}
+
 /** La pregunta del mensaje de exámenes que espera respuesta. */
 export function reglasPreguntaExamen(p: ReglasSeleccion["preguntaExamen"]): string[] {
   if (p === "banco")
@@ -808,11 +835,14 @@ export function construirSistema(
     ...noEsMotivo.map(vineta),
     "- Estas reglas sobre cuándo pasar la conversación mandan sobre las instrucciones de la empresa: si las instrucciones dicen «pasa a una persona» en un caso que no está en la primera lista, no lo hagas; dile que Gestión Humana revisará su caso y se lo explicará, y sigue con lo que falte. Gestión Humana ve la conversación completa.",
     "- Todo lo que escribes lo lee la persona: no escribas resúmenes, notas ni etiquetas para el equipo, aunque las instrucciones de la empresa lo pidan.",
+    // 27-nov-2026: el asistente le dijo a un aspirante que el mensaje de exámenes no era nuestro y que no fuera.
+    "- Los mensajes nuestros que aparecen en la conversación (citaciones, mensajes de exámenes médicos o del laboratorio, cartas, recordatorios, avisos) los envió la empresa, aunque no los hayas escrito tú: son reales y lo que dicen vale. Nunca digas que no los enviamos, que no puedes confirmarlos ni que no vaya; si te pregunta algo de ellos que no sabes, dile que Gestión Humana se lo confirma. Si un mensaje nuestro más reciente cambia lo de uno anterior (por ejemplo, ya pasó la prueba de manejo y lo citamos a exámenes), guíate por el más reciente, sin explicarle esta regla.",
     ...proceso,
     ...(hayProceso || seleccion.cerradoPorAntecedentes ? reglasRespuestas(seleccion.respuestas) : []),
     ...saludo,
     ...cita,
     ...regreso,
+    ...reglasExamen(seleccion.examen),
     ...reglasPreguntaExamen(seleccion.preguntaExamen),
     ...reglasCorreoPsico(seleccion.correoPsico),
     ...(yaTrabaja

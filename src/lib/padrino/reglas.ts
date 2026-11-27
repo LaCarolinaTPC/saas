@@ -142,6 +142,8 @@ export interface HechosReferido {
     antecedentes?: string | null;
     fechaExamenes?: string | null;
     fechaExamenesFase2?: string | null;
+    /** Fecha de contrato del proceso, si ya se contrató (R13 se mide contra ella). */
+    fechaContrato?: string | null;
   };
   candidatoCreado: string | null;
   otrosProcesos: { id: string; estado: string; fechaCreacion: string }[];
@@ -526,20 +528,25 @@ export function evaluarReferido(h: HechosReferido, p: ParametrosPolitica = PARAM
     add("R12", esquema.sinBonificacion ? "no_cumple" : esquema.revisar ? "revisar" : "cumple", esquema.dato);
   }
 
-  // R13 — el padrino registró la hoja de vida ANTES de que empezara la selección.
+  // R13 — el padrino registró al referido a tiempo. Desde el 27-nov-2026 (decisión de GH en la
+  // reunión de soporte) la referencia es la FECHA DE CONTRATACIÓN, no el inicio de la selección:
+  // el aspirante dice que viene recomendado el día 5, lo contratan el 10, y el plan se activa el 10.
   if (activo(p, "R13")) {
     const registro = h.registradoEl ?? null;
     const tol = p.referido.tolerancia_registro_dias;
+    const contratacion = h.fechaIngreso ?? h.proceso.fechaContrato ?? null;
     if (h.sinProceso) {
       add("R13", "cumple", `Prerregistrado${registro ? ` el ${fmtCorta(registro)}` : ""}, antes de iniciar la selección: se enlaza solo cuando se cree su proceso de contratación.`);
     } else if (!registro) {
       add("R13", "revisar", "No se sabe cuándo se registró en el plan.");
+    } else if (!contratacion) {
+      add("R13", "cumple", `Registrado el ${fmtCorta(registro)}, antes de la contratación (se confirma al contratar).`);
     } else {
-      const limite = sumarDias(inicioProceso, tol);
+      const limite = sumarDias(contratacion, tol);
       if (registro <= limite) {
-        add("R13", "cumple", `Registrado el ${fmtCorta(registro)}; el proceso de selección empezó el ${fmtCorta(inicioProceso)}.`);
+        add("R13", "cumple", `Registrado el ${fmtCorta(registro)}; lo contrataron el ${fmtCorta(contratacion)}.`);
       } else {
-        add("R13", "no_cumple", `Registro tardío: el proceso de selección empezó el ${fmtCorta(inicioProceso)} y el padrino lo registró el ${fmtCorta(registro)}${tol ? ` (más de ${tol} día(s) después)` : ""}. La hoja de vida debe registrarse antes de iniciar la selección.`);
+        add("R13", "no_cumple", `Registro tardío: lo contrataron el ${fmtCorta(contratacion)} y el padrino lo registró el ${fmtCorta(registro)}${tol ? ` (más de ${tol} día(s) después)` : ""}. El padrino debe registrarlo antes de la contratación.`);
       }
     }
   }

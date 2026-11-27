@@ -38,6 +38,19 @@ async function exigirEdicion() {
 
 const refrescar = () => revalidatePath("/candidatos");
 
+/**
+ * Después de subir un archivo (la subida va por una ruta, que no refresca la
+ * pantalla): revalida Candidatos. Si se está en Candidatos, la página se
+ * actualiza con la respuesta; en el chat real o en el de prueba no recarga
+ * nada (antes un router.refresh() recargaba la bandeja o la página de pruebas
+ * entera, 27-nov-2026).
+ */
+export async function revalidarCandidatosFicha(): Promise<{ ok: true }> {
+  await exigirLectura();
+  refrescar();
+  return { ok: true };
+}
+
 export interface DatosEntrega3 {
   /** null si falta la migración de la entrega 3. */
   examenes: ExamenVista[] | null;

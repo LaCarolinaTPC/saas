@@ -7,12 +7,13 @@
  * Candidatos › Selección, dentro del marco de celular (acciones de prueba).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, CalendarOff, ChevronLeft, ChevronRight, Glasses, Loader2, Phone, Plus, RefreshCw, X } from "lucide-react";
+import { ArrowLeft, CalendarClock, CalendarOff, ChevronLeft, ChevronRight, Glasses, Loader2, Phone, Plus, RefreshCw, X } from "lucide-react";
 import { estadoInfo } from "@/lib/contratacion/constants";
 import { ESTADO_CITA_LABEL, citaVigente, fechaEnTexto, horaEnTexto } from "@/lib/seleccion/agenda";
 import type { CitaDelDia } from "@/lib/seleccion/agenda-servidor";
 import type { AspiranteProfesor, HistorialProfesor, PendientesProfesor, PlanExamenes, ResultadoProfesor } from "@/lib/seleccion/profesor-servidor";
 import { useAvisosProcesos } from "@/hooks/use-avisos-procesos";
+import { motivoNoAtiende } from "@/lib/seleccion/laboratorios";
 import { BuscadorOpciones } from "@/components/ui/buscador-opciones";
 import { DisponibilidadProfesor } from "./disponibilidad-profesor";
 import { HistorialProfesorLista } from "./historial-profesor";
@@ -389,6 +390,11 @@ function FichaAspirante({
   const [ruta, setRuta] = useState("");
   // «Listo para exámenes»: primero se muestra qué pasará (día, hora, laboratorio) y después se confirma.
   const [plan, setPlan] = useState<PlanExamenes | null>(null);
+  // «Elegir fecha y hora» (27-nov-2026): el profesor pone el día, la hora y el laboratorio.
+  const [elegir, setElegir] = useState(false);
+  const [fechaElegida, setFechaElegida] = useState("");
+  const [horaElegida, setHoraElegida] = useState("");
+  const [labElegido, setLabElegido] = useState("");
   const [concepto, setConcepto] = useState<"acepta" | "rechaza" | null>(null);
   const [nota, setNota] = useState("");
 
@@ -433,6 +439,7 @@ function FichaAspirante({
     setSalidas([{ ruta: "", resultado: null }]);
     setNoContinua(false);
     setPlan(null);
+    setElegir(false);
     setNota("");
     setResPrueba(null);
     setRutaEscrita(null);
@@ -465,17 +472,83 @@ function FichaAspirante({
   // Guardó «pasa a exámenes» y falta el segundo paso (23-nov-2026).
   const porEnviarExamenes = historial?.porEnviarExamenes ?? null;
 
+  /** «Elegir otra fecha y hora»: arranca con la fecha propuesta y el laboratorio del ajuste (Rescate…). */
+  function abrirElegir() {
+    if (!plan) return;
+    setFechaElegida(plan.fecha);
+    setHoraElegida(plan.hora);
+    setLabElegido(plan.laboratorioFechaElegida ?? plan.laboratorioId ?? plan.laboratorios[0]?.id ?? "");
+    setElegir(true);
+  }
+  const labActual = plan?.laboratorios.find((l) => l.id === labElegido) ?? null;
+  // Lo mismo que revisa el servidor, para avisar antes de confirmar.
+  const problemaElegido = (() => {
+    if (!plan || !elegir) return null;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaElegida)) return "Elige la fecha.";
+    if (!/^\d{2}:\d{2}$/.test(horaElegida)) return "Elige la hora.";
+    if (`${fechaElegida} ${horaElegida}` < `${plan.ahora.fecha} ${plan.ahora.hora}`) return "La fecha y la hora no pueden ser anteriores a este momento.";
+    if (!labActual) return "Elige el laboratorio.";
+    const noAtiende = motivoNoAtiende({ nombre: labActual.nombre, dias_atencion: labActual.dias, fechas_sin_atencion: labActual.cerrado }, fechaElegida);
+    return noAtiende ? `El ${fechaEnTexto(fechaElegida)} ${noAtiende}: elige otro día u otro laboratorio.` : null;
+  })();
+
   const principal = porEnviarExamenes ? (
     <div className="space-y-3">
       <h2 className="text-lg font-semibold text-gray-900">Listo para exámenes</h2>
       <p className="rounded-xl bg-emerald-50 px-3 py-3 text-base text-emerald-900">
         {porEnviarExamenes === "escuela" ? "Terminó la escuela." : "Aprobó la prueba de manejo."} Falta enviarlo a exámenes: al confirmar se le cita al laboratorio y le llega el mensaje con la carta del banco.
       </p>
-      {plan && (
+      {plan && !elegir && (
         <p className="rounded-xl bg-[#EEF2FF] px-3 py-3 text-base text-[#3730A3]">
           Se le citará el <b>{fechaEnTexto(plan.fecha)}</b> a las <b>{horaEnTexto(plan.hora)}</b> en <b>{plan.laboratorio ?? "el laboratorio"}</b>
           {plan.direccion ? ` (${plan.direccion})` : ""}.
         </p>
+      )}
+      {plan && !elegir && plan.laboratorios.length > 0 && (
+        <button type="button" onClick={abrirElegir} className={SECUNDARIO}>
+          <CalendarClock className="h-5 w-5" /> Elegir otra fecha y hora
+        </button>
+      )}
+      {plan && elegir && (
+        <div className="space-y-3 rounded-xl border border-[#E2E8F0] p-3">
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block text-base font-medium text-gray-700">
+              Fecha
+              <input type="date" value={fechaElegida} min={plan.ahora.fecha} onChange={(e) => setFechaElegida(e.target.value)} className={`${CAMPO} mt-1`} />
+            </label>
+            <label className="block text-base font-medium text-gray-700">
+              Hora
+              <input
+                type="time"
+                value={horaElegida}
+                min={fechaElegida === plan.ahora.fecha ? plan.ahora.hora : undefined}
+                onChange={(e) => setHoraElegida(e.target.value)}
+                className={`${CAMPO} mt-1`}
+              />
+            </label>
+          </div>
+          <label className="block text-base font-medium text-gray-700">
+            Laboratorio
+            <select value={labElegido} onChange={(e) => setLabElegido(e.target.value)} className={`${CAMPO} mt-1`}>
+              {plan.laboratorios.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.nombre}
+                </option>
+              ))}
+            </select>
+          </label>
+          {problemaElegido ? (
+            <p className="rounded-xl bg-amber-50 px-3 py-2 text-base text-amber-800">{problemaElegido}</p>
+          ) : (
+            <p className="rounded-xl bg-[#EEF2FF] px-3 py-3 text-base text-[#3730A3]">
+              Se le citará el <b>{fechaEnTexto(fechaElegida)}</b> a las <b>{horaEnTexto(horaElegida)}</b> en <b>{labActual?.nombre}</b>
+              {labActual?.direccion ? ` (${labActual.direccion})` : ""}. La orden le sale al laboratorio enseguida.
+            </p>
+          )}
+          <button type="button" onClick={() => setElegir(false)} className="min-h-12 text-base font-medium text-[#4F46E5]">
+            Usar la fecha propuesta
+          </button>
+        </div>
       )}
       <p className="text-sm text-gray-500">¿Te equivocaste? Deshaz la {porEnviarExamenes === "escuela" ? "clase" : "prueba"} abajo, en «Lo registrado».</p>
     </div>
@@ -691,8 +764,12 @@ function FichaAspirante({
     ? plan
       ? {
           texto: "Confirmar y enviar a exámenes",
-          deshabilitado: false,
-          fn: () => guardar(() => acciones.examenes(elegido.procesoId), () => "Enviado a exámenes."),
+          deshabilitado: elegir && !!problemaElegido,
+          fn: () =>
+            guardar(
+              () => acciones.examenes(elegido.procesoId, elegir ? { fecha: fechaElegida, hora: horaElegida, laboratorioId: labElegido } : null),
+              () => (elegir ? `Enviado a exámenes: ${fechaEnTexto(fechaElegida)} a las ${horaEnTexto(horaElegida)} en ${labActual?.nombre ?? "el laboratorio"}.` : "Enviado a exámenes.")
+            ),
         }
       : { texto: "Listo para exámenes", deshabilitado: false, fn: () => void verPlanExamenes() }
     : etapa === "prueba"

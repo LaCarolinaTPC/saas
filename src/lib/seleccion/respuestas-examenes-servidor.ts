@@ -17,6 +17,7 @@ import { FIRMA_SELECCION } from "./envio";
 import { renderizarMensaje } from "./mensajes";
 import { leerMensaje } from "./servidor";
 import { interpretarBanco, interpretarRutas, mensajeRutas } from "./respuestas-examenes";
+import { anotarAdjuntosPrueba, anotarMensajePrueba, recogerMensajesPrueba, type MensajePrueba } from "./mensajes-prueba";
 
 const ACTOR_WHATSAPP: ActorProceso = { tipo: "sistema", userId: null, userEmail: "WhatsApp" };
 
@@ -112,19 +113,37 @@ export async function procesarRespuestaExamenes(conversacionId: string, mensajeI
   if (!conv?.proceso_id || msg?.direccion !== "entrante") return false;
   const contacto = (Array.isArray(conv.wa_contactos) ? conv.wa_contactos[0] : conv.wa_contactos) as { telefono?: string; tipo?: string } | null;
   if (!contacto?.telefono || contacto.tipo === "laboratorio") return false;
-  const p = await leerProceso(conv.proceso_id as string);
+  const telefono = contacto.telefono;
+  return atenderRespuestaExamenes(conv.proceso_id as string, String(msg.contenido ?? ""), async (t) => {
+    const envio = await enviarTexto(telefono, t);
+    await registrarSaliente(conversacionId, envio, { contenido: t }, FIRMA_SELECCION, { automatico: true });
+  });
+}
+
+/**
+ * Lo mismo para un candidato del chat de prueba (27-nov-2026): no sale nada por
+ * WhatsApp; devuelve los mensajes que le llegarían (la respuesta, la carta del
+ * banco y el aviso que sigue) para mostrarlos en el chat. Antes el chat de
+ * prueba no atendía la respuesta y el asistente decía que el mensaje de
+ * exámenes no era nuestro.
+ */
+export async function atenderRespuestaExamenesPrueba(procesoId: string, texto: string): Promise<{ atendida: boolean; mensajes: MensajePrueba[] }> {
+  const { resultado, mensajes } = await recogerMensajesPrueba(() =>
+    atenderRespuestaExamenes(procesoId, texto, async (t, clave) => anotarMensajePrueba({ clave, texto: t }))
+  );
+  return { atendida: resultado, mensajes };
+}
+
+async function atenderRespuestaExamenes(procesoId: string, texto: string, responder: (t: string, clave: string) => Promise<void>): Promise<boolean> {
+  const db = createAdminClient();
+  const p = await leerProceso(procesoId);
   // Cerrado o contratado: ya no se atienden las preguntas del mensaje de exámenes.
   if (!p || p.estado === "cierre" || p.estado === "contratado") return false;
   const pendientes = preguntasPendientes(p);
   if (!pendientes.length) return false;
-  const texto = String(msg.contenido ?? "");
   // La respuesta es de la pregunta más reciente que la entienda (un número no es un sí/no).
   const pregunta = pendientes.find((q) => (q === "banco" ? interpretarBanco(texto) != null : interpretarRutas(texto) != null));
   if (!pregunta) return false;
-  const responder = async (t: string) => {
-    const envio = await enviarTexto(contacto.telefono!, t);
-    await registrarSaliente(conversacionId, envio, { contenido: t }, FIRMA_SELECCION, { automatico: true });
-  };
   const ahora = new Date().toISOString();
 
   if (pregunta === "banco") {
@@ -133,9 +152,15 @@ export async function procesarRespuestaExamenes(conversacionId: string, mensajeI
     await db.from("procesos_contratacion").update({ banco_cuenta: r, banco_respondido_at: ahora }).eq("id", p.id);
     await registrarEvento(p.id, { tipo: "dato", detalle: { banco_cuenta: r } }, ACTOR_WHATSAPP);
     if (r === "si") {
-      await responder(await textoCatalogo("banco_si", "¡Perfecto, muchas gracias por confirmarnos! Le agradecemos enviarnos un certificado bancario actualizado de su cuenta del Banco de Bogotá. Puede compartirlo por este mismo medio."));
+      await responder(
+        await textoCatalogo("banco_si", "¡Perfecto, muchas gracias por confirmarnos! Le agradecemos enviarnos un certificado bancario actualizado de su cuenta del Banco de Bogotá. Puede compartirlo por este mismo medio."),
+        "banco_si"
+      );
     } else {
-      await responder(await textoCatalogo("banco_no", "¡Gracias por confirmarnos! Le enviamos la carta de autorización del Banco de Bogotá para que pueda abrir su cuenta de ahorros. Lleve la carta y su documento de identidad."));
+      await responder(
+        await textoCatalogo("banco_no", "¡Gracias por confirmarnos! Le enviamos la carta de autorización del Banco de Bogotá para que pueda abrir su cuenta de ahorros. Lleve la carta y su documento de identidad."),
+        "banco_no"
+      );
       await enviarCartaDelBanco(p.id);
     }
     // Después del banco, el aviso del reconocimiento de ruta (con la pregunta de cuántas
@@ -164,7 +189,8 @@ export async function procesarRespuestaExamenes(conversacionId: string, mensajeI
       clave === "rutas_suficientes"
         ? "¡Excelente! Muchas gracias por la información. La persona encargada del reconocimiento de rutas lo verificará con usted y le indicará los siguientes pasos."
         : "Gracias por la información. Deberá realizar el reconocimiento y aprendizaje de rutas; la persona encargada le enviará la citación."
-    )
+    ),
+    clave
   );
   // Después de las rutas, el correo para la prueba psicosensotécnica (si falta).
   await pedirCorreoDespues(p.id, p.correo_estado);
@@ -202,9 +228,9 @@ export async function avisarReconocimiento(procesoId: string): Promise<string | 
  * banco en 24 horas (para no dejarlo sin el aviso). Solo los que entraron con
  * el flujo nuevo (con la pregunta del banco), en el horario de los mensajes.
  */
-export async function avisosReconocimientoPendientes(ahora = new Date()): Promise<{ avisos: number }> {
+export async function avisosReconocimientoPendientes(ahora = new Date(), opciones: { soloProcesos?: string[] } = {}): Promise<{ avisos: number }> {
   const desde = new Date(ahora.getTime() - 24 * 3_600_000).toISOString();
-  const { data, error } = await createAdminClient()
+  let consulta = createAdminClient()
     .from("procesos_contratacion")
     .select("id, origen")
     .in("estado", ["en_examenes", "en_examenes_fase2"])
@@ -213,6 +239,9 @@ export async function avisosReconocimientoPendientes(ahora = new Date()): Promis
     .is("rutas_preguntado_at", null)
     .or("reconocimiento_estado.is.null,reconocimiento_estado.neq.finalizado")
     .limit(30);
+  // Simulador del cron en el chat de prueba: solo esos procesos (los de prueba incluidos).
+  if (opciones.soloProcesos) consulta = consulta.in("id", opciones.soloProcesos.length ? opciones.soloProcesos : ["00000000-0000-0000-0000-000000000000"]);
+  const { data, error } = await consulta;
   if (error) return { avisos: 0 };
   const { leerConfigSeguimiento } = await import("@/lib/comunicaciones/seguimiento-ejecutar");
   const { enHorario } = await import("@/lib/comunicaciones/seguimiento");
@@ -220,9 +249,9 @@ export async function avisosReconocimientoPendientes(ahora = new Date()): Promis
   if (!enHorario(ahora, config.horaDesde, config.horaHasta)) return { avisos: 0 };
   let avisos = 0;
   for (const f of data ?? []) {
-    if (f.origen === "chat_prueba") continue;
+    if (f.origen === "chat_prueba" && !opciones.soloProcesos) continue;
     const envio = await avisarReconocimiento(f.id as string);
-    if (envio === "enviado" || envio === "borrador") avisos++;
+    if (envio === "enviado" || envio === "borrador" || envio === "prueba") avisos++;
   }
   return { avisos };
 }
@@ -240,7 +269,8 @@ async function enviarCartaDelBanco(procesoId: string): Promise<void> {
       .maybeSingle();
     if (!cita) return;
     const { enviarDocumentosAspirante } = await import("./laboratorios-servidor");
-    await enviarDocumentosAspirante(cita.id as string, { forzar: true });
+    const r = await enviarDocumentosAspirante(cita.id as string, { forzar: true });
+    if (r.resultado === "prueba") anotarAdjuntosPrueba(r.documentos.map((d) => d.nombre));
   } catch (e) {
     console.error("[seleccion] carta del banco:", e);
   }
@@ -260,7 +290,12 @@ async function pedirCorreoDespues(procesoId: string, correoEstado: string | null
 export async function preguntaExamenDeConversacion(conversacionId: string): Promise<"banco" | "rutas" | null> {
   const { data: conv } = await createAdminClient().from("wa_conversaciones").select("proceso_id").eq("id", conversacionId).maybeSingle();
   if (!conv?.proceso_id) return null;
-  const p = await leerProceso(conv.proceso_id as string);
+  return preguntaExamenDeProceso(conv.proceso_id as string);
+}
+
+/** Lo mismo a partir del proceso (el chat de prueba no tiene conversación). */
+export async function preguntaExamenDeProceso(procesoId: string): Promise<"banco" | "rutas" | null> {
+  const p = await leerProceso(procesoId);
   return p ? preguntaPendiente(p) : null;
 }
 

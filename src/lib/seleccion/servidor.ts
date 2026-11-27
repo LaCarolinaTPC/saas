@@ -185,6 +185,13 @@ export async function reevaluarPreseleccion(procesoId: string): Promise<Reevalua
 
   let avanzo = false;
   const estado = p.estado as string;
+  // 27-nov-2026: el SIMIT llegó tarde (el proceso siguió sin él) y ahora queda en rojo: alerta a GH.
+  if (!["pendiente", "cierre", "contratado"].includes(estado) && resultado.simit.color === "rojo" && anterior?.simit?.color !== "rojo") {
+    await registrarEvento(procesoId, { tipo: "dato", detalle: { simit_tardio: true, motivo: "El SIMIT llegó después de seguir sin él y no cumple: revisarlo." } }, ACTOR_SISTEMA);
+    await import("./alerta-antecedentes-servidor")
+      .then((m) => m.alertarAntecedentes(procesoId, "tardio", ["simit"]))
+      .catch((e) => console.error("[seleccion] alerta de antecedentes:", e));
+  }
   // SIMIT opcional (ajuste `simit_obligatorio` en «no»): si ya se intentó y Croma
   // no respondió, no detiene al aspirante; pasa con la observación de que falta.
   const sinSimit = estado === "pendiente" && faltaSoloSimit(resultado) && !(await simitObligatorio()) && (await simitSinRespuesta(procesoId));
@@ -446,8 +453,44 @@ export async function evaluarAntecedentesProceso(procesoId: string): Promise<Eva
     await db.from("procesos_contratacion").update({ antecedentes_resultado: ev.veredicto }).eq("id", procesoId);
   }
   const d = guardado.data?.antecedentes_decision;
-  const decision = d === "aprobado" || d === "rechazado" ? d : null;
+  let decision: "aprobado" | "rechazado" | null = d === "aprobado" || d === "rechazado" ? d : null;
+  // 27-nov-2026 (reunión de soporte): con el aval dado (p. ej. para seguir sin una fuente caída), si
+  // después llega una anotación en una fuente que no la tenía cuando se aprobó, el aval se anula:
+  // el caso vuelve a «Antecedentes por revisar» y sale la alerta. El proceso no cambia de etapa.
+  if (decision === "aprobado") {
+    const nuevas = await hallazgosDespuesDelAval(procesoId, ev.fuentes.filter((f) => f.estado === "hallazgo").map((f) => f.fuente));
+    if (nuevas.length) {
+      await db.from("procesos_contratacion").update({ antecedentes_decision: null }).eq("id", procesoId).eq("antecedentes_decision", "aprobado");
+      await registrarEvento(procesoId, { tipo: "dato", detalle: { aval_anulado: true, fuentes: nuevas, motivo: "Llegó una anotación después del aval: vuelve a revisión." } }, ACTOR_SISTEMA);
+      await import("./alerta-antecedentes-servidor")
+        .then((m) => m.alertarAntecedentes(procesoId, "tardio", nuevas))
+        .catch((e) => console.error("[seleccion] alerta de antecedentes:", e));
+      decision = null;
+    }
+  }
   return { ...ev, decision, permite: permiteSeguir(ev.veredicto, decision) };
+}
+
+/**
+ * Fuentes con anotación que no la tenían cuando una persona dio el aval (la
+ * última decisión «aprobado»). La decisión guarda `hallazgos` desde el
+ * 27-nov-2026; las de antes solo `fuentes` (con anotación o a revisar), y
+ * entonces se comparan con esas (no se anula de más).
+ */
+async function hallazgosDespuesDelAval(procesoId: string, hallazgos: string[]): Promise<string[]> {
+  if (!hallazgos.length) return [];
+  const { data } = await createAdminClient()
+    .from("procesos_contratacion_eventos")
+    .select("detalle")
+    .eq("proceso_id", procesoId)
+    .eq("detalle->>decision_antecedentes", "aprobado")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!data) return [];
+  const det = (data.detalle ?? {}) as { hallazgos?: string[]; fuentes?: string[] };
+  const conocidas = new Set(Array.isArray(det.hallazgos) ? det.hallazgos : Array.isArray(det.fuentes) ? det.fuentes : []);
+  return hallazgos.filter((f) => !conocidas.has(f));
 }
 
 /**
@@ -668,6 +711,11 @@ export async function marcarRevisionAntecedentes(procesoId: string): Promise<str
     { tipo: "dato", detalle: { revision_antecedentes: true, fuentes: hallazgos, aviso, ...(ev.veredicto === "descarta" ? { propone_cierre: true } : {}) } },
     ACTOR_SISTEMA
   );
+  // 27-nov-2026: y el correo a Gestión Humana (antes había que entrar a Candidatos a mirar).
+  const sinRespuesta = ev.fuentes.filter((f) => f.estado !== "limpio" && f.estado !== "hallazgo").map((f) => f.fuente);
+  await import("./alerta-antecedentes-servidor")
+    .then((m) => m.alertarAntecedentes(procesoId, hallazgos.length ? "hallazgo" : "sin_respuesta", hallazgos.length ? hallazgos : sinRespuesta))
+    .catch((e) => console.error("[seleccion] alerta de antecedentes:", e));
   return texto;
 }
 
@@ -795,6 +843,9 @@ async function marcarRevisionRequisito(procesoId: string, requisito: string): Pr
   if (ya) return;
   await db.from("wa_conversaciones").update({ requiere_humano: true }).eq("proceso_id", procesoId);
   await registrarEvento(procesoId, { tipo: "dato", detalle: { revision_requisito: requisito, motivo: "No cumple el requisito: las reglas lo dejan para revisión manual (no se cierra solo)." } }, ACTOR_SISTEMA);
+  await import("./alerta-antecedentes-servidor")
+    .then((m) => m.alertarAntecedentes(procesoId, "requisito", [requisito]))
+    .catch((e) => console.error("[seleccion] alerta de antecedentes:", e));
 }
 
 /** Aviso cuando el proceso se cierra por antecedentes: no dice el motivo (texto por defecto del catálogo). */

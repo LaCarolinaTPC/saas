@@ -1,4 +1,4 @@
-import { getCandidatesPipeline, getAllCandidates, getActiveVacancies } from "@/lib/actions";
+import { getActiveVacancies } from "@/lib/actions";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { ESTADOS_EN_CURSO, ESTADOS_REVISION_REINGRESO, FILTRO_ANTECEDENTES, FILTRO_APADRINADOS, FILTRO_PSICO_INSCRIBIR, FILTRO_REINGRESOS, campoFecha, type ProcesoContratacion } from "@/lib/contratacion/constants";
@@ -11,6 +11,9 @@ import { AvisoServicios } from "@/components/estado-servicios/aviso-servicios";
 export const dynamic = "force-dynamic";
 
 const PAGE_SIZE = 50;
+/** Columnas que usa la tarjeta del tablero (kanban-procesos.tsx) y su filtro por vacante. */
+const COLUMNAS_TABLERO =
+  "id, estado, nombre, cedula, edad, vacancy_id, origen, requisito_incumplido, preseleccion, causa_no_contrato, aprobacion_contratacion_at, updated_at, vacancies(title)";
 
 interface Filters {
   q?: string;
@@ -89,9 +92,10 @@ export default async function CandidatosPage({
       sinPadrino
     );
 
+  // 27-nov-2026: el pipeline (pestaña «Tabla») y todos los candidatos (pestaña «Todos») se
+  // cargan al abrir su pestaña: eran ~4,7 MB y ~4 s en cada carga y en cada recarga de la página
+  // (aprobar antecedentes o subir un documento la recargan), aunque se estuviera en Procesos.
   const [
-    pipeline,
-    allCandidates,
     vacancies,
     perms,
     rowsRes,
@@ -100,8 +104,6 @@ export default async function CandidatosPage({
     cierreRes,
     enCursoRes,
   ] = await Promise.all([
-    getCandidatesPipeline(),
-    getAllCandidates(),
     getActiveVacancies(),
     getCurrentPermissions(),
     applyFilters(admin.from("procesos_contratacion").select("*, vacancies(title)") as unknown as Filterable, filters, sinPadrino)
@@ -116,9 +118,11 @@ export default async function CandidatosPage({
 
   // Tablero: procesos en curso y los cerrados o contratados de los últimos 30 días.
   const hace30 = haceDias(30);
+  // Solo lo que muestra la tarjeta (27-nov-2026): con todas las columnas eran ~1,5 MB y ~1,2 s
+  // en cada carga y recarga; la ficha completa se trae al abrir la tarjeta (procesoCompleto).
   const { data: tablero } = await admin
     .from("procesos_contratacion")
-    .select("*, vacancies(title)")
+    .select(COLUMNAS_TABLERO)
     .or(`estado.not.in.(contratado,cierre),updated_at.gte.${hace30}`)
     .order("updated_at", { ascending: false })
     .limit(1000);
@@ -139,10 +143,8 @@ export default async function CandidatosPage({
     {/* Un servicio externo fallando (Croma, IA, WhatsApp, correo) o Croma en pausa (24-nov-2026). */}
     <AvisoServicios className="px-4 pt-4 sm:px-6 lg:px-8" />
     <CandidatosClient
-      pipeline={pipeline}
-      allCandidates={allCandidates}
       vacancies={vacancies}
-      tablero={tableroMarcado as ProcesoContratacion[]}
+      tablero={tableroMarcado as unknown as ProcesoContratacion[]}
       procesos={{
         vacancies: (vacancies as { id: string; title: string }[]).map((v) => ({ id: v.id, title: v.title })),
         rows: (rowsRes.data ?? []) as ProcesoContratacion[],

@@ -28,6 +28,10 @@ import { cerradoPorAntecedentesDeConversacion } from "@/lib/seleccion/servidor";
 import { procesarCorreoPsico } from "@/lib/seleccion/correo-psico-servidor";
 import { pantallaReconocimiento } from "@/lib/seleccion/reconocimiento-servidor";
 import { enviarAExamenes, planExamenes, registrarClase, registrarPrueba } from "@/lib/seleccion/profesor-servidor";
+import { atiende } from "@/lib/seleccion/laboratorios";
+import { horaEnTexto } from "@/lib/seleccion/agenda";
+import { horaBogota } from "@/lib/comunicaciones/seguimiento";
+import { fechaBogota } from "@/lib/tesoreria/recobros";
 import { preguntaExamenDeConversacion, procesarRespuestaExamenes } from "@/lib/seleccion/respuestas-examenes-servidor";
 
 if (process.env.GESTIVO_ENTORNO !== "desarrollo") throw new Error("Solo en desarrollo (WhatsApp simulado).");
@@ -183,6 +187,35 @@ try {
   revisar("y «Listo para exámenes» lo cita a la fase 1", exE.ok && (await proceso(e.id)).estado === "en_examenes", exE);
   const sinPrueba = await crearProceso("ASPIRANTE SIN PRUEBA", "citado");
   revisar("sin la prueba aprobada no se puede", !(await enviarAExamenes(sinPrueba.id, actor)).ok);
+
+  titulo("1c. El profesor elige la fecha, la hora y el laboratorio (27-nov-2026)");
+  const fp = await crearProceso("ASPIRANTE FECHA PROFESOR", "citado");
+  await registrarPrueba(fp.id, { resultado: "aprobo", rutaEscrita: "si", partesMotor: "si" }, actor);
+  const planFp = await planExamenes(fp.id);
+  revisar("el plan trae los laboratorios activos para elegir y la hora de ahora", planFp.laboratorios.length > 0 && !!planFp.ahora.fecha && !!planFp.ahora.hora, planFp);
+  const hoyB = fechaBogota(new Date().toISOString());
+  const ahoraB = horaBogota(new Date());
+  if (rescate) {
+    const antes = await enviarAExamenes(fp.id, actor, { fecha: hoyB, hora: "00:01", laboratorioId: rescate.id });
+    revisar("no deja una hora anterior a este momento", !antes.ok && /anteriores/.test(antes.error ?? ""), antes);
+    const festivo = await enviarAExamenes(fp.id, actor, { fecha: "2026-12-08", hora: "07:00", laboratorioId: rescate.id });
+    revisar("no deja un festivo (8 de diciembre)", !festivo.ok && /festivo/.test(festivo.error ?? ""), festivo);
+    const noAtiende = await enviarAExamenes(fp.id, actor, { fecha: "2026-12-01", hora: "07:00", laboratorioId: labTemp });
+    revisar("no deja un laboratorio que no atiende ese día", !noAtiende.ok && /no atiende/.test(noAtiende.error ?? ""), noAtiende);
+    // Hoy dentro de una hora si Rescate atiende hoy y alcanza; si no, el siguiente día que atienda a las 7:15.
+    const enUnaHora = (() => { const [h, m] = ahoraB.split(":").map(Number); const t = h * 60 + m + 60; return t < 23 * 60 ? `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}` : null; })();
+    let dia = hoyB;
+    let hora = enUnaHora && atiende(rescate, hoyB) ? enUnaHora : "07:15";
+    if (hora === "07:15") { do { const d = new Date(`${dia}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + 1); dia = d.toISOString().slice(0, 10); } while (!atiende(rescate, dia)); }
+    const okFp = await enviarAExamenes(fp.id, actor, { fecha: dia, hora, laboratorioId: rescate.id });
+    revisar(`con fecha válida lo cita (${dia} ${hora}${dia === hoyB ? ", el mismo día" : ""})`, okFp.ok, okFp);
+    const pFp = await proceso(fp.id);
+    const { data: citaFp } = await db.from("seleccion_citas").select("fecha, hora, orden_laboratorio_at").eq("proceso_id", fp.id).eq("tipo", "examen_f1").maybeSingle();
+    revisar("la cita queda en la fecha y la hora elegidas", citaFp?.fecha === dia && String(citaFp?.hora).slice(0, 5) === hora && pFp.fecha_examenes === dia, citaFp);
+    revisar("en el laboratorio elegido", pFp.laboratorio_id === rescate.id, pFp.laboratorio_id);
+    revisar("el mensaje dice esa hora", (okFp.texto ?? "").includes(horaEnTexto(hora)), okFp.texto);
+    revisar("y la orden sale enseguida", !!citaFp?.orden_laboratorio_at, citaFp);
+  }
 
   // ── 2 ───────────────────────────────────────────────────────────────────
   titulo("2. Las respuestas del aspirante en la fase 1");

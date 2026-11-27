@@ -431,20 +431,23 @@ const MAX_POR_VUELTA = 40;
  * quien no lo ha escrito o confirmado, y agotados los recordatorios deja el
  * chat para una persona. Dentro del horario de los recordatorios de WhatsApp.
  */
-export async function ejecutarCorreosPsico(ahora = new Date()): Promise<{ pedidos: number; recordatorios: number; escalados: number }> {
+export async function ejecutarCorreosPsico(ahora = new Date(), opciones: { soloProcesos?: string[] } = {}): Promise<{ pedidos: number; recordatorios: number; escalados: number }> {
   const r = { pedidos: 0, recordatorios: 0, escalados: 0 };
   const a = await leerAjustesCorreo();
   if (!a.activo) return r;
   const { config } = await leerConfigSeguimiento();
   if (!enHorario(ahora, config.horaDesde, config.horaHasta)) return r;
   const db = createAdminClient();
-  const { data, error } = await db
+  let consulta = db
     .from("procesos_contratacion")
     .select(COLUMNAS)
     .in("estado", [...ESTADOS_PROCESO_CORREO])
     .or("correo_estado.is.null,correo_estado.in.(pedido,por_confirmar,enviado)")
     .order("updated_at", { ascending: true })
     .limit(300);
+  // Simulador del cron en el chat de prueba: solo esos procesos.
+  if (opciones.soloProcesos) consulta = consulta.in("id", opciones.soloProcesos.length ? opciones.soloProcesos : ["00000000-0000-0000-0000-000000000000"]);
+  const { data, error } = await consulta;
   if (error) return r;
   let hechos = 0;
   for (const p of (data ?? []) as unknown as CorreoProceso[]) {
@@ -511,7 +514,12 @@ export async function correoParaAsistente(conversacionId: string): Promise<{ est
   const db = createAdminClient();
   const { data: conv } = await db.from("wa_conversaciones").select("proceso_id").eq("id", conversacionId).maybeSingle();
   if (!conv?.proceso_id) return null;
-  const p = await correoDeProceso(conv.proceso_id as string);
+  return correoParaAsistenteDeProceso(conv.proceso_id as string);
+}
+
+/** Lo mismo a partir del proceso (el chat de prueba no tiene conversación). */
+export async function correoParaAsistenteDeProceso(procesoId: string): Promise<{ estado: EstadoCorreo; correo: string | null } | null> {
+  const p = await correoDeProceso(procesoId);
   if (!p?.correo_estado || !(ESTADOS_PROCESO_CORREO as readonly string[]).includes(p.estado)) return null;
   return { estado: p.correo_estado, correo: p.correo };
 }

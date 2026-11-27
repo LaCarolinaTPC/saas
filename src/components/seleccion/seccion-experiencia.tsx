@@ -8,10 +8,11 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { BriefcaseBusiness, Phone } from "lucide-react";
-import { datosExperiencia, guardarEmpleoFicha, marcarVerificacionFicha } from "@/app/(dashboard)/candidatos/entrega4-actions";
+import { guardarEmpleoFicha, marcarVerificacionFicha } from "@/app/(dashboard)/candidatos/entrega4-actions";
 import { ETIQUETA_COMO, ETIQUETA_VERIFICACION, type EstadoExperiencia, type ExperienciaLaboral } from "@/lib/seleccion/experiencia";
 import type { ExperienciaVista, ReferenciaResumen } from "@/lib/seleccion/experiencia-servidor";
 import { botonPri, botonSec, campo, fechaHora, useAccion } from "./seccion-entrega3";
+import { leerFicha } from "@/lib/lectura-ficha";
 
 const COLOR_ESTADO: Record<EstadoExperiencia, string> = {
   sin_datos: "bg-gray-100 text-gray-600",
@@ -46,7 +47,7 @@ export function SeccionExperiencia({ procesoId, version }: { procesoId: string; 
   const [form, setForm] = useState<typeof VACIO | null>(null);
   useEffect(() => {
     let vivo = true;
-    datosExperiencia(procesoId)
+    leerFicha("datosExperiencia", procesoId)
       .then((d) => vivo && setDatos(d))
       .catch(() => undefined);
     return () => {

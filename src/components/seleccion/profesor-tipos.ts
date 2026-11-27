@@ -6,6 +6,7 @@
 import type { AjustesAgenda, Cita, ExcepcionProfesor } from "@/lib/seleccion/agenda";
 import type { ResultadoAgenda, ResultadoDisponibilidad, ResultadoReprogramarDia, VistaCitacion } from "@/lib/seleccion/agenda-servidor";
 import type {
+  ExamenesElegidos,
   HistorialProfesor,
   PendientesProfesor,
   PlanExamenes,
@@ -74,7 +75,8 @@ export interface AccionesProfesor {
   /** Lo que haría «Listo para exámenes», sin hacerlo. */
   planExamenes(procesoId: string): Promise<PlanExamenes>;
   /** «Listo para exámenes»: cita al laboratorio y envía el mensaje con la carta. */
-  examenes(procesoId: string): Promise<ResultadoProfesor>;
+  /** Sin `elegidos`, el día y el laboratorio del plan; con ellos, lo que eligió el profesor. */
+  examenes(procesoId: string, elegidos?: ExamenesElegidos | null): Promise<ResultadoProfesor>;
   deshacer(procesoId: string, tipo: RegistroProfesor["tipo"], id: string): Promise<ResultadoProfesor>;
   observacion(procesoId: string, texto: string): Promise<ResultadoProfesor>;
   concepto(procesoId: string, d: DatosConcepto): Promise<ResultadoProfesor>;
@@ -88,6 +90,10 @@ export interface AvisoPrueba {
   texto?: string;
   /** Candidato al que va el mensaje: con varios chats de prueba, solo lo muestra el suyo. */
   procesoId?: string;
+  /** Chat al que va (simulador del cron: el silencio de un aspirante que todavía no es candidato). */
+  idChat?: number;
+  /** Nota de Gestivo para quien prueba (no es un mensaje al aspirante ni entra a la conversación). */
+  nota?: string;
   etiqueta?: string;
   /** Mensaje del catálogo: con él, el chat de prueba muestra los botones de su plantilla. */
   clave?: string;
@@ -113,6 +119,13 @@ export const ETIQUETA_MENSAJE: Record<string, string> = {
   recordatorio_reconocimiento: "Recordatorio del reconocimiento de ruta",
   inasistencia_reconocimiento: "Aviso de inasistencia al reconocimiento (borrador para revisar)",
   reconocimiento_reprogramado: "Reconocimiento de ruta reprogramado",
+  // Respuestas a las preguntas del mensaje de exámenes (27-nov-2026).
+  banco_si: "Respuesta: tiene cuenta en el Banco de Bogotá",
+  banco_no: "Respuesta: no tiene cuenta (va la carta del banco)",
+  reconocimiento_aviso: "Aviso del reconocimiento de ruta (¿cuántas rutas conoce?)",
+  rutas_suficientes: "Respuesta: conoce las rutas suficientes",
+  rutas_faltan: "Respuesta: debe hacer el reconocimiento de rutas",
+  pedir_correo: "Pedido del correo para la psicosensotécnica",
 };
 
 // ── Citar ──────────────────────────────────────────────────────────────────

@@ -24,7 +24,6 @@ import {
   consultarRuntPrueba,
   vinculoPrueba,
   correrCasoPrueba,
-  fichaPrueba,
   guardarPruebaEnCandidatos,
   leerCedulaPrueba,
   guardarFotoPrueba,
@@ -33,18 +32,26 @@ import {
   type ResultadoDocumentoPrueba,
   panelPrueba,
   recalcularPanel,
-  botonesPlantillasPrueba,
   responderPrueba,
   simularSilencioPrueba,
   type PanelPrueba,
   type PasoSilencio,
 } from "@/lib/seleccion/prueba-actions";
-import { agendaSimuladaPrueba, candidatosDePrueba, respuestaCitaPrueba, simularCierreAutomaticoPrueba, type CandidatoDePrueba } from "@/lib/seleccion/prueba-profesor-actions";
+import {
+  agendaSimuladaPrueba,
+  citacionAutomaticaPrueba,
+  respuestaCitaPrueba,
+  respuestaExamenesPrueba,
+  simularCierreAutomaticoPrueba,
+  type CandidatoDePrueba,
+} from "@/lib/seleccion/prueba-profesor-actions";
 import { estadoInfo } from "@/lib/contratacion/constants";
 import { CitarDialog } from "./citar-dialog";
 import { CITAR_PRUEBA } from "./acciones-prueba";
 import { ETIQUETA_MENSAJE, EVENTO_PRUEBA, avisarPrueba, textoEnvio, type AvisoPrueba } from "./profesor-tipos";
 import { FichaPrueba } from "./ficha-prueba";
+import { ahoraPruebaIso } from "./reloj-prueba";
+import { leerFicha } from "@/lib/lectura-ficha";
 import { LecturaCedulaPanel } from "./lectura-cedula-panel";
 import { ProbarLectura } from "./probar-lectura";
 import { documentosAspiranteAccion } from "@/app/(dashboard)/candidatos/seleccion/laboratorios-actions";
@@ -215,6 +222,12 @@ export interface ResumenChatPrueba {
   guardado: boolean;
   probando: boolean;
   transferido: boolean;
+  /** Para el simulador del cron (27-nov-2026): el candidato, el último mensaje del aspirante y si el último es nuestro. */
+  procesoId?: string | null;
+  ultimoEntranteAt?: number | null;
+  ultimoEsNuestro?: boolean;
+  hojaVida?: boolean;
+  buscaTrabajo?: boolean;
 }
 
 const CONFIG_BASE: ConfigChatPrueba = { cromaReal: false, guardar: true, escenario: ESCENARIO_BASE };
@@ -246,7 +259,14 @@ export function ChatPrueba({
   /** Identificador del chat: con él se guarda en la base (y en el navegador) para retomarlo desde cualquier equipo. */
   idChat?: number;
 }) {
-  const [lado, setLado] = useState<"candidato" | "profesor" | "laboratorios" | "pruebas">("candidato");
+  const [lado, setLadoVisible] = useState<"candidato" | "profesor" | "laboratorios" | "pruebas">("candidato");
+  // El profesor y los laboratorios se montan la primera vez que se abre su pestaña (27-nov-2026):
+  // montados ocultos cargaban sus datos al abrir la página y hacían fila delante de la ficha.
+  const [lados, setLados] = useState<Set<string>>(() => new Set(["candidato"]));
+  const setLado = (l: "candidato" | "profesor" | "laboratorios" | "pruebas") => {
+    setLadoVisible(l);
+    setLados((s) => (s.has(l) ? s : new Set(s).add(l)));
+  };
   const [citando, setCitando] = useState(false);
   const [chat, setChat] = useState<MensajeChat[]>([]);
   const [borrador, setBorrador] = useState(FRASE_INICIAL);
@@ -321,12 +341,12 @@ export function ChatPrueba({
   const [guardados, setGuardados] = useState<CandidatoDePrueba[]>([]);
   const [elegidoGuardado, setElegidoGuardado] = useState("");
   useEffect(() => {
-    candidatosDePrueba()
+    leerFicha("candidatosDePrueba")
       .then(setGuardados)
       .catch(() => undefined);
   }, []);
   async function usarGuardado(id: string) {
-    const f = await fichaPrueba(id).catch(() => null);
+    const f = await leerFicha("fichaPrueba", id).catch(() => null);
     if (!f) return setError("No se pudo abrir ese candidato de prueba.");
     // Se sigue con ese candidato: el próximo mensaje no lo reinicia.
     const ced = String(f.cedula ?? "").replace(/\D/g, "");
@@ -338,7 +358,7 @@ export function ChatPrueba({
   // Botones de las plantillas de Meta por mensaje del catálogo (citación, recordatorio…).
   const botonesRef = useRef<Record<string, string[]>>({});
   useEffect(() => {
-    void botonesPlantillasPrueba()
+    void leerFicha("botonesPlantillasPrueba")
       .then((b) => {
         botonesRef.current = b;
       })
@@ -351,16 +371,22 @@ export function ChatPrueba({
   useEffect(() => {
     activoRef.current = activo;
   }, [activo]);
+  const idChatRef = useRef(idChat);
+  useEffect(() => {
+    idChatRef.current = idChat;
+  }, [idChat]);
 
   // Avisos de la agenda y del profesor de prueba (misma página): el mensaje que
   // le llegaría al aspirante entra al chat, y la ficha se vuelve a leer.
   useEffect(() => {
     const alAviso = (e: Event) => {
       const d = (e as CustomEvent<AvisoPrueba>).detail;
-      // Con varios chats abiertos, cada mensaje va solo al chat de su candidato.
+      // Con varios chats abiertos, cada mensaje va solo al chat de su candidato (o al chat indicado).
+      if (d?.idChat !== undefined && d.idChat !== idChatRef.current) return;
       if (d?.procesoId && d.procesoId !== procesoIdRef.current) return;
+      if (d?.nota) setNotaCita(d.nota);
       const texto = d?.texto;
-      if (texto && (d.procesoId || activoRef.current)) {
+      if (texto && (d.procesoId || d.idChat !== undefined || activoRef.current)) {
         const meta = `${d.etiqueta ?? "Mensaje de Gestivo"} · en el flujo real sale por WhatsApp`;
         const botones = d.clave ? botonesRef.current[d.clave] : undefined;
         setChat((c) => [
@@ -380,7 +406,7 @@ export function ChatPrueba({
       }
       const id = procesoIdRef.current;
       if (!id) return;
-      void fichaPrueba(id)
+      void leerFicha("fichaPrueba", id)
         .then((f) => {
           if (!f) return;
           setProcesoPrueba(f);
@@ -430,7 +456,7 @@ export function ChatPrueba({
     if (s.procesoId && s.procesoId !== procesoPrueba?.id) {
       const pendiente = s.procesoId;
       procesoPendienteRef.current = pendiente;
-      void fichaPrueba(pendiente)
+      void leerFicha("fichaPrueba", pendiente)
         .then((f) => {
           // Si se reinició el chat mientras tanto, no se vuelve a enlazar.
           if (procesoPendienteRef.current !== pendiente) return;
@@ -557,8 +583,40 @@ export function ChatPrueba({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activo, restaurado, idChat, probando]);
 
+  // La citación que Gestivo envía solo (27-nov-2026): si el candidato quedó «Listo para citar»
+  // fuera de este chat («Lo revisé a mano» en la ficha, la decisión de antecedentes, Croma que
+  // responde tarde), la cita se creaba y el mensaje no llegaba aquí. Se pone una sola vez.
+  const chatRef = useRef<MensajeChat[]>([]);
+  useEffect(() => {
+    chatRef.current = chat;
+  }, [chat]);
+  const citasAnunciadasRef = useRef(new Set<string>());
+  const idCitable = procesoPrueba?.estado === "citado" ? procesoPrueba.id : null;
+  useEffect(() => {
+    if (!idCitable || !restaurado) return;
+    const revisar = () => {
+      void citacionAutomaticaPrueba(idCitable)
+        .then((c) => {
+          if (!c || citasAnunciadasRef.current.has(c.citaId)) return;
+          citasAnunciadasRef.current.add(c.citaId);
+          if (chatRef.current.some((m) => m.direccion === "saliente" && m.contenido === c.texto)) return;
+          avisarPrueba({ texto: c.texto, procesoId: idCitable, etiqueta: "Citación automática (quedó «Listo para citar»)", clave: "citacion" });
+        })
+        .catch(() => undefined);
+    };
+    revisar();
+    window.addEventListener("focus", revisar);
+    return () => window.removeEventListener("focus", revisar);
+  }, [idCitable, restaurado]);
+
   const ultimoMensaje = chat[chat.length - 1];
   const nombreChat = procesoPrueba?.nombre ?? null;
+  const ultimoEntranteAt = useMemo(() => {
+    for (let i = chat.length - 1; i >= 0; i--) if (chat[i].direccion === "entrante") return chat[i].at;
+    return null;
+  }, [chat]);
+  const hojaVida = !!panel?.extraido?.hoja_vida;
+  const buscaTrabajo = panel?.extraido?.busca_trabajo !== false;
   useEffect(() => {
     onResumen?.({
       nombre: nombreChat,
@@ -568,16 +626,22 @@ export function ChatPrueba({
       guardado: !!procesoPrueba,
       probando,
       transferido: !!transferencia,
+      procesoId: procesoPrueba?.id ?? null,
+      ultimoEntranteAt,
+      ultimoEsNuestro: ultimoMensaje?.direccion === "saliente",
+      hojaVida,
+      buscaTrabajo,
     });
     // onResumen cambia en cada render del padre; basta con avisar cuando cambia lo mostrado.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ultimoMensaje, nombreChat, procesoPrueba?.estado, probando, transferencia]);
+  }, [ultimoMensaje, nombreChat, procesoPrueba?.estado, procesoPrueba?.id, probando, transferencia, ultimoEntranteAt, hojaVida, buscaTrabajo]);
 
   const simitNum = simit.trim() === "" ? null : Number(simit.replace(/\D/g, ""));
   const opciones = () => ({
     formulario,
     simit: simitNum,
-    ahora: hora ? new Date(hora).toISOString() : null,
+    // La hora escrita a mano manda; si no, el reloj del simulador del cron (si se adelantó).
+    ahora: hora ? new Date(hora).toISOString() : ahoraPruebaIso(),
     runt,
     renovaraLicencia: panel?.extraido?.renovara_licencia ?? null,
     cedula: panel?.extraido?.cedula ?? null,
@@ -661,7 +725,7 @@ export function ChatPrueba({
     /** Croma no respondió la verificación de la cédula. */
     verificacionDemorada?: boolean;
   } | null> {
-    const base = { formulario, ahora: hora ? new Date(hora).toISOString() : null, transferencia };
+    const base = { formulario, ahora: hora ? new Date(hora).toISOString() : ahoraPruebaIso(), transferencia };
     setEstadoCroma("Leyendo los datos del chat…");
     const p = await panelPrueba(sinId(conversacion), { ...base, simit: simitNum, runt }).catch(() => null);
     if (!p?.ok) {
@@ -698,7 +762,7 @@ export function ChatPrueba({
         setEstadoCroma(g.error);
         // Puede seguir cerrado: la ficha se vuelve a leer para mostrarlo.
         if (procesoPrueba) {
-          const f = await fichaPrueba(procesoPrueba.id).catch(() => null);
+          const f = await leerFicha("fichaPrueba", procesoPrueba.id).catch(() => null);
           if (f) {
             setProcesoPrueba(f);
             setFichaVersion((n) => n + 1);
@@ -716,7 +780,7 @@ export function ChatPrueba({
         setChat((c) => [...c, nuevo({ direccion: "saliente", contenido: g.avisoRevision!, mediaTipo: null, meta: "Aviso automático: antecedentes para revisión de una persona" })]);
       }
       if (fotosPrueba.current.some((f) => !f.ruta)) await guardarFotosPendientes(g.procesoId);
-      const ficha = await fichaPrueba(g.procesoId).catch(() => null);
+      const ficha = await leerFicha("fichaPrueba", g.procesoId).catch(() => null);
       if (ficha) {
         setProcesoPrueba(ficha);
         setFichaVersion((n) => n + 1);
@@ -820,6 +884,24 @@ export function ChatPrueba({
           if (r.nota) avisarPrueba();
         })
         .catch(() => undefined);
+    }
+    // Como el webhook (27-nov-2026): la respuesta a la pregunta del mensaje de exámenes (banco o
+    // rutas) la atiende Gestivo con los mensajes del catálogo, y el asistente no responde.
+    if (procesoPrueba && ["en_examenes", "en_examenes_fase2", "reconocimiento_ruta"].includes(procesoPrueba.estado) && contenido && !media) {
+      const procesoId = procesoPrueba.id;
+      setProbando(true);
+      void respuestaExamenesPrueba(procesoId, contenido)
+        .catch(() => ({ atendida: false, mensajes: [] }))
+        .then((r) => {
+          setProbando(false);
+          if (!r.atendida) return void responder(conversacion);
+          setNotaCita("Gestivo: atendió la respuesta al mensaje de exámenes (como el webhook); el asistente no responde ese mensaje.");
+          for (const m of r.mensajes) {
+            avisarPrueba({ texto: m.texto, procesoId, etiqueta: ETIQUETA_MENSAJE[m.clave] ?? "Respuesta automática de Gestivo", clave: m.clave, adjuntos: m.adjuntos });
+          }
+          if (!r.mensajes.length) avisarPrueba({ procesoId });
+        });
+      return;
     }
     void responder(conversacion);
   }
@@ -1259,7 +1341,7 @@ export function ChatPrueba({
               // Un cambio desde la ficha (p. ej. «Lo revisé a mano»): el encabezado y el estado al día.
               const id = procesoPrueba?.id;
               if (!id) return;
-              void fichaPrueba(id)
+              void leerFicha("fichaPrueba", id)
                 .then((f) => f && setProcesoPrueba(f))
                 .catch(() => undefined);
             }}
@@ -1274,8 +1356,8 @@ export function ChatPrueba({
           />
             </>
           )}
-          {profesor && <div className={lado === "profesor" ? "" : "hidden"}>{profesor}</div>}
-          {laboratorios && <div className={lado === "laboratorios" ? "" : "hidden"}>{laboratorios}</div>}
+          {profesor && lados.has("profesor") && <div className={lado === "profesor" ? "" : "hidden"}>{profesor}</div>}
+          {laboratorios && lados.has("laboratorios") && <div className={lado === "laboratorios" ? "" : "hidden"}>{laboratorios}</div>}
           {lado === "pruebas" && (
             <>
           {/* Silencio y hora simulada */}

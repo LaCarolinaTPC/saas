@@ -232,6 +232,17 @@ export const SECCIONES_AJUSTES: SeccionAjustes[] = [
     },
   },
   {
+    id: "alerta_antecedentes",
+    titulo: "Alerta de antecedentes por revisar",
+    detalle:
+      "Un correo por aspirante cuando necesita que una persona revise sus antecedentes: una fuente trae una anotación, una fuente no respondió y las reglas la mandan a revisión, un requisito va a revisión manual, o llega tarde un resultado con anotación después del aval (27-nov-2026).",
+    ajustes: {
+      antecedentes_alerta_activo: { etiqueta: "Enviar la alerta" },
+      antecedentes_alerta_correos: { etiqueta: "Enviarla a", ayuda: "Correos separados por comas. Vacío: los del reporte diario." },
+      antecedentes_alerta_copia: { etiqueta: "Con copia a", ayuda: "Separados por comas. Vacío: sin copia (o la del reporte diario, si la lista de arriba está vacía)." },
+    },
+  },
+  {
     id: "alertas",
     titulo: "Alertas del reporte diario",
     detalle:
@@ -310,7 +321,7 @@ export interface SeccionPresentada {
  * y sus ajustes quedan sin uso.
  */
 export const EN_OTRA_PANTALLA = new Set([
-  "carta_banco_ruta", "carta_firmante", "carta_firmante_cargo", "laboratorio_reparto", "lectura_modelo", "transcripcion_modelo",
+  "carta_banco_ruta", "carta_firmante", "carta_firmante_cargo", "laboratorio_reparto", "laboratorio_fecha_profesor", "lectura_modelo", "transcripcion_modelo",
   // 25-nov-2026: las reglas de antecedentes tienen su pestaña (Selección › Antecedentes).
   ...SOLO_EN_ANTECEDENTES,
 ]);

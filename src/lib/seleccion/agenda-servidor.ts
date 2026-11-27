@@ -6,6 +6,8 @@
  * Con candidatos del chat de prueba (origen «chat_prueba») no sale nada por
  * WhatsApp: el texto del mensaje se devuelve para mostrarlo en el chat de prueba.
  */
+import { anotarMensajePrueba } from "./mensajes-prueba";
+import type { ExamenAsistente } from "@/lib/comunicaciones/agente/motor";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ACTOR_SISTEMA, cambiarEstadoProceso, registrarEvento, type ActorProceso } from "@/lib/contratacion/servidor";
 import { horaBogota, ventanaAbierta } from "@/lib/comunicaciones/seguimiento";
@@ -258,7 +260,10 @@ async function avisar(
   if (!m) return { envio: "sin_catalogo", texto: "" };
   const valores = { ...(await valoresDeCita(p, cuando.fecha, cuando.hora)), ...(opciones.extra ?? {}) };
   const texto = textoPropioValido(opciones.textoPropio) ?? prepararMensaje(m, valores, opciones.nota).texto;
-  if (p.origen === "chat_prueba") return { envio: "prueba", texto };
+  if (p.origen === "chat_prueba") {
+    anotarMensajePrueba({ clave, texto, procesoId: p.id });
+    return { envio: "prueba", texto };
+  }
   const conv = await conversacionDeProceso(p);
   if (!conv) return { envio: "sin_conversacion", texto };
   if (opciones.directo) {
@@ -393,6 +398,32 @@ export async function citaParaAsistente(procesoId: string | null | undefined): P
     confirmada: cita.estado === "confirmada",
     pideOtraFecha: cita.estado === "pide_otra_fecha",
   };
+}
+
+/**
+ * La cita de exámenes médicos en pie (fase 1 o 2, de hoy en adelante), en
+ * palabras, para el asistente (27-nov-2026). null si no tiene.
+ */
+export async function examenParaAsistente(procesoId: string | null | undefined, ahora: Date = new Date()): Promise<ExamenAsistente | null> {
+  if (!procesoId) return null;
+  const h = hoy(ahora);
+  const cita = (await citasDeProceso(procesoId))
+    .filter((c) => (c.tipo === "examen_f1" || c.tipo === "examen_f2") && (c.estado === "programada" || c.estado === "confirmada") && c.fecha >= h)
+    .sort((x, y) => `${x.fecha} ${x.hora}`.localeCompare(`${y.fecha} ${y.hora}`))[0];
+  if (!cita) return null;
+  return {
+    fase: cita.tipo === "examen_f2" ? 2 : 1,
+    fecha: fechaEnTexto(cita.fecha),
+    hora: horaEnTexto(cita.hora),
+    lugar: await laboratorioEnTexto(procesoId).catch(() => null),
+    cuando: cita.fecha === h ? "hoy" : cita.fecha === enDias(h, 1) ? "mañana" : null,
+  };
+}
+
+/** Lo mismo, a partir de la conversación de WhatsApp. */
+export async function examenDeConversacion(conversacionId: string): Promise<ExamenAsistente | null> {
+  const { data } = await createAdminClient().from("wa_conversaciones").select("proceso_id").eq("id", conversacionId).maybeSingle();
+  return examenParaAsistente((data?.proceso_id as string | null) ?? null);
 }
 
 /** Lo mismo, a partir de la conversación de WhatsApp. */
@@ -554,7 +585,8 @@ export async function citarProceso(
 /**
  * Cita sola al aspirante que acaba de quedar «Listo para citar» (ajuste
  * `cita_automatica`, pedido de GH del 18-nov-2026): al siguiente cupo de la
- * prueba de manejo, con la misma citación que enviaría una persona. Si no
+ * prueba de manejo desde mañana (nunca el mismo día, 27-nov-2026), con la
+ * misma citación que enviaría una persona. Si no
  * puede, el asistente le pregunta qué día puede y mueve la cita.
  * No cita (queda para una persona, como antes) si el ajuste está apagado, si
  * falta la respuesta del RNMC, si falta la dirección de la sede o si ya tiene
@@ -569,7 +601,9 @@ export async function citarAutomaticamente(procesoId: string, opciones: { faltaR
   if (p.origen !== "chat_prueba" && !valoresFijos(ajustes).direccion.trim()) return null;
   if (await citaVigenteDeProceso(procesoId)) return null;
   // Si la citación está en «revisar antes de enviar», la cita se crea y el mensaje queda como borrador.
-  const r = await citarProceso(procesoId, await citaPropuesta(), ACTOR_SISTEMA, { automatica: true });
+  // Desde mañana (GH, 27-nov-2026): citado a las 8:15 para la 1:00 p. m. del mismo día no alcanzaba a organizarse.
+  // La hora límite del mismo día sigue valiendo para la cita que propone el diálogo de una persona.
+  const r = await citarProceso(procesoId, await citaPropuesta(new Date(), true), ACTOR_SISTEMA, { automatica: true });
   if (!r.ok) {
     console.error("[agenda] no se pudo citar automáticamente:", r.error);
     return null;
@@ -674,6 +708,14 @@ export async function marcarLlegada(citaId: string, actor: ActorProceso): Promis
     actor
   );
   if (!r.ok || !r.cita) return { ok: false, error: r.error };
+  // Llegó antes del día de la cita (27-nov-2026): la cita pasa a hoy. Si no, la fecha
+  // de la prueba quedaba en el futuro y los exámenes salían para ese mismo día.
+  const h = hoy();
+  if (r.cita.fecha > h) {
+    await createAdminClient().from("seleccion_citas").update({ fecha: h }).eq("id", citaId);
+    await registrarEvento(r.cita.proceso_id, { tipo: "cita", detalle: { accion: "adelantada", antes: r.cita.fecha, fecha: h, hora: hhmm(r.cita.hora) } }, actor);
+    if (r.cita.tipo === "prueba_manejo") await createAdminClient().from("procesos_contratacion").update({ fecha_citacion: h }).eq("id", r.cita.proceso_id);
+  }
   if (r.cita.tipo === "prueba_manejo") {
     const p = await leerProceso(r.cita.proceso_id);
     if (p && (p.estado === "citado" || p.estado === "antecedentes" || p.estado === "pendiente")) {

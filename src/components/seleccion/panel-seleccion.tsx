@@ -6,18 +6,12 @@
  * postulaciones anteriores (B3) e historial de cambios (NF6).
  */
 import { useEffect, useRef, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { Bot, ExternalLink, History, Search, ShieldCheck, ShieldX, TriangleAlert } from "lucide-react";
 import { estadoInfo, type ProcesoContratacion } from "@/lib/contratacion/constants";
 import {
   consultarSimit,
-  listarConsultasExternas,
-  listarDocumentosProceso,
   type DocumentoProceso,
-  listarEventosProceso,
-  postulacionesAnteriores,
   updateProcesoEstado,
-  vinculoEmpresaProceso,
   type ConsultaExternaVista,
   type EventoProcesoVista,
   type PostulacionAnterior,
@@ -35,6 +29,8 @@ import { fechaEnTexto, horaEnTexto } from "@/lib/seleccion/agenda";
 import { interpretarConsulta } from "@/lib/verificacion/interpretacion";
 import { evaluarAntecedentes, NOMBRE_FUENTE, hallazgoDe, type ConsultaGuardada } from "@/lib/seleccion/antecedentes";
 import { resumenVinculo, type VinculoEmpresa } from "@/lib/seleccion/vinculo";
+import { marcarGuardado } from "@/lib/guardado-reciente";
+import { leerFicha } from "@/lib/lectura-ficha";
 
 // Consulta ciudadana por documento (gratuita, con captcha).
 const RUNT_URL = "https://www.runt.gov.co/actores/ciudadano/consulta-por-tipo-de-documento";
@@ -394,7 +390,6 @@ export function PanelSeleccion({
   /** Algo cambió desde el panel (p. ej. «Lo revisé a mano»): quien lo muestra vuelve a leer el proceso (26-nov-2026). */
   onCambio?: () => void;
 }) {
-  const router = useRouter();
   const [eventos, setEventos] = useState<EventoProcesoVista[] | null>(null);
   const [anteriores, setAnteriores] = useState<PostulacionAnterior[]>([]);
   const [consultas, setConsultas] = useState<ConsultaExternaVista[]>([]);
@@ -420,20 +415,18 @@ export function PanelSeleccion({
 
   useEffect(() => {
     let vivo = true;
-    listarEventosProceso(proceso.id).then((e) => vivo && setEventos(e)).catch(() => vivo && setEventos([]));
-    postulacionesAnteriores({ procesoId: proceso.id, cedula: proceso.cedula, telefono: proceso.celular })
-      .then((a) => vivo && setAnteriores(a))
-      .catch(() => undefined);
-    listarConsultasExternas(proceso.id)
-      .then((c) => vivo && setConsultas(c))
-      .catch(() => undefined)
+    // Una sola llamada (27-nov-2026): las cinco acciones iban en fila y la ficha tardaba en cargar.
+    leerFicha("datosFichaProceso", { id: proceso.id, cedula: proceso.cedula, celular: proceso.celular })
+      .then((d) => {
+        if (!vivo) return;
+        setEventos(d.eventos ?? []);
+        if (d.anteriores) setAnteriores(d.anteriores);
+        if (d.consultas) setConsultas(d.consultas);
+        if (d.documentos) setDocumentos(d.documentos);
+        setVinculo(d.vinculo);
+      })
+      .catch(() => vivo && setEventos([]))
       .finally(() => vivo && setConsultasLeidas(true));
-    listarDocumentosProceso(proceso.id)
-      .then((d) => vivo && setDocumentos(d))
-      .catch(() => undefined);
-    vinculoEmpresaProceso(proceso.id)
-      .then((v) => vivo && setVinculo(v))
-      .catch(() => undefined);
     return () => {
       vivo = false;
     };
@@ -479,7 +472,8 @@ export function PanelSeleccion({
       try {
         const r = await updateProcesoEstado(proceso.id, "cierre", causa);
         if (!r.ok) return setMensaje(r.error);
-        router.refresh();
+        // La acción ya revalida /candidatos; en el chat real o el de prueba no hace falta recargar la página (27-nov-2026).
+        marcarGuardado();
         onCerrado();
       } catch (e) {
         setMensaje(e instanceof Error ? e.message : "No se pudo cerrar.");
@@ -497,7 +491,8 @@ export function PanelSeleccion({
             ? `SIMIT consultado: $${r.valor.toLocaleString("es-CO")}.`
             : r.mensaje
         );
-        router.refresh();
+        marcarGuardado();
+        setRecarga((n) => n + 1);
       } catch (e) {
         setMensaje(e instanceof Error ? e.message : "No se pudo consultar.");
       }
@@ -524,9 +519,9 @@ export function PanelSeleccion({
           nombre={proceso.nombre}
           destino={destino}
           onAvanzo={() => {
+            marcarGuardado();
             setAvances((n) => n + 1);
             setRecarga((n) => n + 1);
-            router.refresh();
           }}
           onVerPestana={setPestana}
         />
@@ -645,7 +640,10 @@ export function PanelSeleccion({
       {/* Experiencia laboral (sin verificar hasta la carta laboral o la llamada a la referencia) y referencias. */}
       {ver("resumen") && <SeccionExperiencia procesoId={proceso.id} version={recarga + version} />}
 
-      {!sinCitas && ver("citas") && <SeccionCitas proceso={proceso} puedeEditar={puedeEditar} modo={modoCitas} version={version + avances} onCitado={() => router.refresh()} />}
+      {!sinCitas && ver("citas") && <SeccionCitas proceso={proceso} puedeEditar={puedeEditar} modo={modoCitas} version={version + avances} onCitado={() => {
+            marcarGuardado();
+            setRecarga((n) => n + 1);
+          }} />}
       {/* Entrega 3: exámenes médicos y rutas, después de lo del profesor. */}
       {!sinCitas && ver("citas") && <SeccionExamenesRutas procesoId={proceso.id} abierto={abierto} version={recarga + version} />}
       {/* Lo que respondió a las preguntas de los mensajes de exámenes (24-nov-2026). */}
@@ -766,8 +764,10 @@ export function PanelSeleccion({
           procesoId={proceso.id}
           pendientes={[...pendientesCroma, ...sinRunt, ...conHallazgo]}
           onGuardado={() => {
+            // La acción ya revalida /candidatos (Next trae la página nueva con la respuesta):
+            // un router.refresh() aquí la volvía a pedir y la ficha tardaba el doble (27-nov-2026).
+            marcarGuardado();
             setRecarga((n) => n + 1);
-            router.refresh();
           }}
         />
       )}

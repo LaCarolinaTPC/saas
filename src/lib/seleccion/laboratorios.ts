@@ -8,6 +8,8 @@
  * de los dos puede cambiar de canal. La fase 2 se hace en el mismo laboratorio.
  */
 
+import { esFestivo } from "@/lib/tesoreria/calendario-pago";
+
 export type CanalLaboratorio = "whatsapp" | "correo";
 
 export interface Laboratorio {
@@ -34,6 +36,8 @@ export interface Laboratorio {
   dias_preferidos?: number[];
   /** Parte de los aspirantes con el reparto por porcentaje. */
   porcentaje?: number;
+  /** Fechas sueltas (AAAA-MM-DD) en que no atiende (27-nov-2026). Sin la migración 20261127162324, no vienen. */
+  fechas_sin_atencion?: string[];
 }
 
 // ── Reparto entre laboratorios (21-nov-2026) ─────────────────────────────────
@@ -48,9 +52,28 @@ export function diaSemana(fecha: string): number {
   return new Date(`${fecha}T12:00:00Z`).getUTCDay();
 }
 
-/** ¿El laboratorio atiende ese día? */
-export function atiende(l: Pick<Laboratorio, "dias_atencion">, fecha: string): boolean {
+/**
+ * ¿El laboratorio atiende ese día? Uno de sus días de la semana, que no sea
+ * festivo en Colombia ni una de las fechas en que avisó que no atiende (27-nov-2026).
+ */
+export function atiende(l: Pick<Laboratorio, "dias_atencion" | "fechas_sin_atencion">, fecha: string): boolean {
+  if (esFestivo(fecha) || (l.fechas_sin_atencion ?? []).includes(fecha)) return false;
   return (l.dias_atencion?.length ? l.dias_atencion : LUNES_A_SABADO).includes(diaSemana(fecha));
+}
+
+/** Por qué no atiende ese día (para mostrarlo), o null si atiende. */
+export function motivoNoAtiende(l: Pick<Laboratorio, "nombre" | "dias_atencion" | "fechas_sin_atencion">, fecha: string): string | null {
+  if (atiende(l, fecha)) return null;
+  if (esFestivo(fecha)) return `es festivo y ${l.nombre} no atiende`;
+  if ((l.fechas_sin_atencion ?? []).includes(fecha)) return `${l.nombre} avisó que ese día no atiende`;
+  const dia = DIAS_SEMANA[diaSemana(fecha)].toLowerCase();
+  return `${l.nombre} no atiende los ${dia.endsWith("s") ? dia : `${dia}s`}`;
+}
+
+/** Fechas sin atención bien escritas, sin repetir, en orden y desde `desde` (las pasadas se descartan). */
+export function fechasSinAtencionValidas(f: unknown, desde: string): string[] {
+  const lista = Array.isArray(f) ? f : [];
+  return [...new Set(lista.map((x) => String(x ?? "").trim()).filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(x) && x >= desde))].sort().slice(0, 200);
 }
 
 export interface EleccionLaboratorio {
@@ -118,7 +141,7 @@ export function laboratorioPorTurno(labs: Laboratorio[], fecha: string, ultimoId
  * laboratorios; `siguiente` da el siguiente día hábil. null si en dos semanas
  * no atiende ninguno (laboratorios mal configurados).
  */
-export function primeraFechaAtendida(fecha: string, labs: Pick<Laboratorio, "activo" | "dias_atencion">[], siguiente: (f: string) => string): string | null {
+export function primeraFechaAtendida(fecha: string, labs: Pick<Laboratorio, "activo" | "dias_atencion" | "fechas_sin_atencion">[], siguiente: (f: string) => string): string | null {
   const activos = labs.filter((l) => l.activo);
   if (!activos.length) return fecha;
   let f = fecha;

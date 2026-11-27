@@ -36,6 +36,49 @@ export interface EstadoServicio {
    * responden (el RNMC, por ejemplo), y juntas nunca sumaban errores seguidos.
    */
   partes?: ParteServicio[];
+  /**
+   * Croma: lo que dice su página de estado pública (27-nov-2026). Croma no tiene
+   * una API de estado por fuente; la página solo dice si su API funciona.
+   * Leerla no gasta créditos.
+   */
+  paginaEstado?: PaginaEstado | null;
+}
+
+export interface PaginaEstado {
+  estado: "operativo" | "problemas" | "desconocido";
+  /** La frase de la página («All Systems Operational»…). */
+  texto: string | null;
+  url: string;
+  revisadoAt: string;
+}
+
+export const URL_ESTADO_CROMA = "https://status.usecroma.com";
+
+/** Lo que dice la página de estado de Croma (HTML; no tiene JSON). Puro. */
+export function interpretarPaginaEstado(html: string): Pick<PaginaEstado, "estado" | "texto"> {
+  const texto = String(html ?? "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+  if (/all systems operational/i.test(texto)) return { estado: "operativo", texto: "All Systems Operational" };
+  const problema = texto.match(/(major outage|partial outage|degraded performance|service disruption|outage|degraded|under maintenance|investigating|identified)/i);
+  if (problema) return { estado: "problemas", texto: problema[1] };
+  return { estado: "desconocido", texto: null };
+}
+
+let cachePagina: { hasta: number; datos: Promise<PaginaEstado | null> } | null = null;
+
+/** La página de estado de Croma, cinco minutos en memoria. null si no se pudo leer. Nunca lanza. */
+export async function leerPaginaEstadoCroma(): Promise<PaginaEstado | null> {
+  if (cachePagina && cachePagina.hasta > Date.now()) return cachePagina.datos;
+  const datos = (async () => {
+    try {
+      const res = await fetch(URL_ESTADO_CROMA, { cache: "no-store", signal: AbortSignal.timeout(5000) });
+      if (!res.ok) return null;
+      return { ...interpretarPaginaEstado(await res.text()), url: URL_ESTADO_CROMA, revisadoAt: new Date().toISOString() };
+    } catch {
+      return null;
+    }
+  })();
+  cachePagina = { hasta: Date.now() + 5 * 60_000, datos };
+  return datos;
 }
 
 /** Una fuente de Croma (RNMC, Policía, SIMIT…), evaluada por separado. */
@@ -211,7 +254,7 @@ async function calcular(): Promise<EstadoServicio[]> {
   const { cromaPausado } = await import("@/lib/verificacion/pausa");
   const { correoConfigurado } = await import("@/lib/correo/enviar");
   const db = createAdminClient();
-  const [croma, ia, wa, correo, pausado] = await Promise.all([
+  const [croma, ia, wa, correo, pausado, pagina] = await Promise.all([
     // Por fuente (26-nov-2026): las suficientes para tener las últimas de cada una.
     db.from("verificaciones_externas").select("fuente, estado, error, created_at").eq("proveedor", "croma").in("estado", ["ok", "hallazgo", "error"]).order("created_at", { ascending: false }).limit(300),
     db.from("wa_agente_ejecuciones").select("resultado, error, created_at").in("resultado", ["respondido", "transferido", "error"]).order("created_at", { ascending: false }).limit(30),
@@ -225,6 +268,7 @@ async function calcular(): Promise<EstadoServicio[]> {
       .limit(30),
     db.from("seleccion_envios_laboratorio").select("resultado, error, created_at").eq("canal", "correo").in("resultado", ["enviado", "fallido"]).order("created_at", { ascending: false }).limit(20),
     cromaPausado(),
+    process.env.CROMA_API_KEY?.trim() ? leerPaginaEstadoCroma() : Promise.resolve(null),
   ]);
   const filas = (r: { data: unknown }) => (r.data ?? []) as Record<string, unknown>[];
   const eventos: Record<Exclude<IdServicio, "croma">, EventoServicio[]> = {
@@ -240,9 +284,17 @@ async function calcular(): Promise<EstadoServicio[]> {
   );
   return (Object.keys(NOMBRES) as IdServicio[]).map((id): EstadoServicio => {
     if (id === "croma") {
-      const nivel: NivelServicio = !process.env.CROMA_API_KEY?.trim() ? "sin_configurar" : pausado ? "pausado" : porFuente.resumen.nivel;
+      let nivel: NivelServicio = !process.env.CROMA_API_KEY?.trim() ? "sin_configurar" : pausado ? "pausado" : porFuente.resumen.nivel;
+      // Su página de estado reporta problemas: aunque nuestras últimas respuestas fueran buenas, se avisa.
+      const problemasPagina = pagina?.estado === "problemas" && (nivel === "ok" || nivel === "sin_datos");
+      if (problemasPagina) nivel = "fallando";
       const fallando = nivel === "fallando";
-      return { id, ...porFuente.resumen, nivel, nombre: fallando ? porFuente.resumen.nombre : NOMBRES.croma, consejo: fallando ? porFuente.resumen.consejo : null, partes: porFuente.partes };
+      const consejo = problemasPagina
+        ? `La página de estado de Croma reporta «${pagina?.texto}». Si una fuente no responde, revísela a mano en la ficha («Lo revisé a mano»); Gestivo sigue reintentando.`
+        : fallando
+          ? porFuente.resumen.consejo
+          : null;
+      return { id, ...porFuente.resumen, nivel, nombre: fallando && !problemasPagina ? porFuente.resumen.nombre : NOMBRES.croma, consejo, partes: porFuente.partes, paginaEstado: pagina };
     }
     const ev = evaluarEventos(eventos[id]);
     let nivel = ev.nivel;

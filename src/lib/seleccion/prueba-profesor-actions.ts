@@ -15,6 +15,7 @@ import {
   citaPropuesta,
   citarProceso,
   citasDeProceso,
+  citaVigenteDeProceso,
   confirmarCita,
   deshacerNoAsistio,
   guardarDisponibilidad,
@@ -46,12 +47,16 @@ import {
   registrarReconocimiento,
   registrarReconocimientos,
   rutasParaReconocimiento,
+  type ExamenesElegidos,
   type HistorialProfesor,
   type PendientesProfesor,
   type PlanExamenes,
   type RegistroProfesor,
   type ResultadoProfesor,
 } from "./profesor-servidor";
+import { atenderRespuestaExamenesPrueba } from "./respuestas-examenes-servidor";
+import type { MensajePrueba } from "./mensajes-prueba";
+import { correrCronPrueba, type ItemCronPrueba, type ResultadoCronPrueba } from "./cron-prueba-servidor";
 import type { DatosClase, DatosConcepto, DatosDisponibilidad, DatosPrueba, DatosRuta, DatosRutasDia } from "@/components/seleccion/profesor-tipos";
 
 const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -185,6 +190,61 @@ export async function respuestaCitaPrueba(procesoId: string, texto: string): Pro
   return { nota: null };
 }
 
+/**
+ * Como el webhook: la respuesta a la pregunta del mensaje de exámenes (banco o
+ * rutas). Si la atiende, el asistente no responde; devuelve los mensajes que le
+ * llegarían al aspirante (27-nov-2026).
+ */
+export async function respuestaExamenesPrueba(procesoId: string, texto: string): Promise<{ atendida: boolean; mensajes: MensajePrueba[] }> {
+  await exigirPrueba();
+  await exigirProcesoDePrueba(procesoId);
+  return atenderRespuestaExamenesPrueba(procesoId, String(texto ?? "").slice(0, 500));
+}
+
+/**
+ * La citación que Gestivo envió solo (cita automática) al candidato de prueba,
+ * para ponerla en el chat (27-nov-2026). Al quedar «Listo para citar» desde la
+ * ficha («Lo revisé a mano», la decisión de antecedentes…) o cuando Croma
+ * responde después, la cita se creaba pero el mensaje no llegaba al chat.
+ * null si no tiene una cita automática en pie.
+ */
+export async function citacionAutomaticaPrueba(procesoId: string): Promise<{ citaId: string; texto: string } | null> {
+  await exigirPrueba(false);
+  await exigirProcesoDePrueba(procesoId);
+  const cita = await citaVigenteDeProceso(procesoId);
+  if (!cita || cita.creada_por !== ACTOR_SISTEMA.userEmail) return null;
+  const vista = await vistaCitacion(procesoId, { fecha: cita.fecha, hora: cita.hora }).catch(() => null);
+  return vista?.texto ? { citaId: cita.id, texto: vista.texto } : null;
+}
+
+/**
+ * Simulador del cron en el chat de prueba (27-nov-2026): corre los pasos del
+ * cron para los candidatos de los chats abiertos con el reloj virtual de la
+ * página (puede ir adelantado). Solo candidatos del chat de prueba; no envía
+ * nada ni consulta Croma.
+ */
+export async function cronPrueba(items: ItemCronPrueba[], ahoraIso: string): Promise<ResultadoCronPrueba | { error: string }> {
+  try {
+    await exigirPrueba(false);
+    const real = Date.now();
+    const t = Date.parse(String(ahoraIso ?? ""));
+    // El reloj virtual va de ahora hasta 120 días adelante.
+    const ahora = new Date(Number.isFinite(t) ? Math.min(Math.max(t, real), real + 120 * 86_400_000) : real);
+    const lista = (Array.isArray(items) ? items : []).slice(0, 30).map((i) => ({
+      idChat: Number(i.idChat),
+      procesoId: typeof i.procesoId === "string" && i.procesoId ? i.procesoId : null,
+      ultimoEntranteAt: Number.isFinite(Number(i.ultimoEntranteAt)) && i.ultimoEntranteAt ? Number(i.ultimoEntranteAt) : null,
+      ultimoEsNuestro: i.ultimoEsNuestro === true,
+      hojaVida: i.hojaVida === true,
+      buscaTrabajo: i.buscaTrabajo !== false,
+      nombre: typeof i.nombre === "string" ? i.nombre.slice(0, 120) : null,
+    }));
+    return await correrCronPrueba(lista, ahora);
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "No se pudo simular el cron." };
+  }
+}
+
 /** Qué haría el cron con la cita a esa hora (recordatorio, alerta, no asistió). No envía ni cambia nada. */
 export async function agendaSimuladaPrueba(procesoId: string, ahora: string | null): Promise<{ texto: string }> {
   await exigirPrueba(false);
@@ -283,11 +343,11 @@ export async function planExamenesProfesorPrueba(procesoId: string): Promise<Pla
   return planExamenes(procesoId);
 }
 
-export async function examenesProfesorPrueba(procesoId: string): Promise<ResultadoProfesor> {
+export async function examenesProfesorPrueba(procesoId: string, elegidos?: ExamenesElegidos | null): Promise<ResultadoProfesor> {
   try {
     const actor = await exigirPrueba();
     await exigirProcesoDePrueba(procesoId);
-    return await enviarAExamenes(procesoId, actor);
+    return await enviarAExamenes(procesoId, actor, elegidos ?? null);
   } catch (e) {
     return mal(e);
   }

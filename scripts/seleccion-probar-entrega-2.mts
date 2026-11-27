@@ -392,6 +392,7 @@ try {
   revisar("cita solo al siguiente cupo y pasa a «Citado»", !!auto?.ok && (await proceso(pa1)).estado === "citado" && !!(await vigente(pa1)), auto);
   const va = await vigente(pa1);
   revisar("el cupo es un día con prueba, a su hora", !!va && horaDelDia(va.fecha, a, []) === hhmm(va.hora), va);
+  revisar("y nunca es hoy: desde mañana (27-nov-2026)", !!va && va.fecha > new Date(Date.now() - 5 * 3_600_000).toISOString().slice(0, 10), va?.fecha);
   revisar("si ya tiene cita no cita otra vez", (await citarAutomaticamente(pa1)) === null);
   revisar("no cita solo a quien ya pasó la prueba", (await citarAutomaticamente(enEscuela)) === null);
 

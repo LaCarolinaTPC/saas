@@ -158,6 +158,15 @@ export function BarraServicios({ inicial, className = "" }: { inicial?: EstadoSe
                     {s.ultimoOkAt ? ` · última buena ${haceCuanto(s.ultimoOkAt)}` : ""}
                   </span>
                 </div>
+                {s.paginaEstado && (
+                  <p className="mt-0.5 pl-4 text-text-tertiary">
+                    Página de estado de Croma:{" "}
+                    <a href={s.paginaEstado.url} target="_blank" rel="noreferrer" className={`font-medium hover:underline ${s.paginaEstado.estado === "problemas" ? "text-red-700" : s.paginaEstado.estado === "operativo" ? "text-emerald-700" : "text-text-secondary"}`}>
+                      {s.paginaEstado.estado === "operativo" ? "operativa" : s.paginaEstado.estado === "problemas" ? `con problemas (${s.paginaEstado.texto})` : "no se pudo leer"}
+                    </a>{" "}
+                    · solo dice si la API de Croma funciona, no cada fuente.
+                  </p>
+                )}
                 {s.partes && s.partes.length > 0 && (
                   <ul className="mt-1 space-y-0.5 pl-4">
                     {s.partes.map((p) => (

@@ -17,7 +17,7 @@ import { leerYGuardarAvisos, type ConfirmadoPorFrase } from "@/lib/seleccion/lab
 import type { LecturaLaboratorio } from "@/lib/seleccion/laboratorio";
 import {
   asignacionesRecientes, asignarLaboratorio, documentosAspirante, enviarDocumentosAspirante, enviarOrdenLaboratorio, estadoPlantillas, guardarLaboratorio,
-  guardarReparto, hiloLaboratorio, leerLaboratorios, modoReparto, pendientesPrueba, planFase1, subirPlantillaCarta, subirPlantillaOrden, vistaOrden,
+  guardarLaboratorioFechaProfesor, guardarReparto, hiloLaboratorio, laboratorioFechaProfesor, leerLaboratorios, modoReparto, pendientesPrueba, planFase1, subirPlantillaCarta, subirPlantillaOrden, vistaOrden,
   estadoFirmaCarta, guardarFirmante, quitarImagenCarta, subirImagenCarta, type ImagenCarta,
   type MensajeHiloLaboratorio, type ResultadoOrden, type VistaOrden,
 } from "@/lib/seleccion/laboratorios-servidor";
@@ -49,6 +49,8 @@ export interface PantallaLaboratorios {
   puedeEditar: boolean;
   puedeEnviar: boolean;
   reparto: ModoReparto;
+  /** Laboratorio que se propone cuando el profesor elige la fecha de exámenes (null: el del reparto). */
+  laboratorioFechaProfesor: string | null;
   /** Aspirantes asignados a cada laboratorio en los últimos 30 días. */
   asignados: Record<string, number>;
   /** Entorno de pruebas: a dónde sale de verdad la orden de cada laboratorio (null = simulada). */
@@ -58,7 +60,13 @@ export interface PantallaLaboratorios {
 export async function datosLaboratorios(): Promise<Resultado<PantallaLaboratorios>> {
   try {
     const perms = await exigirLectura();
-    const [laboratorios, plantillas, reparto, asignados] = await Promise.all([leerLaboratorios(), estadoPlantillas(), modoReparto(), asignacionesRecientes()]);
+    const [laboratorios, plantillas, reparto, asignados, labProfesor] = await Promise.all([
+      leerLaboratorios(),
+      estadoPlantillas(),
+      modoReparto(),
+      asignacionesRecientes(),
+      laboratorioFechaProfesor().catch(() => null),
+    ]);
     return {
       ok: true,
       laboratorios,
@@ -68,6 +76,7 @@ export async function datosLaboratorios(): Promise<Resultado<PantallaLaboratorio
       puedeEditar: puedeEditarEn(perms, "candidatos.seleccion_config"),
       puedeEnviar: puedeEditarEn(perms, "candidatos") || tienePermiso(perms, "candidatos.editar"),
       reparto,
+      laboratorioFechaProfesor: labProfesor?.id ?? null,
       asignados,
     };
   } catch (e) {
@@ -93,6 +102,7 @@ export async function guardarLaboratorioAccion(d: {
   frase_apto?: string;
   frase_no_apto?: string;
   frase_aplazado?: string;
+  fechas_sin_atencion?: string[];
 }): Promise<Resultado<{ id: string }>> {
   try {
     const perms = await exigirConfig();
@@ -111,6 +121,17 @@ export async function guardarRepartoAccion(modo: ModoReparto): Promise<Resultado
   try {
     const perms = await exigirConfig();
     const r = await guardarReparto(modo, perms.userEmail);
+    revalidatePath(RUTA);
+    return r.ok ? { ok: true } : { ok: false, error: r.error ?? "No se pudo guardar." };
+  } catch (e) {
+    return fallo(e);
+  }
+}
+
+export async function guardarLaboratorioFechaProfesorAccion(id: string | null): Promise<Resultado> {
+  try {
+    const perms = await exigirConfig();
+    const r = await guardarLaboratorioFechaProfesor(id || null, perms.userEmail);
     revalidatePath(RUTA);
     return r.ok ? { ok: true } : { ok: false, error: r.error ?? "No se pudo guardar." };
   } catch (e) {

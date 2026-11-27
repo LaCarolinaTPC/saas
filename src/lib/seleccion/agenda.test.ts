@@ -229,3 +229,15 @@ test("agenda: el profesor cambia las citas de hoy solo por un imprevisto y con t
   assert.match(validarCambioMismoDia(otraHora, 120)!, /hora nueva/);
   assert.equal(validarCambioMismoDia({ ...otraHora, hora: "15:00" }, 120), null);
 });
+
+test("agenda: la fecha y la hora que elige el profesor para exámenes (27-nov-2026)", async () => {
+  const { validarFechaElegida } = await import("./agenda");
+  const ahora = new Date("2026-11-27T15:00:00Z"); // 10:00 a. m. en Bogotá
+  assert.match(validarFechaElegida({ fecha: "2026-11-27", hora: "09:30" }, ahora) ?? "", /anteriores/);
+  assert.match(validarFechaElegida({ fecha: "2026-11-26", hora: "14:00" }, ahora) ?? "", /anteriores/);
+  assert.equal(validarFechaElegida({ fecha: "2026-11-27", hora: "10:30" }, ahora), null);
+  assert.equal(validarFechaElegida({ fecha: "2026-11-28", hora: "06:30" }, ahora), null);
+  assert.match(validarFechaElegida({ fecha: "2027-03-01", hora: "06:30" }, ahora) ?? "", /próximos 60 días/);
+  assert.match(validarFechaElegida({ fecha: "", hora: "06:30" }, ahora) ?? "", /fecha/);
+  assert.match(validarFechaElegida({ fecha: "2026-11-28", hora: "6:30" }, ahora) ?? "", /hora/);
+});

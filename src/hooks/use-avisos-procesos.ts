@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { esperaPorGuardado } from "@/lib/guardado-reciente";
 
 /**
  * Llama a `alCambiar` cuando la base avisa que un proceso, una cita o un
@@ -25,10 +26,12 @@ export function useAvisosProcesos(alCambiar: () => void) {
     const releer = () => fn.current();
     const alAviso = () => {
       if (rafaga) return;
+      // Justo después de un guardado propio (que ya trajo la página nueva), se espera a que
+      // termine la ventana: así no se pide la página entera encima mientras la persona espera.
       rafaga = window.setTimeout(() => {
         rafaga = undefined;
         releer();
-      }, 1500);
+      }, Math.max(1500, esperaPorGuardado() + 500));
     };
     const iniciarRespaldo = () => {
       if (respaldo) return;
