@@ -104,14 +104,47 @@ export const MODULOS: ModuloDef[] = [
     etiqueta: "Candidatos",
     inicio: "/candidatos",
     rutas: ["/candidatos", "/contratacion"],
-    acciones: [VER, { clave: "editar", etiqueta: "Editar, mover de etapa, asignar y contratar", nivel: "editar" }, ELIMINAR, EXPORTAR],
+    acciones: [
+      VER,
+      { clave: "editar", etiqueta: "Editar, mover de etapa, asignar y contratar", nivel: "editar" },
+      ELIMINAR,
+      EXPORTAR,
+      // Selección, entrega 3. Especiales: no las da «editar», se conceden a propósito.
+      { clave: "decidir_antecedentes", etiqueta: "Selección · aprobar o rechazar a un aspirante con hallazgos de antecedentes", nivel: "especial" },
+      { clave: "aprobar_contratacion", etiqueta: "Selección · dar el visto bueno para contratar (directora)", nivel: "especial" },
+      { clave: "contratar_con_excepcion", etiqueta: "Selección · contratar aunque falten condiciones, con justificación", nivel: "especial" },
+    ],
     funciones: [
       { clave: "padrino_consulta", vieja: "padrino_consulta", etiqueta: "Plan Padrino · consulta (ver referidos, validaciones y bitácora; necesaria para entrar)", rutas: ["/candidatos/plan-padrino"], inicio: "/candidatos/plan-padrino", sensible: true },
       { clave: "padrino_registro", vieja: "padrino_registro", etiqueta: "Plan Padrino · registro (registrar referidos, adjuntar certificado, revalidar)", inicio: "/candidatos/plan-padrino", sensible: true },
       { clave: "padrino_aprobacion", vieja: "padrino_aprobacion", etiqueta: "Plan Padrino · aprobación (elegibilidad, esquema, cierre, anulación y aprobación de hitos)", inicio: "/candidatos/plan-padrino", sensible: true },
       { clave: "padrino_pago", vieja: "padrino_pago", etiqueta: "Plan Padrino · pago (exportar hitos aprobados para nómina y marcarlos pagados)", inicio: "/candidatos/plan-padrino/hitos", sensible: true },
       { clave: "padrino_politica", vieja: "padrino_politica", etiqueta: "Plan Padrino · política (editar el borrador, publicar versiones y cargar el histórico de pagos)", inicio: "/candidatos/plan-padrino", sensible: true },
+      // Selección de conductores (entrega 1, N1–N5, NF5): textos, modo de envío,
+      // plantillas de Meta, tiempos y reglas del semáforo. Lo que dicen los
+      // mensajes automáticos a los aspirantes: se concede a propósito.
+      { clave: "seleccion_config", vieja: "seleccion_config", etiqueta: "Selección · mensajes, tiempos y reglas de preselección", rutas: ["/candidatos/seleccion"], inicio: "/candidatos/seleccion", sensible: true },
     ],
+  },
+  // Selección de conductores, entrega 2: la pantalla del profesor de manejo
+  // (prueba de manejo y escuela; desde el 24-nov-2026 el reconocimiento de
+  // ruta tiene su propia pantalla). El rol «Profesor de manejo» solo tiene
+  // este módulo: no ve Candidatos.
+  {
+    clave: "profesor",
+    etiqueta: "Profesor de manejo",
+    inicio: "/profesor",
+    rutas: ["/profesor"],
+    acciones: [VER, { clave: "editar", etiqueta: "Registrar llegada, prueba de manejo, clases, observaciones y concepto", nivel: "editar" }],
+  },
+  // Reconocimiento de ruta (24-nov-2026): lo hace un encargado, no el profesor.
+  // El rol «Coordinador de rutas» solo tiene este módulo.
+  {
+    clave: "reconocimiento",
+    etiqueta: "Reconocimiento de ruta",
+    inicio: "/reconocimiento",
+    rutas: ["/reconocimiento"],
+    acciones: [VER, { clave: "editar", etiqueta: "Registrar rutas, citar al reconocimiento y darlo por terminado", nivel: "editar" }],
   },
   { clave: "empleados", etiqueta: "Empleados", inicio: "/empleados", rutas: ["/empleados"], acciones: [VER, { clave: "editar", etiqueta: "Editar, novedades, descargos y observaciones", nivel: "editar" }, ELIMINAR, EXPORTAR] },
   { clave: "conductores", etiqueta: "Conductores", inicio: "/conductores", rutas: ["/conductores"] },

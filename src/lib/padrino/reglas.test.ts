@@ -1,10 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  evaluarPadrino, evaluarReferido, hitosProyectados, padrinoPuedeRegistrar, politicaVigente,
+  bloqueoPorRecomendado, evaluarPadrino, evaluarReferido, hitosProyectados, padrinoPuedeRegistrar, politicaVigente,
   resumenValidacion, sumarMeses, totalEsquema, validarDecision,
   type EsquemasPolitica, type HechosPadrino, type HechosReferido, type Validacion,
 } from "./reglas";
+
+test("apadrinados: quien dijo «no» en el chat no puede tener padrino; sin respuesta sí (transición)", () => {
+  assert.match(bloqueoPorRecomendado(false) ?? "", /dijo que no venía recomendado.*Plan Padrino · aprobación/);
+  assert.equal(bloqueoPorRecomendado(true), null);
+  assert.equal(bloqueoPorRecomendado(null), null);
+});
 
 test("mes calendario: mismo día, y el último del mes si no existe", () => {
   assert.equal(sumarMeses("2026-10-15", 1), "2026-11-15");

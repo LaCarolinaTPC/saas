@@ -191,3 +191,25 @@ Un administrador siempre puede restablecer la contraseña de cualquier usuario
 desde *Configuración → Usuarios → **Restablecer clave***, sin depender del
 correo. Ese camino no requiere nada de esta configuración y es el que conviene
 usar si el correo falla justo cuando se necesita.
+
+## Correo que envía Gestivo (órdenes a los laboratorios)
+
+Aparte del correo de Supabase Auth, Gestivo envía correos propios desde
+`src/lib/correo/enviar.ts` (por ahora, la orden del día a los laboratorios que
+la reciben por correo). Usa la cuenta SMTP de Brevo, en `.env.local` y en Vercel:
+
+| Variable (`.env.local` / Vercel) | Valor |
+|---|---|
+| `SMTP_HOST` | `smtp-relay.brevo.com` |
+| `SMTP_PORT` | `587` |
+| `SMTP_USER` | el *Login* de Brevo › Settings › SMTP & API › SMTP |
+| `SMTP_PASS` | la clave SMTP de Brevo (`xsmtpsib-…`) |
+| `SMTP_FROM` | un remitente verificado en Brevo, p. ej. `"Gestivo <no-responder@lacarolina.com.co>"` |
+| `CORREO_DESVIO_DESARROLLO` | solo en `.env.local`: una bandeja de prueba |
+
+**En desarrollo no sale nada a destinatarios reales** (23-nov-2026). Con
+`GESTIVO_ENTORNO=desarrollo` la base es copia de producción: los laboratorios y
+los aspirantes son reales. Si `CORREO_DESVIO_DESARROLLO` tiene una dirección,
+todos los correos van ahí, con los destinatarios originales en el asunto
+(`[DESARROLLO → recepcion@…] …`); si está vacía, no se envía y la pantalla lo dice.
+En producción (`GESTIVO_ENTORNO` sin definir o `produccion`) no cambia nada.

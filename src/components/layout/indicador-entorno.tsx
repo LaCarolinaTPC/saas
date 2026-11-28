@@ -18,6 +18,8 @@ export function IndicadorEntorno() {
 
   return (
     <>
+      {/* Fondo del panel (--fondo-panel, ver el layout del panel) y del menú (--sidebar) fuera de producción. */}
+      <style>{`:root{--fondo-panel:${entorno.fondo};--sidebar:${entorno.fondoMenu};}`}</style>
       <div
         aria-hidden
         className={`pointer-events-none fixed inset-x-0 top-0 z-[9999] h-1 print:hidden ${

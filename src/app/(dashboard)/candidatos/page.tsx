@@ -1,13 +1,15 @@
-import { getCandidatesPipeline, getAllCandidates, getActiveVacancies } from "@/lib/actions";
+import { getActiveVacancies } from "@/lib/actions";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
-import { ESTADOS_EN_CURSO, campoFecha, type ProcesoContratacion } from "@/lib/contratacion/constants";
+import { ESTADOS_EN_CURSO, ESTADOS_REVISION_REINGRESO, FILTRO_ANTECEDENTES, FILTRO_APADRINADOS, FILTRO_PSICO_INSCRIBIR, FILTRO_REINGRESOS, campoFecha, type ProcesoContratacion } from "@/lib/contratacion/constants";
+import { idsApadrinadosSinPadrino } from "@/lib/padrino/datos";
+import { leerTablero } from "@/lib/contratacion/tablero-servidor";
 import { CandidatosClient } from "./client";
+import { AvisoServicios } from "@/components/estado-servicios/aviso-servicios";
 
 export const dynamic = "force-dynamic";
 
 const PAGE_SIZE = 50;
-
 interface Filters {
   q?: string;
   estado?: string;
@@ -20,6 +22,7 @@ interface Filters {
 }
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
 
 /** Vista estructural mínima del query builder de Supabase (evita instanciación
  *  de tipos excesivamente profunda al pasar el builder entre funciones). */
@@ -36,13 +39,24 @@ interface Filterable {
   ): PromiseLike<R>;
 }
 
-function applyFilters(query: Filterable, f: Filters): Filterable {
+/** Id que no existe: para que un filtro sin coincidencias devuelva vacío. */
+const ID_NINGUNO = "00000000-0000-0000-0000-000000000000";
+
+function applyFilters(query: Filterable, f: Filters, apadrinados: string[] = []): Filterable {
   let q = query;
   if (f.q) {
     const term = f.q.replace(/[%,()]/g, " ").trim();
     if (term) q = q.or(`nombre.ilike.%${term}%,cedula.ilike.%${term}%,celular.ilike.%${term}%`);
   }
-  if (f.estado && f.estado !== "todos") q = q.eq("estado", f.estado);
+  // «Reingresos por revisar»: trabajaron antes en la empresa y siguen en la preselección.
+  if (f.estado === FILTRO_REINGRESOS) q = q.eq("reingreso", "true").in("estado", ESTADOS_REVISION_REINGRESO);
+  // «Antecedentes por revisar» (entrega 3): las reglas lo mandaron a una persona y nadie ha decidido.
+  else if (f.estado === FILTRO_ANTECEDENTES) q = q.in("antecedentes_resultado", ["revision", "descarta"]).or("antecedentes_decision.is.null").in("estado", ESTADOS_EN_CURSO);
+  // «Apadrinados sin padrino»: dijeron venir recomendados y Gestión Humana no les ha asignado padrino.
+  else if (f.estado === FILTRO_APADRINADOS) q = q.in("id", apadrinados.length ? apadrinados : [ID_NINGUNO]);
+  // «Psicotécnica: por inscribir»: confirmaron el correo y falta inscribirlos en la plataforma.
+  else if (f.estado === FILTRO_PSICO_INSCRIBIR) q = q.eq("correo_estado", "validado").in("estado", ESTADOS_EN_CURSO);
+  else if (f.estado && f.estado !== "todos") q = q.eq("estado", f.estado);
   if (f.medio && f.medio !== "todos") q = q.eq("medio_postulacion", f.medio);
   const col = campoFecha(f.campo).columna;
   if (f.desde && DATE_RE.test(f.desde)) q = q.gte(col, f.desde);
@@ -59,16 +73,20 @@ export default async function CandidatosPage({
   const page = Math.max(1, parseInt(filters.page ?? "1", 10) || 1);
   const campo = campoFecha(filters.campo);
   const admin = createAdminClient();
+  // Candidatos en curso que vienen recomendados y aún no tienen padrino (para el filtro y la etiqueta).
+  const sinPadrino = await idsApadrinadosSinPadrino(admin);
 
   const base = () =>
     applyFilters(
       admin.from("procesos_contratacion").select("id", { count: "exact", head: true }) as unknown as Filterable,
-      filters
+      filters,
+      sinPadrino
     );
 
+  // 27-nov-2026: el pipeline (pestaña «Tabla») y todos los candidatos (pestaña «Todos») se
+  // cargan al abrir su pestaña: eran ~4,7 MB y ~4 s en cada carga y en cada recarga de la página
+  // (aprobar antecedentes o subir un documento la recargan), aunque se estuviera en Procesos.
   const [
-    pipeline,
-    allCandidates,
     vacancies,
     perms,
     rowsRes,
@@ -77,11 +95,9 @@ export default async function CandidatosPage({
     cierreRes,
     enCursoRes,
   ] = await Promise.all([
-    getCandidatesPipeline(),
-    getAllCandidates(),
     getActiveVacancies(),
     getCurrentPermissions(),
-    applyFilters(admin.from("procesos_contratacion").select("*, vacancies(title)") as unknown as Filterable, filters)
+    applyFilters(admin.from("procesos_contratacion").select("*, vacancies(title)") as unknown as Filterable, filters, sinPadrino)
       .order(campo.columna, { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false })
       .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1),
@@ -91,20 +107,16 @@ export default async function CandidatosPage({
     base().in("estado", ESTADOS_EN_CURSO),
   ]);
 
-  // Etapas configurables del pipeline (activas, en orden).
-  const { data: stages } = await admin
-    .from("pipeline_stages")
-    .select("id, key, label, color, text_color, orden, tipo, activo")
-    .eq("activo", true)
-    .order("orden", { ascending: true });
+  // Tablero: los procesos del mes actual (27-nov-2026); el filtro del tablero pide otro mes.
+  const tableroMarcado = await leerTablero();
 
   return (
+    <>
+    {/* Un servicio externo fallando (Croma, IA, WhatsApp, correo) o Croma en pausa (24-nov-2026). */}
+    <AvisoServicios className="px-4 pt-4 sm:px-6 lg:px-8" />
     <CandidatosClient
-      pipeline={pipeline}
-      allCandidates={allCandidates}
       vacancies={vacancies}
-      stages={stages ?? []}
-      canManageStages={perms.isAdmin}
+      tablero={tableroMarcado as unknown as ProcesoContratacion[]}
       procesos={{
         vacancies: (vacancies as { id: string; title: string }[]).map((v) => ({ id: v.id, title: v.title })),
         rows: (rowsRes.data ?? []) as ProcesoContratacion[],
@@ -127,7 +139,9 @@ export default async function CandidatosPage({
         },
         canEdit: puedeEditarEn(perms, "candidatos"),
         puedePadrino: puedeEditarEn(perms, "candidatos.padrino_registro"),
+        apadrinadosSinPadrino: sinPadrino,
       }}
     />
+    </>
   );
 }

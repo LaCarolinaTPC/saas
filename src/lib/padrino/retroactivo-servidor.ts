@@ -6,7 +6,7 @@
  */
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { fechaDe, getPoliticas, validar, type Politica } from "./datos";
+import { fechaRegistro, getPoliticas, validar, type Politica } from "./datos";
 import { totalesEsquema, type LetraEsquema } from "./politica";
 import { bloqueantesNoCumplidos, hitosPorBeneficiario, type DecisionEsquema, type Requisito, type Validacion } from "./reglas";
 import { bitacora, cargarPermanencia, evaluarHitos } from "./servidor";
@@ -113,7 +113,7 @@ export async function calcularRetroactivo(politica: Politica, fecha: string, hoy
         referidoId: r.id as string,
         experienciaCertificada: r.certificado_validado_at ? Boolean(r.experiencia_certificada) : null,
         fechaIngreso,
-        registradoEl: fechaDe(r.created_at as string),
+        registradoEl: fechaRegistro(r),
         cedula: r.cedula_referido as string,
         nombre: (r.nombre_referido as string | null) ?? null,
       });

@@ -58,3 +58,6 @@ ops/agente-biometrico/bin/
 ops/agente-biometrico/obj/
 ops/agente-biometrico/publicar/
 ops/agente-biometrico/.vs/
+
+# grabaciones de IA de las baterías de prueba (src/lib/ia/grabacion.ts)
+/.ia-grabacion/

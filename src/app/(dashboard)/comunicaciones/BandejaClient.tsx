@@ -5,16 +5,26 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   MessageCircle, Search, Send, Loader2, CheckCheck, Check, TriangleAlert,
-  Paperclip, Clock, Settings, LayoutTemplate, MessageSquarePlus, FileText, X, Download, PanelRightOpen, PanelRightClose,
-  UserPlus, Mail, Bot, Hand, ArrowLeft, Flag,
+  Paperclip, Clock, LayoutTemplate, MessageSquarePlus, FileText, X, Download, PanelRightOpen, PanelRightClose,
+  UserPlus, Mail, Bot, Hand, ArrowLeft, Flag, PhoneCall, Lightbulb,
 } from "lucide-react";
 import type { ConversacionResumen, MensajeChat } from "@/lib/comunicaciones/data";
+import { leerTranscripcionGuardada } from "@/lib/seleccion/calidad-audio";
 import { LOTE_CONVERSACIONES } from "@/lib/comunicaciones/constantes";
-import { enviarMensaje, vincularProcesoAConversacion, marcarNoLeida, marcarPendiente } from "@/lib/comunicaciones/actions";
+import {
+  enviarMensaje, vincularProcesoAConversacion, marcarNoLeida, marcarPendiente, enviarBorradorComoPlantilla, descartarBorrador,
+} from "@/lib/comunicaciones/actions";
 import { alternarAgenteConversacion } from "@/lib/comunicaciones/agente/actions";
 import { fechaRelativa, etiquetaDia, claveDia, horaCorta, iniciales, tonoAvatar, telefonoBonito } from "@/lib/comunicaciones/formato";
 import { ProcesoFormDialog, type VacanteOption } from "@/components/contratacion/procesos-client";
+import { procesoParaFicha } from "@/lib/contratacion/actions";
+import type { ProcesoContratacion } from "@/lib/contratacion/constants";
+import { toast } from "sonner";
+import { usePermisos } from "@/components/permisos/permisos-provider";
 import PlantillaModal from "./PlantillaModal";
+import { CitarDialog } from "@/components/seleccion/citar-dialog";
+import { CITAR_REAL } from "@/components/seleccion/acciones-reales";
+import { textoEnvio } from "@/components/seleccion/profesor-tipos";
 import FichaContacto from "./FichaContacto";
 import type { FichaContacto as Ficha } from "@/lib/comunicaciones/ficha";
 import { createClient } from "@/lib/supabase/client";
@@ -168,7 +178,12 @@ function Medio({ m }: { m: MensajeChat }) {
     return <video ref={(el) => { medioRef.current = el; }} src={url} onError={renovar} controls preload="metadata" className="mb-1 max-h-72 w-full max-w-sm rounded-lg" />;
   }
   if (m.mediaTipo === "audio") {
-    return <audio ref={(el) => { medioRef.current = el; }} src={url} onError={renovar} controls preload="metadata" className="mb-1 w-64 max-w-full" />;
+    return (
+      <>
+        <audio ref={(el) => { medioRef.current = el; }} src={url} onError={renovar} controls preload="metadata" className="mb-1 w-64 max-w-full" />
+        {m.transcripcion && <TranscripcionAudio guardada={m.transcripcion} saliente={saliente} />}
+      </>
+    );
   }
   return (
     <a
@@ -197,6 +212,7 @@ export default function BandejaClient({
   ficha,
   vacantes,
   agenteActivo,
+  aviso: avisoServicios,
 }: {
   conversaciones: ConversacionResumen[];
   /** Totales de TODAS las conversaciones (la lista trae solo un lote). */
@@ -213,8 +229,29 @@ export default function BandejaClient({
   vacantes: VacanteOption[];
   /** El agente de IA está encendido para todo el canal. */
   agenteActivo: boolean;
+  /** Aviso de un servicio externo que está fallando (24-nov-2026), del servidor. */
+  aviso?: React.ReactNode;
 }) {
   const router = useRouter();
+  // Citar exige `candidatos.editar` (también en el servidor).
+  const puedeCitar = usePermisos()("candidatos.editar");
+  const puedeVerCandidatos = usePermisos()("candidatos");
+  // La ficha de Candidatos dentro de Comunicaciones (26-nov-2026): revisar a mano lo que
+  // Croma no respondió, mover de etapa, etc., sin salir de la conversación ni pausar la IA.
+  const [fichaProceso, setFichaProceso] = useState<ProcesoContratacion | null>(null);
+  const [abriendoFicha, setAbriendoFicha] = useState(false);
+  const abrirFichaProceso = async (id: string) => {
+    setAbriendoFicha(true);
+    try {
+      const p = await procesoParaFicha(id);
+      if (p) setFichaProceso(p);
+      else toast.error("No se encontró el proceso del candidato.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo abrir la ficha.");
+    } finally {
+      setAbriendoFicha(false);
+    }
+  };
   const [isPending, startTransition] = useTransition();
   const [busqueda, setBusqueda] = useState(busquedaServidor ?? "");
   /** URL de la bandeja conservando lo cargado (?n=) y la búsqueda (?q=). */
@@ -258,7 +295,7 @@ export default function BandejaClient({
   const [error, setError] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
-  const [modal, setModal] = useState<"plantilla" | "nuevo" | "candidato" | null>(null);
+  const [modal, setModal] = useState<"plantilla" | "nuevo" | "candidato" | "citar" | null>(null);
   // Panel derecho con los datos del contacto; la preferencia se recuerda en el navegador.
   const panel = useSyncExternalStore(panelStore.subscribe, panelStore.get, panelStore.getServer);
   // Por debajo de 2xl no cabe como columna: se abre encima del hilo y empieza cerrado.
@@ -533,6 +570,7 @@ export default function BandejaClient({
 
   return (
     <div className="flex h-full min-h-0 flex-col p-4 pb-20 sm:p-6 sm:pb-20 md:pb-6 lg:p-8">
+      {avisoServicios && <div className="mb-3 shrink-0">{avisoServicios}</div>}
       <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2">
         <div className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 sm:flex">
           <MessageCircle className="h-5 w-5 text-primary" />
@@ -571,28 +609,17 @@ export default function BandejaClient({
           >
             <MessageSquarePlus className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Nuevo mensaje</span>
           </button>
-          <Link
-            href="/comunicaciones/configuracion"
-            className="flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-border bg-white px-3 py-1.5 text-xs text-text-secondary hover:bg-slate-50"
-            title="Configurar canal"
-          >
-            <Settings className="h-3.5 w-3.5" /> <span className="hidden xl:inline">Configurar canal</span>
-          </Link>
-          <Link
-            href="/comunicaciones/agente"
-            className="flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-border bg-white px-3 py-1.5 text-xs text-text-secondary hover:bg-slate-50"
-            title="Agente IA"
-          >
-            <Bot className={`h-3.5 w-3.5 ${agenteActivo ? "text-emerald-600" : ""}`} /> <span className="hidden sm:inline">Agente IA</span>
-            {agenteActivo && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-label="activo" />}
-          </Link>
+          {/* Desde el 21-nov-2026 los indicadores, el canal y la IA están en Candidatos (Indicadores y Selección): aquí solo los mensajes. */}
         </div>
       </div>
 
       <div
         className={`grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[300px_minmax(0,1fr)] ${
           conv && ficha && panel
-            ? "2xl:grid-cols-[340px_minmax(0,1fr)_300px]"
+            ? ficha.proceso
+              ? // Con candidato, la columna derecha lleva su ficha (26-nov-2026): más ancha.
+                "2xl:grid-cols-[300px_minmax(0,1fr)_440px]"
+              : "2xl:grid-cols-[340px_minmax(0,1fr)_300px]"
             : "2xl:grid-cols-[340px_minmax(0,1fr)]"
         }`}
       >
@@ -727,13 +754,29 @@ export default function BandejaClient({
                               <Bot className="h-2.5 w-2.5" /> IA
                             </span>
                           )}
-                          {c.requiereHumano && (
+                          {c.listoParaCitar ? (
                             <span
-                              className="shrink-0 rounded-full bg-amber-50 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-amber-700"
-                              title="El agente de IA pasó esta conversación a una persona del equipo"
+                              className="shrink-0 rounded-full bg-emerald-50 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-emerald-700"
+                              title="El asistente completó el prefiltro: Gestión Humana debe citarlo"
                             >
-                              Humano
+                              Listo para citar
                             </span>
+                          ) : c.paraLlamar ? (
+                            <span
+                              className="flex shrink-0 items-center gap-0.5 rounded-full bg-rose-50 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-rose-700"
+                              title="Aspirante que no respondió a la reactivación: hay que llamarlo"
+                            >
+                              <PhoneCall className="h-2.5 w-2.5" /> Llamar
+                            </span>
+                          ) : (
+                            c.requiereHumano && (
+                              <span
+                                className="shrink-0 rounded-full bg-amber-50 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-amber-700"
+                                title="El agente de IA pasó esta conversación a una persona del equipo"
+                              >
+                                Humano
+                              </span>
+                            )
                           )}
                         </span>
                         <span
@@ -848,14 +891,34 @@ export default function BandejaClient({
                     <span className="truncate text-sm font-semibold text-text-primary">
                       {conv.nombre ?? telefonoBonito(conv.telefono)}
                     </span>
-                    {ficha?.proceso && (
-                      <Link
-                        href={`/candidatos?q=${encodeURIComponent(ficha.proceso.cedula)}`}
-                        className="hidden shrink-0 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700 hover:bg-violet-100 @md:inline"
-                        title={ficha.proceso.desdeConversacion ? "Candidato creado desde esta conversación" : "Este número ya tiene un proceso de contratación"}
+                    {ficha?.proceso &&
+                      (puedeVerCandidatos ? (
+                        <button
+                          type="button"
+                          onClick={() => void abrirFichaProceso(ficha.proceso!.id)}
+                          disabled={abriendoFicha}
+                          className="shrink-0 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700 hover:bg-violet-100 disabled:opacity-60 cursor-pointer"
+                          title="Abrir la ficha del candidato aquí (no pausa al asistente)"
+                        >
+                          {abriendoFicha ? "Abriendo…" : "Candidato · ficha"}
+                        </button>
+                      ) : (
+                        <Link
+                          href={`/candidatos?q=${encodeURIComponent(ficha.proceso.cedula)}`}
+                          className="hidden shrink-0 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700 hover:bg-violet-100 @md:inline"
+                          title={ficha.proceso.desdeConversacion ? "Candidato creado desde esta conversación" : "Este número ya tiene un proceso de contratación"}
+                        >
+                          Candidato
+                        </Link>
+                      ))}
+                    {ficha?.proceso && puedeCitar && ["pendiente", "antecedentes", "citado"].includes(ficha.proceso.estado) && (
+                      <button
+                        onClick={() => setModal("citar")}
+                        className="shrink-0 rounded-full bg-emerald-600 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white hover:bg-emerald-700"
+                        title={ficha.proceso.estado === "citado" ? "Mover la cita de la prueba de manejo" : "Citar a la prueba de manejo y enviarle la citación"}
                       >
-                        Candidato
-                      </Link>
+                        {ficha.proceso.estado === "citado" ? "Reprogramar" : "Citar"}
+                      </button>
                     )}
                   </div>
                   <div className="truncate whitespace-nowrap text-xs text-text-tertiary">{telefonoBonito(conv.telefono)}</div>
@@ -1032,6 +1095,16 @@ export default function BandejaClient({
               </div>
 
               <div className="border-t border-border p-3">
+                {conv.borrador && (
+                  <BorradorSugerido
+                    key={conv.id}
+                    conversacionId={conv.id}
+                    borrador={conv.borrador}
+                    ventanaAbierta={puedeEscribir}
+                    onUsar={(t) => setTexto(t)}
+                    onListo={() => router.refresh()}
+                  />
+                )}
                 {error && (
                   <p className="mb-2 rounded-lg bg-red-50 px-3 py-1.5 text-xs text-red-700">{error}</p>
                 )}
@@ -1113,6 +1186,7 @@ export default function BandejaClient({
               ultimoEntranteAt={conv.ultimoEntranteAt}
               onCerrar={alternarPanel}
               onCrearCandidato={() => setModal("candidato")}
+              onVerFicha={ficha.proceso && puedeVerCandidatos ? () => void abrirFichaProceso(ficha.proceso!.id) : undefined}
             />
           </div>
         )}
@@ -1121,7 +1195,7 @@ export default function BandejaClient({
       {conv && ficha && panelFlotante && (
         <div className="fixed inset-0 z-[60] flex justify-end bg-slate-900/20 2xl:hidden" onClick={() => setPanelFlotante(false)}>
           <div
-            className="grid h-full w-full max-w-[340px] grid-rows-[minmax(0,1fr)] p-3"
+            className={`grid h-full w-full ${ficha.proceso ? "max-w-[460px]" : "max-w-[340px]"} grid-rows-[minmax(0,1fr)] p-3`}
             onClick={(e) => e.stopPropagation()}
           >
             <FichaContacto
@@ -1133,6 +1207,14 @@ export default function BandejaClient({
                 setPanelFlotante(false);
                 setModal("candidato");
               }}
+              onVerFicha={
+                ficha.proceso && puedeVerCandidatos
+                  ? () => {
+                      setPanelFlotante(false);
+                      void abrirFichaProceso(ficha.proceso!.id);
+                    }
+                  : undefined
+              }
             />
           </div>
         </div>
@@ -1148,6 +1230,30 @@ export default function BandejaClient({
       )}
       {modal === "nuevo" && (
         <PlantillaModal onCerrar={() => setModal(null)} onEnviado={irA} />
+      )}
+      {modal === "citar" && ficha?.proceso && (
+        <CitarDialog
+          procesoId={ficha.proceso.id}
+          nombre={ficha.proceso.nombre}
+          acciones={CITAR_REAL}
+          onClose={() => setModal(null)}
+          onHecho={(r, reprogramada) => {
+            setModal(null);
+            toast.success(`${reprogramada ? "Cita reprogramada" : "Citado"}. ${textoEnvio(r.envio)}`);
+            router.refresh();
+          }}
+        />
+      )}
+      {fichaProceso && (
+        // La misma ficha que en Candidatos (datos, pestañas, «Lo revisé a mano»). Guardar no pausa al asistente.
+        <ProcesoFormDialog
+          proceso={fichaProceso}
+          vacancies={vacantes}
+          onClose={() => {
+            setFichaProceso(null);
+            router.refresh();
+          }}
+        />
       )}
       {modal === "candidato" && conv && ficha && (
         <ProcesoFormDialog
@@ -1165,5 +1271,85 @@ export default function BandejaClient({
         />
       )}
     </div>
+  );
+}
+
+/**
+ * Mensaje de la selección en modo «revisar antes de enviar» (N2, N4): con la
+ * ventana abierta se pasa al cuadro de texto para ajustarlo y enviarlo; con la
+ * ventana cerrada se envía como plantilla aprobada con un clic.
+ */
+function BorradorSugerido({
+  conversacionId,
+  borrador,
+  ventanaAbierta,
+  onUsar,
+  onListo,
+}: {
+  conversacionId: string;
+  borrador: { clave: string; texto: string; plantilla: string | null; parametros: string[] | null };
+  ventanaAbierta: boolean;
+  onUsar: (texto: string) => void;
+  onListo: () => void;
+}) {
+  const [ocupado, setOcupado] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const correr = async (fn: () => Promise<{ ok: boolean; error?: string }>) => {
+    setOcupado(true);
+    setError(null);
+    const r = await fn().catch((e: Error) => ({ ok: false, error: e.message }));
+    setOcupado(false);
+    if (r.ok) onListo();
+    else setError(r.error ?? "No se pudo.");
+  };
+  return (
+    <div className="mb-2 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-900">
+      <p className="mb-1 flex items-center gap-1.5 font-semibold">
+        <Lightbulb className="h-3.5 w-3.5 shrink-0" /> Mensaje sugerido para revisar
+      </p>
+      <p className="whitespace-pre-wrap text-violet-800">{borrador.texto}</p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {ventanaAbierta ? (
+          <button
+            onClick={() => onUsar(borrador.texto)}
+            className="rounded-lg bg-violet-600 px-2.5 py-1 font-medium text-white hover:bg-violet-700 cursor-pointer"
+          >
+            Usar y editar
+          </button>
+        ) : (
+          <button
+            disabled={ocupado || !borrador.plantilla}
+            onClick={() => correr(() => enviarBorradorComoPlantilla(conversacionId))}
+            title={borrador.plantilla ? `Plantilla ${borrador.plantilla}` : "La plantilla aún no está aprobada por Meta"}
+            className="rounded-lg bg-violet-600 px-2.5 py-1 font-medium text-white hover:bg-violet-700 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+          >
+            {borrador.plantilla ? "Enviar como plantilla" : "Plantilla sin aprobar"}
+          </button>
+        )}
+        <button
+          disabled={ocupado}
+          onClick={() => correr(() => descartarBorrador(conversacionId))}
+          className="rounded-lg border border-violet-200 bg-white px-2.5 py-1 text-violet-700 hover:bg-violet-100 disabled:opacity-50 cursor-pointer"
+        >
+          Descartar
+        </button>
+      </div>
+      {error && <p className="mt-1.5 text-red-700">{error}</p>}
+    </div>
+  );
+}
+
+/** Transcripción bajo el audio; si no se entendió, lo dice (23-nov-2026). */
+function TranscripcionAudio({ guardada, saliente }: { guardada: string; saliente: boolean }) {
+  const t = leerTranscripcionGuardada(guardada);
+  if (!t) return null;
+  const color = saliente ? "text-white/80" : "text-text-secondary";
+  if (t.calidad === "sin_voz") {
+    return <p className={`mb-1 max-w-xs text-xs italic ${color}`} title="Transcripción automática">No se entendió el audio (silencio o mucho ruido).</p>;
+  }
+  return (
+    <p className={`mb-1 max-w-xs whitespace-pre-wrap text-xs italic ${color}`} title="Transcripción automática">
+      {t.calidad === "dudosa" && <span className="not-italic font-medium text-amber-600">Mucho ruido: puede estar mal transcrito. </span>}«{t.texto}»
+    </p>
   );
 }

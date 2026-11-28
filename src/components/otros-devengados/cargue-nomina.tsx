@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useTransition } from "react";
+import { confirmar } from "@/components/ui/confirmar";
 import { toast } from "sonner";
 import { FileUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -95,7 +96,7 @@ export function CargueNomina({
     }).join("\n");
     const empleados = new Set(deCruce.map((l) => l.codEpl)).size;
     if (
-      !window.confirm(
+      !await confirmar(
         `Nómina ${listado.codPer}${listado.nomPer ? ` · ${listado.nomPer}` : ""}\n` +
           `${listado.lineas.length} líneas, ${empleados} empleados. Conceptos que usa Otros devengados:\n${porConcepto}\n\n` +
           (carga ? `Reemplaza el cargue anterior (${carga.archivo ?? "sin nombre"}).\n` : "") +

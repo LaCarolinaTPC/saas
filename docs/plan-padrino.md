@@ -97,6 +97,38 @@ prerregistro (`createProceso` / `updateProceso` → `enlazarPrerregistro`):
 - se revalida con su versión de la política y pasa a «En validación»;
 - queda en la bitácora como `enlazado_proceso`.
 
+**Apadrinados sin padrino (desde el 21-nov-2026).** Apenas el aspirante da la cédula, el asistente de
+WhatsApp le pregunta si viene recomendado por alguien que trabaja en la empresa (botones «Sí» y «No»),
+antes de la autorización.
+Quien responde que sí queda en Candidatos con la etiqueta **APADRINADO** (una marca, no un estado
+del embudo). No se le pregunta quién lo recomendó: el padrino lo asigna Gestión Humana aquí (pedido
+de Salud Ocupacional, 21-nov-2026); si el candidato lo dice por su cuenta, queda como pista.
+Migraciones `20261121181420_seleccion_pregunta_recomendado_y_apadrinados.sql`,
+`20261121190711_seleccion_recomendado_despues_de_la_cedula.sql` y
+`20261121194016_seleccion_recomendado_sin_nombre_y_respuesta_fija.sql`.
+- **Un «No» es definitivo.** Si respondió que no, el chat no lo cambia aunque después diga que sí, y
+  `registrarReferido` no deja registrarle padrino (`bloqueoPorRecomendado` en `reglas.ts`). Solo quien
+  tiene el permiso **Plan Padrino · aprobación** puede corregirlo en el formulario del proceso
+  (Candidatos), con un motivo obligatorio; la corrección queda en el historial con quién la hizo. Los
+  procesos sin respuesta (creados a mano o anteriores) no se bloquean.
+- En `/candidatos/plan-padrino` aparece el bloque **«Apadrinados sin padrino»**: candidatos en curso
+  que vienen recomendados y no tienen registro vigente en el plan (`getApadrinadosPendientes`).
+  «Asignar padrino» abre el registro de siempre con ese proceso ya elegido. En Candidatos están el
+  filtro del mismo nombre y la etiqueta, que enlaza al registro.
+- Asignar el padrino es `registrarReferido`: se aplica la versión de la política vigente ese día y
+  sus reglas, igual que en cualquier otro registro. No hay código distinto por versión.
+- **Fecha de registro.** Como el padrino se asigna después, para R13 cuenta el día en que el
+  candidato respondió la pregunta en el chat (`procesos_contratacion.recomendado_at`, que guarda la
+  hora de la respuesta, sea sí o no), no el día en que Gestión Humana hizo el registro. Si un
+  administrador corrige un «No» a «Sí», cuenta igual la hora de la respuesta en el chat. Esa fecha
+  queda en `padrino_referidos.registrado_el` y la usan todas las revalidaciones (`fechaRegistro` en
+  `datos.ts`). En la bitácora el registro lleva `origen: "recomendado_en_chat"`. Si nunca respondió en
+  el chat y lo marcó un administrador, la fecha es la de ese día.
+- El nombre, si el candidato lo dijo, es solo una pista: no se valida contra conductores ni empleados.
+  El padrino se elige en el buscador y pasa por los requisitos P1–P6 de siempre.
+- Un aspirante que dice que sí pero nunca da la cédula ni acepta la autorización no llega a
+  Candidatos: su respuesta queda en la conversación.
+
 **R13: hoja de vida registrada antes de iniciar la selección.** Compara la fecha de registro en el
 plan con la de creación del proceso. Los días de gracia son el parámetro
 `referido.tolerancia_registro_dias` (en la v3 son 0).

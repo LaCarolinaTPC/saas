@@ -9,6 +9,11 @@ export const EXCLUIR: readonly string[] = [
   "/financiera",
   "/contratacion",
   "/tesoreria/revision-cartulina/solicitudes-camaras",
+  // La IA, el canal y los indicadores del WhatsApp pasaron a Candidatos (21-nov-2026).
+  "/candidatos/ia",
+  "/comunicaciones/agente",
+  "/comunicaciones/configuracion",
+  "/comunicaciones/indicadores",
 ];
 
 export interface AjustePantalla {
@@ -20,8 +25,14 @@ export interface AjustePantalla {
 }
 
 export const AJUSTES: Readonly<Record<string, AjustePantalla>> = {
-  "/comunicaciones/agente": { titulo: "Agente de comunicaciones" },
-  "/comunicaciones/configuracion": { titulo: "Configuración de comunicaciones" },
+  "/candidatos/seleccion": {
+    titulo: "Selección de conductores",
+    palabras: ["ia", "agente", "asistente", "inteligencia artificial", "prompt", "mensajes", "laboratorios", "tiempos y reglas", "canal", "whatsapp", "webhook", "meta"],
+  },
+  "/candidatos/indicadores/whatsapp": {
+    titulo: "Indicadores de atención del WhatsApp",
+    palabras: ["kpi", "estadísticas", "whatsapp", "métricas", "tiempo de respuesta"],
+  },
   "/configuracion/usuarios": { palabras: ["roles", "permisos"] },
   "/pantalla": { palabras: ["tv", "televisor", "display"] },
   "/incapacidades/alta-manual": { exige: ["incapacidades.editar"] },

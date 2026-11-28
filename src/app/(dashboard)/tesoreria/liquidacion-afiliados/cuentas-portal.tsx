@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { confirmar } from "@/components/ui/confirmar";
 import { useRouter } from "next/navigation";
 import { Ban, Copy, KeyRound, Loader2, RotateCcw, UserPlus, UserRound, X } from "lucide-react";
 import { toast } from "sonner";
@@ -62,8 +63,8 @@ export function CuentasPortal({ cedula, nombre, disponible, puedeGestionar, cuen
       copiar(r.clave, "Cuenta creada y clave copiada");
     });
   }
-  function restablecer(c: CuentaResumen) {
-    if (!window.confirm(`¿Restablecer la contraseña de ${c.email}?\n\nSe cierran sus sesiones abiertas y deberá cambiarla al ingresar.`)) return;
+  async function restablecer(c: CuentaResumen) {
+    if (!await confirmar(`¿Restablecer la contraseña de ${c.email}?\n\nSe cierran sus sesiones abiertas y deberá cambiarla al ingresar.`)) return;
     ejecutar(async () => {
       const r = await restablecerClavePortal(c.id);
       if (!r.ok) { toast.error(r.error); return; }
@@ -71,9 +72,9 @@ export function CuentasPortal({ cedula, nombre, disponible, puedeGestionar, cuen
       copiar(r.clave, "Clave restablecida y copiada");
     });
   }
-  function cambiarEstado(c: CuentaResumen) {
+  async function cambiarEstado(c: CuentaResumen) {
     const accion = c.activo ? "desactivar" : "reactivar";
-    if (!window.confirm(`¿${accion[0].toUpperCase()}${accion.slice(1)} la cuenta ${c.email}?`)) return;
+    if (!await confirmar(`¿${accion[0].toUpperCase()}${accion.slice(1)} la cuenta ${c.email}?`)) return;
     ejecutar(async () => {
       const r = await cambiarEstadoCuentaPortal(c.id, !c.activo);
       if (!r.ok) toast.error(r.error);

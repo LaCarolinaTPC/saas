@@ -1,21 +1,13 @@
 import { Users, Briefcase, UsersRound, CircleCheck } from "lucide-react";
 import Link from "next/link";
+import { Suspense } from "react";
 import { TopBar } from "@/components/layout/top-bar";
 import { StatCard } from "@/components/shared/stat-card";
 import { getDashboardStats } from "@/lib/actions";
-import { PIPELINE_STAGES } from "@/lib/constants";
+import { etapaDePostulacion } from "@/lib/contratacion/constants";
 import { SiPuede } from "@/components/permisos/permisos-provider";
-
-function getStageDisplay(stageValue: string) {
-  const stage = PIPELINE_STAGES.find((s) => s.value === stageValue);
-  if (stage) return { label: stage.label, bg: stage.color, color: stage.textColor };
-  // Fallback: format snake_case to label
-  const label = stageValue
-    .split("_")
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
-  return { label, bg: "#F1F5F9", color: "#64748B" };
-}
+import { getCurrentPermissions, tienePermiso } from "@/lib/permissions";
+import { ResumenComunicaciones, ResumenComunicacionesCargando } from "@/components/comunicaciones/resumen-panel";
 
 function getInitials(name: string) {
   return name
@@ -37,7 +29,9 @@ function formatDate(dateStr: string) {
 }
 
 export default async function DashboardPage() {
-  const stats = await getDashboardStats();
+  const [stats, perms] = await Promise.all([getDashboardStats(), getCurrentPermissions()]);
+  // Los indicadores de Comunicaciones solo se calculan para quien puede ver el módulo.
+  const veComunicaciones = tienePermiso(perms, "comunicaciones.ver");
 
   return (
     <>
@@ -69,6 +63,12 @@ export default async function DashboardPage() {
             icon={CircleCheck}
           />
         </div>
+
+        {veComunicaciones && (
+          <Suspense fallback={<ResumenComunicacionesCargando />}>
+            <ResumenComunicaciones />
+          </Suspense>
+        )}
 
         <div className="rounded-xl border border-[#F1F5F9] bg-white">
           <div className="flex items-center justify-between px-6 py-5">
@@ -111,7 +111,7 @@ export default async function DashboardPage() {
               </div>
             ) : (
               stats.recentApplications.map((app: any) => {
-                const stage = getStageDisplay(app.current_stage);
+                const stage = etapaDePostulacion(app.current_stage);
                 const candidate = app.candidates;
                 const initials = getInitials(candidate?.full_name ?? "??");
                 return (

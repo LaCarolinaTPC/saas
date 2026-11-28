@@ -1,6 +1,7 @@
 "use client";
 
 import { usePermisos } from "@/components/permisos/permisos-provider";
+import { confirmar } from "@/components/ui/confirmar";
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -562,10 +563,10 @@ function TablaRegistros({
   const p = usePaginacion(registros, { porPagina, reiniciar: dia });
   const ancla = useRef<HTMLDivElement>(null);
 
-  function eliminar(r: AusentismoRegistro) {
+  async function eliminar(r: AusentismoRegistro) {
     // Un periodo se borra entero: no hay filas por día que quitar sueltas.
     const esPeriodo = periodicas.has(r.tipo) && !!r.fecha_fin;
-    const ok = window.confirm(
+    const ok = await confirmar(
       esPeriodo
         ? `¿Eliminar ${labels[r.tipo] ?? r.tipo} de ${r.nombre}, del ${r.fecha_inicio ?? r.fecha} al ${r.fecha_fin}?\n\n` +
             "Se borra el periodo completo, no solo el día que estás viendo. " +

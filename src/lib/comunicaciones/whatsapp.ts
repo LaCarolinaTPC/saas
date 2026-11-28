@@ -6,10 +6,25 @@
  * en la tabla wa_canal (secretos cifrados); las variables de entorno
  * WHATSAPP_* / META_APP_SECRET quedan como respaldo si la tabla está vacía.
  */
+import { randomUUID } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { descifrar } from "./cifrado";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
+
+/**
+ * En desarrollo (GESTIVO_ENTORNO=desarrollo) la base es copia de producción:
+ * trae el canal real y los teléfonos de aspirantes y laboratorios reales. Ahí
+ * ningún WhatsApp sale de verdad (23-nov-2026): los envíos se dan por hechos
+ * con un id «simulado-…», quedan en el chat de Gestivo como cualquier otro y el
+ * flujo sigue igual. Las lecturas (descargar medios, listar plantillas) no cambian.
+ */
+export function whatsappSimulado(entorno: string | undefined = process.env.GESTIVO_ENTORNO): boolean {
+  return entorno?.trim().toLowerCase() === "desarrollo";
+}
+
+/** Prefijo del id de los mensajes que no salieron (desarrollo). */
+export const PREFIJO_WAMID_SIMULADO = "simulado-";
 
 export interface CanalConfig {
   token: string;
@@ -71,13 +86,64 @@ export async function enviarTexto(telefono: string, texto: string): Promise<Envi
   return postMensaje({ to: telefono, type: "text", text: { preview_url: true, body: texto } });
 }
 
+/** Topes de Meta para un mensaje con botones de respuesta. */
+export const MAX_CUERPO_BOTONES = 1024;
+const MAX_TITULO_BOTON = 20;
+const MAX_BOTONES = 3;
+
+/** Cuerpo del mensaje interactivo con botones de respuesta (puro, para probarlo). */
+export function cuerpoBotones(telefono: string, texto: string, botones: string[]): Record<string, unknown> {
+  return {
+    to: telefono,
+    type: "interactive",
+    interactive: {
+      type: "button",
+      body: { text: texto.slice(0, MAX_CUERPO_BOTONES) },
+      action: {
+        buttons: botones.slice(0, MAX_BOTONES).map((titulo, i) => ({
+          type: "reply",
+          reply: { id: `opcion_${i + 1}`, title: titulo.slice(0, MAX_TITULO_BOTON) },
+        })),
+      },
+    },
+  };
+}
+
+/**
+ * Envía un texto con botones de respuesta (hasta 3). Como el texto libre,
+ * requiere la ventana de 24 h abierta y no necesita plantilla aprobada. Lo que
+ * la persona toca llega al webhook como texto (el título del botón).
+ */
+export async function enviarBotones(telefono: string, texto: string, botones: string[]): Promise<EnvioResultado> {
+  return postMensaje(cuerpoBotones(telefono, texto, botones));
+}
+
 async function postMensaje(payload: Record<string, unknown>): Promise<EnvioResultado> {
+  if (whatsappSimulado()) {
+    // Los números de la lista de prueba (Tiempos y reglas › Entorno de pruebas) sí reciben (24-nov-2026),
+    // y lo que se envía por un candidato del chat de prueba también (27-nov-2026: pruebas más reales).
+    const { whatsappDePruebaPermitido, envioRealDePrueba } = await import("@/lib/entorno-pruebas");
+    if (!envioRealDePrueba() && !(await whatsappDePruebaPermitido(String(payload.to ?? "")))) {
+      console.info(`[whatsapp] desarrollo: no sale (simulado) · ${String(payload.type ?? "mensaje")} a ${String(payload.to ?? "?")}`);
+      return { ok: true, wamid: `${PREFIJO_WAMID_SIMULADO}${randomUUID()}` };
+    }
+    console.info(`[whatsapp] desarrollo: sale de verdad al número de prueba ${String(payload.to)}`);
+  }
   const { token, phoneNumberId } = await getCanalObligatorio();
-  const res = await fetch(`${GRAPH}/${phoneNumberId}/messages`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ messaging_product: "whatsapp", recipient_type: "individual", ...payload }),
-  });
+  // Con tope de tiempo (27-nov-2026), como las demás llamadas a Meta: sin él, un Meta lento dejaba
+  // colgada la acción que enviaba (p. ej. «Lo revisé a mano» con anotación tardaba un montón).
+  let res: Response;
+  try {
+    res = await fetch(`${GRAPH}/${phoneNumberId}/messages`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ messaging_product: "whatsapp", recipient_type: "individual", ...payload }),
+      signal: AbortSignal.timeout(20000),
+    });
+  } catch (e) {
+    const tiempo = e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError");
+    return { ok: false, errorMensaje: tiempo ? "Meta no respondió a tiempo (20 s)." : e instanceof Error ? e.message : String(e) };
+  }
   const j = (await res.json().catch(() => ({}))) as {
     messages?: { id: string }[];
     error?: { code?: number; message?: string };
@@ -118,6 +184,8 @@ export async function subirMedioAMeta(
   mimeType: string,
   nombreArchivo: string
 ): Promise<{ ok: true; mediaId: string } | { ok: false; error: string }> {
+  // En desarrollo el archivo no se sube a Meta: el envío que sigue también es simulado.
+  if (whatsappSimulado()) return { ok: true, mediaId: `${PREFIJO_WAMID_SIMULADO}${randomUUID()}` };
   const { token, phoneNumberId } = await getCanalObligatorio();
   const form = new FormData();
   form.append("messaging_product", "whatsapp");
@@ -222,6 +290,78 @@ export async function listarPlantillas(): Promise<
   return { ok: true, plantillas };
 }
 
+export interface EstadoPlantilla {
+  nombre: string;
+  idioma: string;
+  estado: string;
+  categoria: string;
+  /** Texto del cuerpo, con {{1}}, {{2}}… */
+  cuerpo: string;
+  /** Texto de los botones, tal como los tiene Meta. */
+  botones: string[];
+}
+
+/** Todas las plantillas del WABA con su estado (APPROVED, PENDING, REJECTED…), para el catálogo de selección. */
+export async function listarEstadosPlantillas(): Promise<{ ok: true; plantillas: EstadoPlantilla[] } | { ok: false; error: string }> {
+  const { token, wabaId } = await getCanalObligatorio();
+  if (!wabaId) return { ok: false, error: "Falta el WABA ID en Comunicaciones → Configurar canal." };
+  const plantillas: EstadoPlantilla[] = [];
+  let url: string | null = `${GRAPH}/${wabaId}/message_templates?limit=200&fields=name,language,status,category,components`;
+  // Meta pagina la lista; se recorren a lo sumo 5 páginas (1000 plantillas).
+  for (let pagina = 0; url && pagina < 5; pagina++) {
+    const res: Response = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store", signal: AbortSignal.timeout(10000) });
+    const j = (await res.json().catch(() => ({}))) as {
+      data?: { name: string; language: string; status: string; category: string; components?: PlantillaComponente[] }[];
+      paging?: { next?: string };
+      error?: { message?: string };
+    };
+    if (!res.ok) return { ok: false, error: j.error?.message ?? `HTTP ${res.status}` };
+    for (const t of j.data ?? []) {
+      plantillas.push({
+        nombre: t.name,
+        idioma: t.language,
+        estado: t.status,
+        categoria: t.category,
+        cuerpo: t.components?.find((c) => c.type === "BODY")?.text ?? "",
+        botones: (t.components?.find((c) => c.type === "BUTTONS")?.buttons ?? []).map((b) => b.text),
+      });
+    }
+    url = j.paging?.next ?? null;
+  }
+  return { ok: true, plantillas };
+}
+
+/**
+ * Envía una plantilla nueva a aprobación de Meta (N3). El cuerpo va con
+ * {{1}}, {{2}}… y un ejemplo por variable; los botones son de respuesta rápida.
+ */
+export async function crearPlantilla(def: {
+  nombre: string;
+  categoria: "UTILITY" | "MARKETING";
+  cuerpo: string;
+  ejemplos: string[];
+  botones?: string[];
+  idioma?: string;
+}): Promise<{ ok: true; id: string; estado: string } | { ok: false; error: string }> {
+  // Crearla en desarrollo la mandaría a aprobación en la cuenta real de Meta.
+  if (whatsappSimulado()) return { ok: false, error: "En desarrollo no se envían plantillas a aprobación de Meta: créela desde producción." };
+  const { token, wabaId } = await getCanalObligatorio();
+  if (!wabaId) return { ok: false, error: "Falta el WABA ID en Comunicaciones → Configurar canal." };
+  const components: unknown[] = [
+    { type: "BODY", text: def.cuerpo, ...(def.ejemplos.length ? { example: { body_text: [def.ejemplos] } } : {}) },
+  ];
+  if (def.botones?.length) components.push({ type: "BUTTONS", buttons: def.botones.map((text) => ({ type: "QUICK_REPLY", text })) });
+  const res = await fetch(`${GRAPH}/${wabaId}/message_templates`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ name: def.nombre, language: def.idioma ?? "es", category: def.categoria, components }),
+    signal: AbortSignal.timeout(15000),
+  });
+  const j = (await res.json().catch(() => ({}))) as { id?: string; status?: string; error?: { message?: string; error_user_msg?: string } };
+  if (!res.ok || !j.id) return { ok: false, error: j.error?.error_user_msg ?? j.error?.message ?? `HTTP ${res.status}` };
+  return { ok: true, id: j.id, estado: j.status ?? "PENDING" };
+}
+
 /** Sustituye {{1}}, {{2}}… por los valores dados (para guardar el texto real). */
 export function renderizarPlantilla(texto: string, valores: string[]): string {
   return texto.replace(/\{\{(\d+)\}\}/g, (_, n) => valores[Number(n) - 1] ?? "");
@@ -269,6 +409,7 @@ export async function enviarPlantilla(
 
 /** Chulos azules: marca un mensaje entrante como leído (no crítico). */
 export async function marcarLeido(wamid: string): Promise<void> {
+  if (whatsappSimulado()) return;
   try {
     const { token, phoneNumberId } = await getCanalObligatorio();
     await fetch(`${GRAPH}/${phoneNumberId}/messages`, {

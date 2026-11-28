@@ -8,6 +8,7 @@
  * (`politica.ts`); muestra en vivo qué cambia frente a la versión vigente.
  */
 import { useMemo, useState, useTransition } from "react";
+import { confirmar } from "@/components/ui/confirmar";
 import { useRouter } from "next/navigation";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -93,8 +94,8 @@ export function EditorBorrador({
     });
   }
 
-  function descartar() {
-    if (!window.confirm(`¿Descartar el borrador ${borrador.version}? Se borra y no se puede recuperar.`)) return;
+  async function descartar() {
+    if (!await confirmar(`¿Descartar el borrador ${borrador.version}? Se borra y no se puede recuperar.`)) return;
     start(async () => {
       const r = await descartarBorrador(borrador.id);
       if (r.ok) {
@@ -317,7 +318,7 @@ export function EditorBorrador({
           <Campo etiqueta="Ventana de hoja de vida previa (meses)">
             <input type="number" min={0} value={p.referido.ventana_hoja_vida_meses} onChange={(ev) => cambiar((x) => { x.referido.ventana_hoja_vida_meses = entero(ev.target.value); })} className={`${inputCls} w-full`} />
           </Campo>
-          <Campo etiqueta="Días de gracia para registrar después de iniciar la selección (R13)">
+          <Campo etiqueta="Días de gracia para registrar después de la contratación (R13)">
             <input type="number" min={0} max={365} value={p.referido.tolerancia_registro_dias} onChange={(ev) => cambiar((x) => { x.referido.tolerancia_registro_dias = Math.min(365, entero(ev.target.value)); })} className={`${inputCls} w-full`} />
           </Campo>
           <Campo etiqueta="Meses mínimos por fuera (reintegro)">

@@ -55,6 +55,26 @@
     "soloAdmin": false
   },
   {
+    "href": "/candidatos/ia",
+    "titulo": "Ia",
+    "soloAdmin": false
+  },
+  {
+    "href": "/candidatos/indicadores",
+    "titulo": "Indicadores",
+    "soloAdmin": false
+  },
+  {
+    "href": "/candidatos/indicadores/proveedores",
+    "titulo": "Croma, por fuente",
+    "soloAdmin": false
+  },
+  {
+    "href": "/candidatos/indicadores/whatsapp",
+    "titulo": "Whatsapp",
+    "soloAdmin": false
+  },
+  {
     "href": "/candidatos/plan-padrino",
     "titulo": "Plan Padrino",
     "soloAdmin": false
@@ -70,6 +90,16 @@
     "soloAdmin": false
   },
   {
+    "href": "/candidatos/psicotecnica",
+    "titulo": "Psicotecnica",
+    "soloAdmin": false
+  },
+  {
+    "href": "/candidatos/seleccion",
+    "titulo": "Seleccion",
+    "soloAdmin": false
+  },
+  {
     "href": "/comunicaciones",
     "titulo": "Comunicaciones",
     "soloAdmin": false
@@ -77,12 +107,17 @@
   {
     "href": "/comunicaciones/agente",
     "titulo": "Agente",
-    "soloAdmin": true
+    "soloAdmin": false
   },
   {
     "href": "/comunicaciones/configuracion",
     "titulo": "Configuracion",
-    "soloAdmin": true
+    "soloAdmin": false
+  },
+  {
+    "href": "/comunicaciones/indicadores",
+    "titulo": "Indicadores",
+    "soloAdmin": false
   },
   {
     "href": "/conductores",
@@ -362,6 +397,16 @@
   {
     "href": "/produccion-conductor",
     "titulo": "Producción conductor",
+    "soloAdmin": false
+  },
+  {
+    "href": "/profesor",
+    "titulo": "Profesor",
+    "soloAdmin": false
+  },
+  {
+    "href": "/reconocimiento",
+    "titulo": "Reconocimiento",
     "soloAdmin": false
   },
   {

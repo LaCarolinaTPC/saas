@@ -1,0 +1,935 @@
+/**
+ * Selección de conductores en el servidor: ajustes configurables, semáforo de
+ * preselección guardado en el proceso y avance automático a antecedentes.
+ * Sin sesión: lo usan la pantalla, el asistente de WhatsApp y las tareas.
+ */
+import { cromaPausado, siCromaActivo } from "@/lib/verificacion/pausa";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { CAUSA_ANTECEDENTES, type ResultadoPreseleccionGuardado } from "@/lib/contratacion/constants";
+import { ACTOR_SISTEMA, cambiarEstadoProceso, registrarEvento } from "@/lib/contratacion/servidor";
+import {
+  REGLAS_POR_DEFECTO,
+  cartaLaboralPendiente,
+  causaPropuesta,
+  debeAvanzarAAntecedentes,
+  faltaSoloSimit,
+  debeConsultarRunt,
+  debeConsultarSimit,
+  evaluarPreseleccion,
+  licenciaVerificadaDesdeRunt,
+  reglasDesdeAjustes,
+  type ReglasPreseleccion,
+} from "./preseleccion";
+import { procesoTerminado } from "./actualizacion-chat";
+
+/**
+ * ¿Dijo que renueva la licencia vencida? null si no se sabe o si falta la
+ * migración 20261117214219 (la columna no existe y la consulta falla sola).
+ */
+async function leerRenovara(procesoId: string): Promise<boolean | null> {
+  const { data, error } = await createAdminClient().from("procesos_contratacion").select("renovara_licencia").eq("id", procesoId).maybeSingle();
+  if (error || !data) return null;
+  return (data.renovara_licencia as boolean | null) ?? null;
+}
+import { NOMBRE_ASISTENTE_POR_DEFECTO, RESPUESTAS_ASISTENTE, primerNombre, renderizarConLineas, type MensajeSeleccion } from "./mensajes";
+import type { AjusteSeleccion } from "./ajustes";
+import type { ResumenRunt } from "@/lib/verificacion/proveedores";
+import type { FechaRechazada, LicenciaVerificada, RespuestaConfigurada } from "@/lib/comunicaciones/agente/motor";
+import { fechaExpedicionRechazada, verificacionEnCurso } from "@/lib/verificacion/servidor";
+import { proveedorAntecedentes } from "@/lib/verificacion/proveedores";
+import {
+  CAMPO_SIN_RESPUESTA, FUENTES_ANTECEDENTES, evaluarAntecedentes, permiteSeguir, reglasDeAjustes,
+  type ConsultaGuardada, type EvaluacionAntecedentes, type FuenteAntecedentes, type ReglasAntecedentes, type VeredictoAntecedentes,
+} from "./antecedentes";
+import { PREFILTRO_VACIO, prefiltroCompleto, type DatosPrefiltro } from "./extraccion";
+import { enviarTexto } from "@/lib/comunicaciones/whatsapp";
+import { registrarSaliente } from "@/lib/comunicaciones/registro";
+import { ventanaAbierta } from "@/lib/comunicaciones/seguimiento";
+import { FIRMA_SELECCION, enviarMensajeDirecto } from "./envio";
+
+export type { AjusteSeleccion };
+
+/** Filas de seleccion_ajustes; vacío si la migración aún no está aplicada. */
+export async function leerAjustes(): Promise<AjusteSeleccion[]> {
+  const { data, error } = await createAdminClient().from("seleccion_ajustes").select("*").order("orden");
+  if (error) return [];
+  return (data ?? []) as AjusteSeleccion[];
+}
+
+export async function leerReglas(): Promise<ReglasPreseleccion> {
+  const filas = await leerAjustes();
+  return filas.length ? reglasDesdeAjustes(filas) : REGLAS_POR_DEFECTO;
+}
+
+/** Valor de un ajuste (o el de respaldo si no existe o está vacío). */
+export function valorAjuste<T>(ajustes: AjusteSeleccion[], clave: string, respaldo: T): T {
+  const v = ajustes.find((a) => a.clave === clave)?.valor;
+  if (v === undefined || v === null || v === "") return respaldo;
+  return v as T;
+}
+
+/** Catálogo de mensajes; vacío si la migración aún no está aplicada. */
+export async function leerMensajes(): Promise<MensajeSeleccion[]> {
+  const { data, error } = await createAdminClient().from("seleccion_mensajes").select("*").order("orden");
+  if (error) return [];
+  return (data ?? []) as MensajeSeleccion[];
+}
+
+export async function leerMensaje(clave: string): Promise<MensajeSeleccion | null> {
+  const { data, error } = await createAdminClient().from("seleccion_mensajes").select("*").eq("clave", clave).maybeSingle();
+  if (error) return null;
+  return (data as MensajeSeleccion | null) ?? null;
+}
+
+/** Nombre con el que se presenta el asistente de IA («Angie» si no se ha configurado). */
+export function nombreAsistente(ajustes: AjusteSeleccion[]): string {
+  return String(valorAjuste(ajustes, "asistente_nombre", NOMBRE_ASISTENTE_POR_DEFECTO)).trim() || NOMBRE_ASISTENTE_POR_DEFECTO;
+}
+
+/** Valores fijos para las variables de los mensajes (dirección, laboratorio, enlace a la política). */
+export function valoresFijos(ajustes: AjusteSeleccion[]): Record<string, string> {
+  return {
+    asistente: nombreAsistente(ajustes),
+    direccion: String(valorAjuste(ajustes, "direccion_sede", "")),
+    contacto: String(valorAjuste(ajustes, "contacto_cita", "")),
+    laboratorio: String(valorAjuste(ajustes, "laboratorio_nombre", "")),
+    enlace_politica: String(valorAjuste(ajustes, "enlace_politica", "")),
+  };
+}
+
+/**
+ * Texto de la autorización de datos (A4) listo para el asistente, con el
+ * enlace a la política si está configurado. Null si el catálogo no existe.
+ */
+export async function textoAutorizacion(): Promise<string | null> {
+  const [mensaje, ajustes] = await Promise.all([leerMensaje("autorizacion_datos"), leerAjustes()]);
+  if (!mensaje) return null;
+  return renderizarConLineas(mensaje.texto, valoresFijos(ajustes));
+}
+
+const SIMIT_REGISTRADO = new Set(["ok", "deuda", "acuerdo_pago"]);
+
+export interface Reevaluacion {
+  resultado: ResultadoPreseleccionGuardado;
+  causaPropuesta: string | null;
+  avanzo: boolean;
+  consultarSimit: boolean;
+  consultarRunt: boolean;
+}
+
+/**
+ * Recalcula el semáforo del proceso y lo guarda. Si cambió el resultado global
+ * deja el evento en el historial; con los 4 en verde y la autorización
+ * aceptada pasa solo a antecedentes. Devuelve null si el proceso no existe o
+ * la migración no está aplicada.
+ */
+export async function reevaluarPreseleccion(procesoId: string): Promise<Reevaluacion | null> {
+  const admin = createAdminClient();
+  const { data: p, error } = await admin
+    .from("procesos_contratacion")
+    .select(
+      "id, estado, cedula, edad, ciudad_residencia, dispuesto_traslado, licencia_categoria, licencia_verificada_runt, licencia_runt, simit, simit_valor, experiencia_meses, autorizacion_datos, preseleccion"
+    )
+    .eq("id", procesoId)
+    .maybeSingle();
+  if (error || !p) return null;
+
+  const [reglas, renovara] = await Promise.all([leerReglas(), leerRenovara(procesoId)]);
+  const simitEstado = (p.simit as string | null) ?? null;
+  const resultado = evaluarPreseleccion(
+    {
+      edad: (p.edad as number | null) ?? null,
+      ciudad: (p.ciudad_residencia as string | null) ?? null,
+      dispuestoTraslado: (p.dispuesto_traslado as boolean | null) ?? null,
+      licencia: (p.licencia_categoria as string | null) ?? null,
+      licenciaVerificada: Boolean(p.licencia_verificada_runt),
+      licenciaRunt: (p.licencia_runt as ResumenRunt | null) ?? null,
+      licenciaRenovara: renovara,
+      simitEstado,
+      simitValor: p.simit_valor == null ? null : Number(p.simit_valor),
+      // El estado del SIMIT solo lo registran Croma o Gestión Humana, nunca el aspirante.
+      simitVerificado: simitEstado != null && SIMIT_REGISTRADO.has(simitEstado),
+      experienciaMeses: (p.experiencia_meses as number | null) ?? null,
+    },
+    reglas
+  );
+
+  const anterior = p.preseleccion as ResultadoPreseleccionGuardado | null;
+  const causa = causaPropuesta(resultado);
+  await admin
+    .from("procesos_contratacion")
+    .update({
+      preseleccion: resultado,
+      requisito_incumplido: causa,
+      carta_laboral_pendiente: cartaLaboralPendiente((p.experiencia_meses as number | null) ?? null, reglas),
+    })
+    .eq("id", procesoId);
+
+  if (anterior?.global !== resultado.global || anterior?.incumplido !== resultado.incumplido) {
+    await registrarEvento(
+      procesoId,
+      {
+        tipo: "preseleccion",
+        causa,
+        detalle: {
+          global: resultado.global,
+          edad: resultado.edad.color,
+          residencia: resultado.residencia.color,
+          licencia: resultado.licencia.color,
+          simit: resultado.simit.color,
+        },
+      },
+      ACTOR_SISTEMA
+    );
+  }
+
+  let avanzo = false;
+  const estado = p.estado as string;
+  // 27-nov-2026: el SIMIT llegó tarde (el proceso siguió sin él) y ahora queda en rojo: alerta a GH.
+  if (!["pendiente", "cierre", "contratado"].includes(estado) && resultado.simit.color === "rojo" && anterior?.simit?.color !== "rojo") {
+    await registrarEvento(procesoId, { tipo: "dato", detalle: { simit_tardio: true, motivo: "El SIMIT llegó después de seguir sin él y no cumple: revisarlo." } }, ACTOR_SISTEMA);
+    await import("./alerta-antecedentes-servidor")
+      .then((m) => m.alertarAntecedentes(procesoId, "tardio", ["simit"]))
+      .catch((e) => console.error("[seleccion] alerta de antecedentes:", e));
+  }
+  // SIMIT opcional (ajuste `simit_obligatorio` en «no»): si ya se intentó y Croma
+  // no respondió, no detiene al aspirante; pasa con la observación de que falta.
+  const sinSimit = estado === "pendiente" && faltaSoloSimit(resultado) && !(await simitObligatorio()) && (await simitSinRespuesta(procesoId));
+  // RUNT obligatorio (24-nov-2026): sin el RUNT ni una revisión a mano, la licencia que dice el aspirante no basta.
+  const esperaRunt = estado === "pendiente" && !p.licencia_runt && !p.licencia_verificada_runt && (await runtObligatorio());
+  if (!esperaRunt && debeAvanzarAAntecedentes({ estado, autorizacion_datos: p.autorizacion_datos as string | null }, resultado, sinSimit)) {
+    const r = await cambiarEstadoProceso(procesoId, "antecedentes", {
+      actor: ACTOR_SISTEMA,
+      detalle:
+        resultado.global === "pasa"
+          ? { motivo: "Preselección con los 4 requisitos en verde y autorización de datos aceptada." }
+          : { motivo: "Edad, residencia y licencia en verde. Falta el SIMIT (Croma no respondió): revisarlo a mano.", falta_simit: true },
+    });
+    avanzo = r.cambiado;
+  }
+
+  const consultarSimit = debeConsultarSimit(
+    {
+      cedula: (p.cedula as string | null) ?? null,
+      autorizacion_datos: p.autorizacion_datos as string | null,
+      simitConsultado: simitEstado != null && SIMIT_REGISTRADO.has(simitEstado),
+    },
+    resultado
+  );
+  const consultarRunt = debeConsultarRunt(
+    {
+      cedula: (p.cedula as string | null) ?? null,
+      autorizacion_datos: p.autorizacion_datos as string | null,
+      // Se vuelve a consultar solo si el aspirante corrigió la cédula.
+      runtConsultado: runtConsultadoPara((p.licencia_runt as ResumenRunt | null) ?? null, (p.cedula as string | null) ?? null),
+    },
+    resultado
+  );
+  return { resultado, causaPropuesta: causa, avanzo, consultarSimit, consultarRunt };
+}
+
+/**
+ * Lo que el asistente necesita de la selección para cada respuesta: el texto
+ * de la autorización (A4) y los requisitos del cargo (B1), desde el catálogo y
+ * los ajustes. Sin la migración, vacío: el asistente funciona como antes.
+ */
+export async function contextoSeleccion(): Promise<{
+  autorizacion: string;
+  /**
+   * Mensaje «bienvenida» del catálogo, con los valores fijos ya puestos y
+   * {nombre} sin reemplazar (lo pone el motor con el nombre de WhatsApp).
+   * Vacío si el catálogo no existe.
+   */
+  bienvenida: string;
+  /** Mensaje «salario_horario» del catálogo: lo que responde a los temas reservados. Vacío si no existe. */
+  respuestaReservada: string;
+  /** Nombre con el que se presenta el asistente (ajuste «asistente_nombre»; «Angie» por defecto). */
+  nombreAsistente: string;
+  /** Respuestas del catálogo para casos frecuentes (RESPUESTAS_ASISTENTE), con los valores fijos puestos. */
+  respuestas: RespuestaConfigurada[];
+  requisitos: { edadMinima: number; edadMaxima: number; ciudades: string[]; licencias: string[] } | null;
+}> {
+  const [autorizacion, ajustes, mensajes] = await Promise.all([textoAutorizacion().catch(() => null), leerAjustes(), leerMensajes()]);
+  const reglas = ajustes.length ? reglasDesdeAjustes(ajustes) : null;
+  const fijos = valoresFijos(ajustes);
+  const texto = (clave: string) => mensajes.find((m) => m.clave === clave)?.texto?.trim() ?? "";
+  return {
+    autorizacion: autorizacion ?? "",
+    bienvenida: texto("bienvenida") ? renderizarConLineas(texto("bienvenida"), { ...fijos, nombre: "{nombre}" }) : "",
+    respuestaReservada: texto("salario_horario") ? renderizarConLineas(texto("salario_horario"), fijos) : "",
+    nombreAsistente: nombreAsistente(ajustes),
+    respuestas: Object.entries(RESPUESTAS_ASISTENTE)
+      .filter(([clave]) => texto(clave))
+      .map(([clave, cuando]) => ({ cuando, texto: renderizarConLineas(texto(clave), fijos) })),
+    requisitos: reglas
+      ? { edadMinima: reglas.edadMinima, edadMaxima: reglas.edadMaxima, ciudades: reglas.ciudades, licencias: reglas.licencias }
+      : null,
+  };
+}
+
+/**
+ * Licencia verificada en el RUNT del proceso de la conversación, para que el
+ * asistente no la pregunte y, si no cumple, se lo diga enseguida. null si la
+ * conversación no tiene proceso, si la licencia no se ha verificado o si falta la migración.
+ */
+export async function licenciaVerificadaDeConversacion(conversacionId: string): Promise<LicenciaVerificada | null> {
+  const db = createAdminClient();
+  const { data: conv } = await db.from("wa_conversaciones").select("proceso_id").eq("id", conversacionId).maybeSingle();
+  const procesoId = (conv?.proceso_id as string | null) ?? null;
+  if (!procesoId) return null;
+  const { data: p, error } = await db.from("procesos_contratacion").select("licencia_runt").eq("id", procesoId).maybeSingle();
+  if (error || !p?.licencia_runt) return null;
+  // Mismo cálculo que el semáforo (y que el chat de prueba), con la respuesta sobre la renovación.
+  const [reglas, renovara] = await Promise.all([leerReglas(), leerRenovara(procesoId)]);
+  return licenciaVerificadaDesdeRunt(p.licencia_runt as ResumenRunt, reglas, new Date(), renovara);
+}
+
+/**
+ * Fecha de expedición que el RNMC rechazó en el proceso de la conversación
+ * (no corresponde a la cédula): el asistente la vuelve a pedir. null si no hay.
+ */
+export async function fechaRechazadaDeConversacion(conversacionId: string): Promise<FechaRechazada | null> {
+  const { data: conv } = await createAdminClient().from("wa_conversaciones").select("proceso_id").eq("id", conversacionId).maybeSingle();
+  const procesoId = (conv?.proceso_id as string | null) ?? null;
+  return procesoId ? fechaExpedicionRechazada(procesoId) : null;
+}
+
+/** ¿La verificación del aspirante de la conversación sigue en curso (Croma demorado, RUNT pendiente)? */
+export async function verificacionDemoradaDeConversacion(conversacionId: string): Promise<boolean> {
+  const { data: conv } = await createAdminClient().from("wa_conversaciones").select("proceso_id").eq("id", conversacionId).maybeSingle();
+  const procesoId = (conv?.proceso_id as string | null) ?? null;
+  return procesoId ? verificacionEnCurso(procesoId) : false;
+}
+
+/** ¿Ya se consultó el RUNT para esta cédula? Si la cédula cambió (la corrigió), no. */
+export function runtConsultadoPara(runt: ResumenRunt | null, cedula: string | null): boolean {
+  if (!runt) return false;
+  if (!runt.cedula) return true;
+  return runt.cedula === (cedula ?? "").replace(/\D/g, "");
+}
+
+/**
+ * ¿El SIMIT es obligatorio para pasar a antecedentes? Ajuste `simit_obligatorio`
+ * (migración 20261118221044); sin el ajuste, sí.
+ */
+export async function simitObligatorio(): Promise<boolean> {
+  // Con Croma en pausa nada es obligatorio: queda para revisar a mano (24-nov-2026).
+  if (await cromaPausado()) return false;
+  const fila = (await leerAjustes().catch(() => [])).find((a) => a.clave === "simit_obligatorio");
+  return fila ? fila.valor !== false : true;
+}
+
+/**
+ * ¿El RUNT es obligatorio para pasar a antecedentes? Ajuste `runt_obligatorio`
+ * (migración 20261124185739, 24-nov-2026); sin el ajuste, no (como antes: sin
+ * el RUNT vale la licencia que dice el aspirante, con la observación). En «sí»,
+ * sin el RUNT ni una revisión a mano, la licencia declarada no basta para avanzar.
+ */
+export async function runtObligatorio(): Promise<boolean> {
+  if (await cromaPausado()) return false;
+  const fila = (await leerAjustes().catch(() => [])).find((a) => a.clave === "runt_obligatorio");
+  return fila?.valor === true;
+}
+
+/**
+ * ¿El RUNT de este proceso no respondió? Su última consulta falló, o Croma está
+ * en pausa. Entonces el asistente le pide la licencia (categoría y foto) y una
+ * persona la puede validar a mano (24-nov-2026).
+ */
+export async function runtSinRespuesta(procesoId: string): Promise<boolean> {
+  if (await cromaPausado()) return true;
+  const { data, error } = await createAdminClient()
+    .from("verificaciones_externas")
+    .select("estado")
+    .eq("proceso_id", procesoId)
+    .eq("fuente", "runt")
+    .neq("estado", "reiniciada")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return !error && data?.estado === "error";
+}
+
+/**
+ * Para el asistente: hay que pedirle la licencia porque el RUNT no respondió
+ * (y todavía no la tenemos ni verificada ni dicha). Solo con la cédula ya dada.
+ */
+export async function pedirLicenciaDeConversacion(conversacionId: string): Promise<boolean> {
+  const db = createAdminClient();
+  const { data: conv } = await db.from("wa_conversaciones").select("proceso_id").eq("id", conversacionId).maybeSingle();
+  if (!conv?.proceso_id) return false;
+  const { data: p } = await db
+    .from("procesos_contratacion")
+    .select("estado, cedula, licencia_runt, licencia_verificada_runt, licencia_categoria")
+    .eq("id", conv.proceso_id)
+    .maybeSingle();
+  if (!p || p.estado !== "pendiente" || !p.cedula || p.licencia_runt || p.licencia_verificada_runt || String(p.licencia_categoria ?? "").trim()) return false;
+  return runtSinRespuesta(conv.proceso_id as string);
+}
+
+/** ¿Ya se intentó el SIMIT de este proceso y Croma no ha respondido (en curso o con error)? Con Croma en pausa, sí. */
+async function simitSinRespuesta(procesoId: string): Promise<boolean> {
+  if (await cromaPausado()) return true;
+  const { data, error } = await createAdminClient()
+    .from("verificaciones_externas")
+    .select("estado")
+    .eq("proceso_id", procesoId)
+    .eq("fuente", "simit")
+    .neq("estado", "reiniciada")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return !error && (data?.estado === "error" || data?.estado === "pendiente");
+}
+
+/**
+ * ¿El RNMC es obligatorio para «Listo para citar»? Ajuste `rnmc_obligatorio`
+ * (migración 20261118190946); sin el ajuste, sí. En «no», mientras Croma no
+ * responde el RNMC, los antecedentes quedan limpios sin él (con la observación).
+ */
+export async function rnmcObligatorio(): Promise<boolean> {
+  const ajustes = await leerAjustes().catch(() => []);
+  // Desde el 25-nov-2026 manda «si no responde» de Selección › Antecedentes («pasa solo» = no obligatorio).
+  const nueva = reglasDeAjustes(ajustes).rnmcSinRespuesta;
+  if (nueva) return nueva !== "pasa";
+  const fila = ajustes.find((a) => a.clave === "rnmc_obligatorio");
+  return fila ? fila.valor !== false : true;
+}
+
+/**
+ * ¿El RUNT ya confirmó a la persona? Encontró la cédula consultada con su
+ * apellido y el nombre no es de otra persona. Con eso un RNMC sin nombre vale
+ * (el certificado de la Policía ya no imprime el nombre: 18-nov-2026).
+ */
+export async function identidadConfirmadaRunt(procesoId: string): Promise<boolean> {
+  const { data } = await createAdminClient().from("procesos_contratacion").select("cedula, licencia_runt").eq("id", procesoId).maybeSingle();
+  const r = (data?.licencia_runt as ResumenRunt | null) ?? null;
+  if (!r || r.registrado === false || !r.identidadVerificada || r.nombreNoCoincide) return false;
+  // Que sea de la cédula actual (si la corrigió, el RUNT anterior no vale).
+  return runtConsultadoPara(r, (data?.cedula as string | null) ?? null);
+}
+
+/** La evaluación de las reglas más lo que decidió una persona sobre el hallazgo. */
+export type EvaluacionProceso = EvaluacionAntecedentes & {
+  decision: "aprobado" | "rechazado" | null;
+  /** Con esto el proceso puede quedar listo para citar y citarse. */
+  permite: boolean;
+};
+
+/** Reglas de antecedentes de Gestión Humana (ajustes `ant_*`). Sin la migración de la entrega 3, todo a revisión. */
+export async function reglasAntecedentes(): Promise<ReglasAntecedentes> {
+  return reglasDeAjustes(await leerAjustes().catch(() => []));
+}
+
+/**
+ * Evalúa los antecedentes guardados del proceso (Policía, Procuraduría,
+ * Contraloría, RNMC) con las reglas de Gestión Humana y deja el veredicto en
+ * el proceso.
+ */
+export async function evaluarAntecedentesProceso(procesoId: string): Promise<EvaluacionProceso | null> {
+  const { data, error } = await createAdminClient()
+    .from("verificaciones_externas")
+    .select("fuente, estado, resultado, error")
+    .eq("proceso_id", procesoId)
+    .in("fuente", [...FUENTES_ANTECEDENTES])
+    // Las de antes de reiniciar un candidato del chat de prueba no cuentan.
+    .neq("estado", "reiniciada")
+    .order("created_at", { ascending: false });
+  if (error) return null;
+  const db = createAdminClient();
+  const [identidadConfirmada, opcionales, reglas, guardado] = await Promise.all([
+    identidadConfirmadaRunt(procesoId),
+    fuentesOpcionales(),
+    reglasAntecedentes(),
+    // Sin la migración de la entrega 3 estas columnas no existen: la consulta falla y no hay decisión.
+    db.from("procesos_contratacion").select("antecedentes_resultado, antecedentes_decision").eq("id", procesoId).maybeSingle(),
+  ]);
+  // El nombre del aspirante, para la regla «el nombre no coincide» (aparte: es de la entrega 1 y no debe caer con las columnas de la 3).
+  const { data: persona } = await db.from("procesos_contratacion").select("nombre").eq("id", procesoId).maybeSingle();
+  const ev = evaluarAntecedentes((data ?? []) as ConsultaGuardada[], { identidadConfirmada, opcionales, reglas, nombre: (persona?.nombre as string | null) ?? null });
+  await sincronizarAntecedentes(procesoId, ev).catch((e) => console.error("[seleccion] columna de antecedentes:", e));
+  const hayConsultas = ev.fuentes.some((f) => f.estado !== "sin_consultar");
+  if (!guardado.error && hayConsultas && guardado.data?.antecedentes_resultado !== ev.veredicto) {
+    await db.from("procesos_contratacion").update({ antecedentes_resultado: ev.veredicto }).eq("id", procesoId);
+  }
+  const d = guardado.data?.antecedentes_decision;
+  let decision: "aprobado" | "rechazado" | null = d === "aprobado" || d === "rechazado" ? d : null;
+  // 27-nov-2026 (reunión de soporte): con el aval dado (p. ej. para seguir sin una fuente caída), si
+  // después llega una anotación en una fuente que no la tenía cuando se aprobó, el aval se anula:
+  // el caso vuelve a «Antecedentes por revisar» y sale la alerta. El proceso no cambia de etapa.
+  if (decision === "aprobado") {
+    const nuevas = await hallazgosDespuesDelAval(procesoId, ev.fuentes.filter((f) => f.estado === "hallazgo").map((f) => f.fuente));
+    if (nuevas.length) {
+      await db.from("procesos_contratacion").update({ antecedentes_decision: null }).eq("id", procesoId).eq("antecedentes_decision", "aprobado");
+      await registrarEvento(procesoId, { tipo: "dato", detalle: { aval_anulado: true, fuentes: nuevas, motivo: "Llegó una anotación después del aval: vuelve a revisión." } }, ACTOR_SISTEMA);
+      await import("./alerta-antecedentes-servidor")
+        .then((m) => m.alertarAntecedentes(procesoId, "tardio", nuevas))
+        .catch((e) => console.error("[seleccion] alerta de antecedentes:", e));
+      decision = null;
+    }
+  }
+  return { ...ev, decision, permite: permiteSeguir(ev.veredicto, decision) };
+}
+
+/**
+ * Fuentes con anotación que no la tenían cuando una persona dio el aval (la
+ * última decisión «aprobado»). La decisión guarda `hallazgos` desde el
+ * 27-nov-2026; las de antes solo `fuentes` (con anotación o a revisar), y
+ * entonces se comparan con esas (no se anula de más).
+ */
+async function hallazgosDespuesDelAval(procesoId: string, hallazgos: string[]): Promise<string[]> {
+  if (!hallazgos.length) return [];
+  const { data } = await createAdminClient()
+    .from("procesos_contratacion_eventos")
+    .select("detalle")
+    .eq("proceso_id", procesoId)
+    .eq("detalle->>decision_antecedentes", "aprobado")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!data) return [];
+  const det = (data.detalle ?? {}) as { hallazgos?: string[]; fuentes?: string[] };
+  const conocidas = new Set(Array.isArray(det.hallazgos) ? det.hallazgos : Array.isArray(det.fuentes) ? det.fuentes : []);
+  return hallazgos.filter((f) => !conocidas.has(f));
+}
+
+/**
+ * Lleva el resultado de los antecedentes a la columna «Antecedentes» del
+ * proceso (la que se ve en la lista de Candidatos), que antes solo se llenaba
+ * a mano. Con veredicto (limpio u hallazgo) manda lo consultado; mientras
+ * falten fuentes solo pone «pendiente» si estaba vacía (no pisa lo de Gestión Humana).
+ */
+async function sincronizarAntecedentes(procesoId: string, ev: EvaluacionAntecedentes): Promise<void> {
+  if (!ev.fuentes.some((f) => f.estado !== "sin_consultar")) return;
+  const db = createAdminClient();
+  if (ev.resultado === "pendiente") {
+    await db.from("procesos_contratacion").update({ antecedentes: "pendiente" }).eq("id", procesoId).is("antecedentes", null);
+    return;
+  }
+  const valor = ev.resultado === "limpio" ? "ok" : "con_antecedentes";
+  await db.from("procesos_contratacion").update({ antecedentes: valor }).eq("id", procesoId).or(`antecedentes.is.null,antecedentes.neq.${valor}`);
+}
+
+/**
+ * Fuentes de antecedentes que hoy no son obligatorias (ajustes
+ * `policia_obligatorio`, `procuraduria_obligatorio`, `contraloria_obligatorio`
+ * y `rnmc_obligatorio` en «no»). Sin el ajuste, la fuente es obligatoria.
+ */
+export async function fuentesOpcionales(): Promise<FuenteAntecedentes[]> {
+  const ajustes = await leerAjustes().catch(() => []);
+  // Desde el 25-nov-2026 manda «si no responde» de Selección › Antecedentes; sin él, el sí/no de antes.
+  const reglas = reglasDeAjustes(ajustes);
+  return FUENTES_ANTECEDENTES.filter((f) => {
+    const nueva = reglas[CAMPO_SIN_RESPUESTA[f]];
+    return nueva ? nueva === "pasa" : ajustes.find((a) => a.clave === `${f}_obligatorio`)?.valor === false;
+  });
+}
+
+/** Los datos del prefiltro tal como quedaron guardados en el proceso. */
+function prefiltroDelProceso(p: {
+  cedula?: unknown;
+  cedula_fecha_expedicion?: unknown;
+  edad?: unknown;
+  fecha_nacimiento?: unknown;
+  ciudad_residencia?: unknown;
+  dispuesto_traslado?: unknown;
+  licencia_categoria?: unknown;
+  experiencia_meses?: unknown;
+  hoja_vida_recibida_at?: unknown;
+  autorizacion_datos?: unknown;
+}): Partial<DatosPrefiltro> {
+  const texto = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+  const numero = (v: unknown) => (v == null || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
+  return {
+    cedula: texto(p.cedula),
+    fecha_expedicion: texto(p.cedula_fecha_expedicion),
+    edad: numero(p.edad),
+    fecha_nacimiento: texto(p.fecha_nacimiento),
+    ciudad: texto(p.ciudad_residencia),
+    dispuesto_traslado: typeof p.dispuesto_traslado === "boolean" ? p.dispuesto_traslado : null,
+    licencia: texto(p.licencia_categoria),
+    experiencia_meses: numero(p.experiencia_meses),
+    hoja_vida: Boolean(p.hoja_vida_recibida_at),
+    autorizacion: p.autorizacion_datos === "si" ? "si" : p.autorizacion_datos === "no" ? "no" : null,
+  };
+}
+
+/**
+ * «Listo para citar» (pedido de GH del 17-nov-2026): prefiltro completo,
+ * autorización aceptada, preselección sin rojos y, con Croma configurado,
+ * los cuatro antecedentes limpios. Se marca una sola vez: el chat queda para
+ * Gestión Humana sin pausar al agente. Sin Croma, como antes (sin antecedentes).
+ * `datos` sirve cuando el proceso no tiene conversación (chat de prueba).
+ */
+export async function marcarListoParaCitar(procesoId: string, datos?: DatosPrefiltro | null): Promise<boolean> {
+  const db = createAdminClient();
+  const { data: p } = await db
+    .from("procesos_contratacion")
+    .select(
+      "estado, autorizacion_datos, preseleccion, reingreso, licencia_runt, licencia_categoria, licencia_verificada_runt, cedula, cedula_fecha_expedicion, edad, fecha_nacimiento, ciudad_residencia, dispuesto_traslado, experiencia_meses, hoja_vida_recibida_at"
+    )
+    .eq("id", procesoId)
+    .maybeSingle();
+  if (!p || p.autorizacion_datos !== "si") return false;
+  // Trabajó antes en la empresa: lo revisa una persona (lista «Reingresos por revisar»).
+  if (p.reingreso) return false;
+  if ((p.preseleccion as ResultadoPreseleccionGuardado | null)?.global === "no_cumple") return false;
+  const { data: conv } = await db
+    .from("wa_conversaciones")
+    .select("id, prefiltro")
+    .eq("proceso_id", procesoId)
+    .order("ultimo_mensaje_at", { ascending: false, nullsFirst: false })
+    .limit(1)
+    .maybeSingle();
+  // Sin los datos del chat ni el prefiltro de una conversación (p. ej. después de «Lo revisé a
+  // mano» en un candidato del chat de prueba, 26-nov-2026), lo que ya guarda el proceso: sin
+  // esto quedaba quieto hasta el siguiente mensaje del aspirante.
+  const prefiltro = (datos ?? (conv?.prefiltro as Partial<DatosPrefiltro> | null)) ?? prefiltroDelProceso(p);
+  // La licencia verificada en el RUNT cuenta aunque no la haya escrito: con ella el
+  // asistente ya no se la pregunta (18-nov-2026), y sin esto nunca quedaría listo.
+  const licenciaRunt = p.licencia_verificada_runt && p.licencia_categoria ? (p.licencia_categoria as string) : null;
+  if (!prefiltro || !prefiltroCompleto({ ...PREFILTRO_VACIO, ...prefiltro, licencia: prefiltro.licencia ?? licenciaRunt })) return false;
+  let faltaRnmc = false;
+  // Lo que Croma no respondió y hay que revisar a mano (fuentes opcionales, SIMIT, RUNT).
+  const faltan: string[] = [];
+  if (await siCromaActivo(proveedorAntecedentes())) {
+    if (p.estado !== "antecedentes") return false;
+    const ev = await evaluarAntecedentesProceso(procesoId);
+    // Limpio, con hallazgos que las reglas toleran, o aprobado por una persona.
+    if (!ev?.permite) return false;
+    faltaRnmc = ev.faltaRnmc === true;
+    faltan.push(...(ev.faltan ?? []));
+    // Sin el RUNT el semáforo usó la licencia que dijo el aspirante: falta verificarla (o que una persona la revise).
+    if (!p.licencia_runt && !p.licencia_verificada_runt) faltan.push("runt");
+  } else if (await cromaPausado()) {
+    // Croma en pausa: no se consultó nada; queda todo para revisar a mano y no se cita solo.
+    faltan.push("antecedentes");
+    if (!p.licencia_runt && !p.licencia_verificada_runt) faltan.push("runt");
+  }
+  const { data: ya } = await db
+    .from("procesos_contratacion_eventos")
+    .select("id")
+    .eq("proceso_id", procesoId)
+    .eq("detalle->>listo_para_citar", "true")
+    .gte("created_at", await inicioVigenteProceso(procesoId))
+    .limit(1)
+    .maybeSingle();
+  if (ya) return false;
+  if (conv) await db.from("wa_conversaciones").update({ requiere_humano: true }).eq("id", conv.id);
+  // Con el RNMC opcional y sin su respuesta, queda la observación para que Gestión Humana lo revise a mano.
+  // Pasó sin el SIMIT (opcional y Croma no respondió): queda la observación y no se cita solo.
+  const pre = p.preseleccion as ResultadoPreseleccionGuardado | null;
+  const faltaSimit = !!pre && pre.simit?.color !== "verde";
+  if (faltaSimit) faltan.push("simit");
+  await registrarEvento(
+    procesoId,
+    {
+      tipo: "dato",
+      detalle: { listo_para_citar: true, ...(faltaRnmc ? { falta_rnmc: true } : {}), ...(faltaSimit ? { falta_simit: true } : {}), ...(faltan.length ? { faltan } : {}) },
+    },
+    ACTOR_SISTEMA
+  );
+  // Con el ajuste `cita_automatica`, Gestivo lo cita de una vez (import diferido: la agenda usa este módulo).
+  await import("./agenda-servidor")
+    .then((m) => m.citarAutomaticamente(procesoId, { faltaRnmc: faltan.length > 0 }))
+    .catch((e) => console.error("[seleccion] cita automática:", e));
+  return true;
+}
+
+/**
+ * Desde cuándo valen las marcas de «una sola vez» del proceso (Listo para
+ * citar, revisión de antecedentes, aviso de no seleccionado, reingreso): desde
+ * el último reinicio del chat de prueba (evento con detalle.reiniciado), o
+ * desde siempre. Así, al reiniciar un candidato de prueba, todo vuelve a pasar.
+ */
+export async function inicioVigenteProceso(procesoId: string): Promise<string> {
+  const { data } = await createAdminClient()
+    .from("procesos_contratacion_eventos")
+    .select("created_at")
+    .eq("proceso_id", procesoId)
+    .eq("detalle->>reiniciado", "true")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return (data?.created_at as string | undefined) ?? "1970-01-01T00:00:00Z";
+}
+
+/** Aviso al aspirante cuando sus antecedentes quedan para revisión (texto por defecto del catálogo). */
+export const AVISO_REVISION_PERSONAL =
+  "Gracias por tu paciencia. Una persona de Gestión Humana revisará tu proceso y se contactará contigo pronto. Mantente atento a tu teléfono.";
+
+/**
+ * Antecedentes con hallazgos (pedido de GH del 17-nov-2026, mientras se
+ * definen las reglas de la selección automática): el caso queda para revisión
+ * de una persona y se le avisa al aspirante que alguien lo contactará, sin
+ * hablarle de antecedentes. Con la ventana de 24 h abierta sale el mensaje; si
+ * no, queda como borrador para Gestión Humana. Una sola vez por proceso.
+ * Devuelve el texto del aviso cuando lo marca (null si no corresponde).
+ */
+export async function marcarRevisionAntecedentes(procesoId: string): Promise<string | null> {
+  const ev = await evaluarAntecedentesProceso(procesoId);
+  // Las reglas mandan el caso a una persona: a revisar, o a confirmar el cierre
+  // que proponen. Lo tolerable sigue solo y lo ya decidido no se vuelve a marcar.
+  if (!ev || (ev.veredicto !== "revision" && ev.veredicto !== "descarta") || ev.decision) return null;
+  const db = createAdminClient();
+  const { data: ya } = await db
+    .from("procesos_contratacion_eventos")
+    .select("id")
+    .eq("proceso_id", procesoId)
+    .eq("detalle->>revision_antecedentes", "true")
+    .gte("created_at", await inicioVigenteProceso(procesoId))
+    .limit(1)
+    .maybeSingle();
+  if (ya) return null;
+
+  const catalogo = await leerMensaje("revision_antecedentes").catch(() => null);
+  const texto = catalogo?.texto?.trim() || AVISO_REVISION_PERSONAL;
+  const { data: conv } = await db
+    .from("wa_conversaciones")
+    .select("id, ultimo_entrante_at, wa_contactos(telefono)")
+    .eq("proceso_id", procesoId)
+    .order("ultimo_mensaje_at", { ascending: false, nullsFirst: false })
+    .limit(1)
+    .maybeSingle();
+  let aviso: "enviado" | "borrador" | "fallido" | "sin_conversacion" = "sin_conversacion";
+  if (conv) {
+    const contacto = (Array.isArray(conv.wa_contactos) ? conv.wa_contactos[0] : conv.wa_contactos) as { telefono?: string } | null;
+    if (contacto?.telefono && ventanaAbierta((conv.ultimo_entrante_at as string | null) ?? null, new Date())) {
+      const envio = await enviarTexto(contacto.telefono, texto);
+      await registrarSaliente(conv.id as string, envio, { contenido: texto }, FIRMA_SELECCION, { automatico: true });
+      aviso = envio.ok ? "enviado" : "fallido";
+    } else {
+      const borrador = { clave: "revision_antecedentes", texto, plantilla: null, parametros: null, creado_at: new Date().toISOString() };
+      await db.from("wa_conversaciones").update({ borrador_sugerido: borrador }).eq("id", conv.id);
+      aviso = "borrador";
+    }
+    await db.from("wa_conversaciones").update({ requiere_humano: true }).eq("id", conv.id);
+  }
+  const hallazgos = ev.fuentes.filter((f) => f.estado === "hallazgo").map((f) => f.fuente);
+  await registrarEvento(
+    procesoId,
+    { tipo: "dato", detalle: { revision_antecedentes: true, fuentes: hallazgos, aviso, ...(ev.veredicto === "descarta" ? { propone_cierre: true } : {}) } },
+    ACTOR_SISTEMA
+  );
+  // 27-nov-2026: y el correo a Gestión Humana (antes había que entrar a Candidatos a mirar).
+  const sinRespuesta = ev.fuentes.filter((f) => f.estado !== "limpio" && f.estado !== "hallazgo").map((f) => f.fuente);
+  await import("./alerta-antecedentes-servidor")
+    .then((m) => m.alertarAntecedentes(procesoId, hallazgos.length ? "hallazgo" : "sin_respuesta", hallazgos.length ? hallazgos : sinRespuesta))
+    .catch((e) => console.error("[seleccion] alerta de antecedentes:", e));
+  return texto;
+}
+
+/** ¿El proceso de la conversación quedó para revisión de antecedentes por una persona? */
+export async function antecedentesEnRevisionDeConversacion(conversacionId: string): Promise<boolean> {
+  const db = createAdminClient();
+  const { data: conv } = await db.from("wa_conversaciones").select("proceso_id").eq("id", conversacionId).maybeSingle();
+  return conv?.proceso_id ? antecedentesEnRevisionDeProceso(conv.proceso_id as string) : false;
+}
+
+/**
+ * ¿El proceso espera que una persona revise sus antecedentes? Sí desde el
+ * aviso de revisión, hasta que los antecedentes dejen seguir (una persona lo
+ * aprobó, o la revisión a mano o un cambio de reglas los dejó limpios o
+ * tolerables). Antes, aprobado el caso, el asistente seguía diciendo que una
+ * persona lo revisaría.
+ */
+export async function antecedentesEnRevisionDeProceso(procesoId: string): Promise<boolean> {
+  const db = createAdminClient();
+  const [evento, proc] = await Promise.all([
+    db
+      .from("procesos_contratacion_eventos")
+      .select("id")
+      .eq("proceso_id", procesoId)
+      .eq("detalle->>revision_antecedentes", "true")
+      .gte("created_at", await inicioVigenteProceso(procesoId))
+      .limit(1)
+      .maybeSingle(),
+    db.from("procesos_contratacion").select("antecedentes_resultado, antecedentes_decision").eq("id", procesoId).maybeSingle(),
+  ]);
+  if (!evento.data) return false;
+  // Sin la migración de la entrega 3 no hay columnas: se queda como antes.
+  if (proc.error || !proc.data) return true;
+  return !permiteSeguir(proc.data.antecedentes_resultado as VeredictoAntecedentes | null, proc.data.antecedentes_decision as string | null);
+}
+
+/**
+ * Minutos con el semáforo en rojo antes del cierre automático (da tiempo a convencerlo de
+ * trasladarse o a que corrija un dato). Es el valor por defecto: se cambia con el ajuste
+ * `preseleccion_cierre_minutos` (Tiempos y reglas › Requisitos de la preselección).
+ */
+export const ESPERA_CIERRE_MINUTOS = 30;
+
+/**
+ * Cierre automático de los que no pasan la preselección (pedido de GH del
+ * 17-nov-2026): el proceso se cierra con la causa del requisito incumplido
+ * (edad, residencia, licencia, SIMIT) cuando el semáforo lleva al menos
+ * ESPERA_CIERRE_MINUTOS en rojo sin cambiar y sin mensajes nuevos del aspirante
+ * (mientras escribe, el asistente lo sigue atendiendo). Solo los del asistente y del chat
+ * de prueba, y solo en Preselección: lo que lleva Gestión Humana no se toca.
+ * Lo corre el cron de seguimiento.
+ */
+export async function cerrarNoPreseleccionados(ahora: Date = new Date(), soloProcesos?: string[]): Promise<{ cerrados: number }> {
+  const db = createAdminClient();
+  let consulta = db
+    .from("procesos_contratacion")
+    .select("id, requisito_incumplido, preseleccion")
+    .eq("estado", "pendiente")
+    .in("origen", ["whatsapp_agente", "chat_prueba"])
+    .not("requisito_incumplido", "is", null);
+  // Baterías de prueba: solo sus procesos (en la base de desarrollo hay copias de procesos reales).
+  if (soloProcesos) consulta = consulta.in("id", soloProcesos.length ? soloProcesos : ["00000000-0000-0000-0000-000000000000"]);
+  const { data: procesos, error } = await consulta.limit(100);
+  if (error || !procesos?.length) return { cerrados: 0 };
+  // 25-nov-2026 (Selección › Antecedentes): el SIMIT sobre el tope o la licencia que no sirve
+  // pueden ir a «revisión manual»: entonces no se cierra solo; queda para una persona.
+  const ajustes = await leerAjustes().catch(() => []);
+  const aRevision = new Set<string>(
+    (["simit", "licencia"] as const).filter((r) => valorAjuste<unknown>(ajustes, r === "simit" ? "ant_simit_accion" : "ant_licencia_accion", "descarta") === "revision")
+  );
+  // Minutos en rojo antes de cerrar: ajuste `preseleccion_cierre_minutos` (25-nov-2026); sin él, 30.
+  const minutos = Number(valorAjuste<unknown>(ajustes, "preseleccion_cierre_minutos", ESPERA_CIERRE_MINUTOS));
+  const espera = (Number.isFinite(minutos) && minutos >= 5 ? minutos : ESPERA_CIERRE_MINUTOS) * 60_000;
+  let cerrados = 0;
+  for (const p of procesos) {
+    const pre = p.preseleccion as ResultadoPreseleccionGuardado | null;
+    if (pre?.global !== "no_cumple") continue;
+    if (pre.incumplido && aRevision.has(pre.incumplido)) {
+      await marcarRevisionRequisito(p.id as string, pre.incumplido).catch((e) => console.error("[seleccion] revisión manual del requisito:", e));
+      continue;
+    }
+    // Desde cuándo está en rojo: el último cambio del semáforo.
+    const { data: ev } = await db
+      .from("procesos_contratacion_eventos")
+      .select("created_at, detalle")
+      .eq("proceso_id", p.id)
+      .eq("tipo", "preseleccion")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const desde = ev && (ev.detalle as { global?: string } | null)?.global === "no_cumple" ? Date.parse(ev.created_at as string) : NaN;
+    if (!Number.isFinite(desde) || ahora.getTime() - desde < espera) continue;
+    // Mientras siga escribiendo no se cierra: puede cambiar la respuesta (p. ej.
+    // aceptar el traslado). Cuentan 30 min también desde su último mensaje.
+    const { data: convs } = await db.from("wa_conversaciones").select("ultimo_entrante_at").eq("proceso_id", p.id);
+    const ultimoMensaje = Math.max(0, ...(convs ?? []).map((c) => Date.parse((c.ultimo_entrante_at as string | null) ?? "") || 0));
+    if (ahora.getTime() - ultimoMensaje < espera) continue;
+    const r = await cambiarEstadoProceso(p.id as string, "cierre", {
+      actor: ACTOR_SISTEMA,
+      causa: p.requisito_incumplido as string,
+      detalle: { motivo: "No pasó la preselección: cierre automático.", automatico: true },
+    }).catch((e) => {
+      console.error("[seleccion] cierre automático:", e);
+      return null;
+    });
+    if (r?.cambiado) cerrados++;
+  }
+  return { cerrados };
+}
+
+/**
+ * El requisito en rojo va a revisión manual (regla de Selección › Antecedentes):
+ * el proceso no se cierra solo; el chat queda para una persona. Una sola vez.
+ */
+async function marcarRevisionRequisito(procesoId: string, requisito: string): Promise<void> {
+  const db = createAdminClient();
+  const { data: ya } = await db
+    .from("procesos_contratacion_eventos")
+    .select("id")
+    .eq("proceso_id", procesoId)
+    .eq("detalle->>revision_requisito", requisito)
+    .gte("created_at", await inicioVigenteProceso(procesoId))
+    .limit(1)
+    .maybeSingle();
+  if (ya) return;
+  await db.from("wa_conversaciones").update({ requiere_humano: true }).eq("proceso_id", procesoId);
+  await registrarEvento(procesoId, { tipo: "dato", detalle: { revision_requisito: requisito, motivo: "No cumple el requisito: las reglas lo dejan para revisión manual (no se cierra solo)." } }, ACTOR_SISTEMA);
+  await import("./alerta-antecedentes-servidor")
+    .then((m) => m.alertarAntecedentes(procesoId, "requisito", [requisito]))
+    .catch((e) => console.error("[seleccion] alerta de antecedentes:", e));
+}
+
+/** Aviso cuando el proceso se cierra por antecedentes: no dice el motivo (texto por defecto del catálogo). */
+export const AVISO_NO_SELECCIONADO =
+  "Gracias por tu interés y por el tiempo que dedicaste a tu proceso. Te informamos que en esta ocasión no continúas en el proceso de selección. Te deseamos muchos éxitos.";
+
+/**
+ * Proceso cerrado por antecedentes (por Gestión Humana tras revisar, o por las
+ * reglas automáticas cuando existan): se le avisa al aspirante que no pasó el
+ * proceso de selección, sin decirle por qué. Con la ventana de 24 h abierta
+ * sale el mensaje; si no, queda como borrador. Una sola vez por proceso.
+ */
+export async function avisarCierrePorAntecedentes(procesoId: string): Promise<"enviado" | "borrador" | "fallido" | "sin_conversacion" | null> {
+  const db = createAdminClient();
+  const { data: p } = await db.from("procesos_contratacion").select("estado, causa_no_contrato").eq("id", procesoId).maybeSingle();
+  if (p?.estado !== "cierre" || p.causa_no_contrato !== CAUSA_ANTECEDENTES) return null;
+  const { data: ya } = await db
+    .from("procesos_contratacion_eventos")
+    .select("id")
+    .eq("proceso_id", procesoId)
+    .eq("detalle->>aviso_no_seleccionado", "true")
+    .gte("created_at", await inicioVigenteProceso(procesoId))
+    .limit(1)
+    .maybeSingle();
+  if (ya) return null;
+  const [catalogo, ajustes] = await Promise.all([leerMensaje("no_seleccionado").catch(() => null), leerAjustes()]);
+  const texto = catalogo?.texto?.trim() || AVISO_NO_SELECCIONADO;
+  const { data: conv } = await db
+    .from("wa_conversaciones")
+    .select("id, ultimo_entrante_at, wa_contactos(telefono, nombre)")
+    .eq("proceso_id", procesoId)
+    .order("ultimo_mensaje_at", { ascending: false, nullsFirst: false })
+    .limit(1)
+    .maybeSingle();
+  let aviso: "enviado" | "borrador" | "fallido" | "sin_conversacion" = "sin_conversacion";
+  if (conv) {
+    const contacto = (Array.isArray(conv.wa_contactos) ? conv.wa_contactos[0] : conv.wa_contactos) as { telefono?: string; nombre?: string | null } | null;
+    if (contacto?.telefono && catalogo) {
+      // Del catálogo: con la ventana abierta sale como texto; cerrada, por la plantilla
+      // aprobada de Meta; sin plantilla aprobada queda como borrador para una persona.
+      const r = await enviarMensajeDirecto({
+        conversacionId: conv.id as string,
+        telefono: contacto.telefono,
+        ultimoEntranteAt: (conv.ultimo_entrante_at as string | null) ?? null,
+        mensaje: catalogo,
+        valores: { ...valoresFijos(ajustes), nombre: primerNombre(contacto.nombre) },
+        borradorSiNoSale: true,
+      });
+      aviso = r.resultado === "enviado" ? "enviado" : r.resultado === "borrador" ? "borrador" : "fallido";
+    } else if (contacto?.telefono && ventanaAbierta((conv.ultimo_entrante_at as string | null) ?? null, new Date())) {
+      const envio = await enviarTexto(contacto.telefono, texto);
+      await registrarSaliente(conv.id as string, envio, { contenido: texto }, FIRMA_SELECCION, { automatico: true });
+      aviso = envio.ok ? "enviado" : "fallido";
+    } else {
+      const borrador = { clave: "no_seleccionado", texto, plantilla: null, parametros: null, creado_at: new Date().toISOString() };
+      await db.from("wa_conversaciones").update({ borrador_sugerido: borrador, requiere_humano: true }).eq("id", conv.id);
+      aviso = "borrador";
+    }
+  }
+  await registrarEvento(procesoId, { tipo: "dato", detalle: { aviso_no_seleccionado: true, aviso } }, ACTOR_SISTEMA);
+  return aviso;
+}
+
+/**
+ * ¿El proceso de la conversación terminó? (el asistente le dice con amabilidad
+ * que no continúa, sin el motivo, y no le pide nada más). Ver procesoTerminado.
+ */
+export async function cerradoPorAntecedentesDeConversacion(conversacionId: string): Promise<boolean> {
+  const db = createAdminClient();
+  const { data: conv } = await db.from("wa_conversaciones").select("proceso_id").eq("id", conversacionId).maybeSingle();
+  return conv?.proceso_id ? cerradoPorAntecedentesDeProceso(conv.proceso_id as string) : false;
+}
+
+/**
+ * ¿El proceso terminó? Desde el 24-nov-2026 no solo por antecedentes: también
+ * cuando lo cierra una persona por cualquier causa (también para el chat de
+ * prueba, que no tiene conversación). El nombre se conserva por quienes lo usan.
+ */
+export async function cerradoPorAntecedentesDeProceso(procesoId: string): Promise<boolean> {
+  const db = createAdminClient();
+  const [{ data: p }, { data: ev }] = await Promise.all([
+    db.from("procesos_contratacion").select("estado, causa_no_contrato").eq("id", procesoId).maybeSingle(),
+    db.from("procesos_contratacion_eventos").select("actor, estado_nuevo").eq("proceso_id", procesoId).eq("tipo", "estado").order("created_at", { ascending: false }).limit(1).maybeSingle(),
+  ]);
+  if (p?.estado === "cierre" && p.causa_no_contrato === CAUSA_ANTECEDENTES) return true;
+  return procesoTerminado(p?.estado as string | undefined, p?.causa_no_contrato as string | null, ev?.estado_nuevo === "cierre" ? (ev.actor as string | null) : null);
+}

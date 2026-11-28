@@ -5,6 +5,7 @@ import { getFichaContacto } from "@/lib/comunicaciones/ficha";
 import { getActiveVacancies } from "@/lib/actions";
 import { getAgenteConfig } from "@/lib/comunicaciones/agente/config";
 import BandejaClient from "./BandejaClient";
+import { AvisoServicios } from "@/components/estado-servicios/aviso-servicios";
 
 // Al devolverle un chat a la IA, la acción responde con after(): necesita tiempo para el modelo.
 export const maxDuration = 60;
@@ -62,6 +63,7 @@ export default async function ComunicacionesPage({
 
   return (
     <BandejaClient
+      aviso={<AvisoServicios />}
       conversaciones={conversaciones}
       totales={{ total: bandeja.total, sinLeer, paraHumano: bandeja.paraHumano, pendientes: bandeja.pendientes }}
       hayMas={bandeja.hayMas}

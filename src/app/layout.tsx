@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
+import { Confirmador } from "@/components/ui/confirmar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { IndicadorEntorno } from "@/components/layout/indicador-entorno";
 import "./globals.css";
@@ -27,6 +28,8 @@ export default function RootLayout({
           {children}
         </TooltipProvider>
         <Toaster position="top-right" richColors />
+        {/* Confirmaciones del sistema en lugar de las del navegador (27-nov-2026). */}
+        <Confirmador />
         <IndicadorEntorno />
       </body>
     </html>

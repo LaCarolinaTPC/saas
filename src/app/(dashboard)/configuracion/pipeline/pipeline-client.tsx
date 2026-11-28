@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { confirmar } from "@/components/ui/confirmar";
 import { GitBranch, Plus, ChevronUp, ChevronDown, Trash2, Check } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/layout/page-header";
@@ -148,8 +149,8 @@ function StageRow({
           <Check className="h-3.5 w-3.5" /> Guardar
         </button>
         <button
-          onClick={() => {
-            if (!confirm(`¿Eliminar la etapa "${stage.label}"?`)) return;
+          onClick={async () => {
+            if (!await confirmar(`¿Eliminar la etapa "${stage.label}"?`)) return;
             run(() => deleteStage(stage.id, stage.key), "Etapa eliminada");
           }}
           disabled={pending}

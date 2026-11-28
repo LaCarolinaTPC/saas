@@ -15,7 +15,7 @@ import {
 import { totalesEsquema } from "@/lib/padrino/politica";
 import { BENEFICIARIO_LABEL } from "@/lib/padrino/hitos";
 import {
-  anularReferido, cerrarNoContratado, decidirElegibilidad, revalidarReferido, subirCertificado, validarCertificado,
+  anularReferido, aprobarHitosPorExcepcion, cerrarNoContratado, decidirElegibilidad, revalidarReferido, subirCertificado, validarCertificado,
 } from "@/lib/padrino/actions";
 import type { getReferido } from "@/lib/padrino/datos";
 import { EstadoBadge } from "../plan-padrino-client";
@@ -142,9 +142,14 @@ export function ReferidoClient({ datos, alertas = [], puedeRegistrar, puedeAprob
         </p>
       )}
       {r.hitos_bloqueados_motivo && (
-        <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
-          <span className="font-medium">No se crearon los hitos.</span> {r.hitos_bloqueados_motivo}. Corrija el dato en el proceso y revalide, o anule el registro.
-        </p>
+        <div className="space-y-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+          <p>
+            <span className="font-medium">No se crearon los hitos.</span> {r.hitos_bloqueados_motivo}. Corrija el dato en el proceso y revalide, anule el registro o apruébelos como excepción.
+          </p>
+          {puedeAprobar && !anulado && r.estado === "contratado" && (
+            <HitosPorExcepcion pendiente={pendiente} onAprobar={(obs) => correr(() => aprobarHitosPorExcepcion(r.id, obs), "Hitos creados por excepción")} />
+          )}
+        </div>
       )}
       {alertas.length > 0 && (
         <div className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
@@ -494,5 +499,37 @@ function Anular({ pendiente, aprobados, onAnular }: { pendiente: boolean; aproba
         <Button size="sm" disabled={pendiente || !motivo.trim() || (aprobados > 0 && !confirmaAprobados)} onClick={() => onAnular(motivo, aprobados > 0)} className="bg-red-600 text-white hover:bg-red-700">Anular</Button>
       </div>
     </Tarjeta>
+  );
+}
+
+/**
+ * Hitos bloqueados al contratar (27-nov-2026): Gestión Humana los aprueba como
+ * excepción documentada, con la observación obligatoria; queda en la bitácora.
+ */
+function HitosPorExcepcion({ pendiente, onAprobar }: { pendiente: boolean; onAprobar: (observacion: string) => void }) {
+  const [excepcion, setExcepcion] = useState(false);
+  const [obs, setObs] = useState("");
+  return (
+    <div className="space-y-2 rounded-md border border-red-200 bg-white p-2 text-gray-700">
+      <label className="flex items-start gap-2 text-sm">
+        <input type="checkbox" checked={excepcion} onChange={(e) => setExcepcion(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[#4F46E5]" />
+        Aprobar los hitos como excepción documentada
+      </label>
+      {excepcion && (
+        <>
+          <textarea
+            value={obs}
+            onChange={(e) => setObs(e.target.value)}
+            rows={3}
+            maxLength={2000}
+            placeholder="Observación obligatoria: qué se revisó y por qué se aprueba aunque no se cumpla el requisito (por ejemplo, el padrino sí estaba en la hoja de vida desde el comienzo)."
+            className="w-full rounded-md border border-gray-200 px-2 py-1.5 text-sm"
+          />
+          <Button disabled={pendiente || !obs.trim()} onClick={() => onAprobar(obs)} className="bg-[#4F46E5] text-white hover:bg-[#4338CA]">
+            Aprobar y crear los hitos
+          </Button>
+        </>
+      )}
+    </div>
   );
 }

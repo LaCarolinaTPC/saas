@@ -1,6 +1,7 @@
 "use client";
 
 import { SiExporta } from "@/components/permisos/permisos-provider";
+import { confirmar } from "@/components/ui/confirmar";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -126,8 +127,8 @@ export function MatrizClient({
     setEliminando(null);
   }
 
-  function restaurar(r: MatrizFila) {
-    if (!window.confirm(`¿Restaurar la incapacidad de ${r.nombre ?? r.cedula} (${fechaAAMMDD(r.fecha_inicio)})? Vuelve a la matriz tal como estaba.`)) return;
+  async function restaurar(r: MatrizFila) {
+    if (!await confirmar(`¿Restaurar la incapacidad de ${r.nombre ?? r.cedula} (${fechaAAMMDD(r.fecha_inicio)})? Vuelve a la matriz tal como estaba.`)) return;
     startRestaurar(async () => {
       const res = await restaurarIncapacidad({ id: r.id });
       if (res.success) {

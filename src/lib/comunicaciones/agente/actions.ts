@@ -8,9 +8,7 @@ import {
   getAgenteConClaves,
   getAgenteConfig,
   mensajesALeer,
-  type AgenteConfig,
   type NivelCosto,
-  type ModoOpenRouter,
   type Proveedor,
 } from "./config";
 import {
@@ -26,27 +24,12 @@ import {
   type MotivoTransferencia,
 } from "./motor";
 import { generarRespuesta } from "./proveedores";
+import { configDesdeFormulario, type AgenteFormulario } from "./formulario";
 import { responderConAgente } from "./responder";
+import { SISTEMA_EXTRACCION, interpretarExtraccion, transcribir, type DatosPrefiltro } from "@/lib/seleccion/extraccion";
+import { contextoSeleccion } from "@/lib/seleccion/servidor";
 
-export interface AgenteFormulario {
-  activo: boolean;
-  proveedor: Proveedor;
-  modelo: string;
-  openrouterModo: ModoOpenRouter;
-  openrouterNivelCosto: NivelCosto;
-  openrouterModelosPermitidos: string;
-  prompt: string;
-  mensajeTransferencia: string;
-  frasesTransferencia: string;
-  mensajesHistorial: number;
-  esperaSegundos: number;
-  preguntasRequisitos: string;
-  documentosRequeridos: string;
-  temasReservados: string;
-  respuestaReservada: string;
-  transferirAlCompletar: boolean;
-  intentosSinEntender: number;
-}
+export type { AgenteFormulario };
 
 const MAX_LISTA = 3000;
 const PROVEEDORES: Proveedor[] = ["anthropic", "openai", "openrouter"];
@@ -57,7 +40,7 @@ function validar(f: AgenteFormulario): string | null {
   if (!NIVELES.includes(f.openrouterNivelCosto)) return "Nivel de costo no válido.";
   if (f.openrouterModo !== "auto" && f.openrouterModo !== "manual") return "Modo de OpenRouter no válido.";
   if (f.proveedor === "openrouter" && f.openrouterModo === "manual" && !f.modelo.trim()) {
-    return "Indica el modelo de OpenRouter (p. ej. google/gemini-2.5-flash) o usa el modo automático.";
+    return "Indica el modelo de OpenRouter (el recomendado es anthropic/claude-haiku-5.5) o usa el modo automático.";
   }
   if (!Number.isInteger(f.mensajesHistorial) || f.mensajesHistorial < 2 || f.mensajesHistorial > 60) {
     return "El historial debe estar entre 2 y 60 mensajes.";
@@ -72,6 +55,12 @@ function validar(f: AgenteFormulario): string | null {
     return `Cada lista del proceso de selección admite hasta ${MAX_LISTA} caracteres.`;
   }
   if (f.respuestaReservada.length > 500) return "La respuesta para los temas reservados admite hasta 500 caracteres.";
+  if (f.documentosProveedor && !PROVEEDORES.includes(f.documentosProveedor)) return "Proveedor de documentos no válido.";
+  if (f.documentosProveedor && f.documentosProveedor !== "anthropic" && !f.documentosModelo?.trim()) {
+    return "Indica el modelo que lee los documentos (p. ej. anthropic/claude-haiku-5.5 en OpenRouter).";
+  }
+  if (f.vozProveedor && f.vozProveedor !== "openrouter" && f.vozProveedor !== "openai") return "Proveedor de voz no válido.";
+  if (f.vozModelo && f.vozModelo !== "gpt4o_mini" && f.vozModelo !== "whisper") return "Modelo de voz no válido.";
   if (f.activo && !f.prompt.trim()) return "Escribe el prompt antes de activar el agente.";
   return null;
 }
@@ -79,30 +68,11 @@ function validar(f: AgenteFormulario): string | null {
 /** Configuración del formulario con las API keys de Configuración → Proveedores de IA. */
 async function resolver(f: AgenteFormulario) {
   const { claves } = await getAgenteConClaves();
-  const config: AgenteConfig = {
-    activo: f.activo,
-    proveedor: f.proveedor,
-    modelo: f.modelo.trim() || null,
-    openrouterModo: f.openrouterModo,
-    openrouterNivelCosto: f.openrouterNivelCosto,
-    openrouterModelosPermitidos: f.openrouterModelosPermitidos.trim() || null,
-    prompt: f.prompt,
-    mensajeTransferencia: f.mensajeTransferencia,
-    frasesTransferencia: f.frasesTransferencia,
-    mensajesHistorial: f.mensajesHistorial,
-    esperaSegundos: f.esperaSegundos,
-    preguntasRequisitos: f.preguntasRequisitos,
-    documentosRequeridos: f.documentosRequeridos,
-    temasReservados: f.temasReservados,
-    respuestaReservada: f.respuestaReservada,
-    transferirAlCompletar: f.transferirAlCompletar,
-    intentosSinEntender: f.intentosSinEntender,
-  };
-  return { config, claves };
+  return { config: configDesdeFormulario(f), claves };
 }
 
-/** Guarda la configuración del agente (solo administradores). */
-export async function guardarAgente(f: AgenteFormulario): Promise<{ ok: boolean; error?: string }> {
+/** Guarda la configuración del agente y de la IA de documentos y voz (solo administradores). */
+export async function guardarAgente(f: AgenteFormulario): Promise<{ ok: boolean; error?: string; aviso?: string }> {
   const perms = await getCurrentPermissions();
   if (!perms.isAdmin) return { ok: false, error: "Solo el administrador puede configurar el agente." };
   const error = validar(f);
@@ -114,7 +84,15 @@ export async function guardarAgente(f: AgenteFormulario): Promise<{ ok: boolean;
   }
 
   const db = createAdminClient();
-  const { error: eDb } = await db.from("wa_agente").upsert({
+  const cfg = configDesdeFormulario(f);
+  // IA de documentos y voz (migración 20261121213622).
+  const porUso = {
+    documentos_proveedor: cfg.documentosProveedor,
+    documentos_modelo: cfg.documentosModelo,
+    voz_proveedor: cfg.vozProveedor,
+    voz_modelo: cfg.vozModelo,
+  };
+  const fila = {
     id: 1,
     activo: f.activo,
     proveedor: f.proveedor,
@@ -135,7 +113,14 @@ export async function guardarAgente(f: AgenteFormulario): Promise<{ ok: boolean;
     intentos_sin_entender: f.intentosSinEntender,
     actualizado_por: perms.userEmail ?? null,
     updated_at: new Date().toISOString(),
-  });
+  };
+  let aviso: string | undefined;
+  let { error: eDb } = await db.from("wa_agente").upsert({ ...fila, ...porUso });
+  if (eDb && (eDb.code === "PGRST204" || eDb.code === "42703") && /documentos_|voz_/.test(eDb.message)) {
+    // Sin la migración nueva se guarda lo demás.
+    ({ error: eDb } = await db.from("wa_agente").upsert(fila));
+    if (!eDb) aviso = "La IA de documentos y de voz no se guardó: falta aplicar la migración 20261121213622 en el SQL Editor.";
+  }
   if (eDb) {
     // PostgREST responde PGRST204 (columna fuera del esquema) y Postgres 42703.
     if (eDb.code === "PGRST204" || eDb.code === "42703") {
@@ -148,9 +133,9 @@ export async function guardarAgente(f: AgenteFormulario): Promise<{ ok: boolean;
     return { ok: false, error: eDb.message };
   }
 
-  revalidatePath("/comunicaciones/agente");
+  revalidatePath("/candidatos/seleccion");
   revalidatePath("/comunicaciones");
-  return { ok: true };
+  return { ok: true, aviso };
 }
 
 const MAX_MENSAJES_PRUEBA = 120;
@@ -168,6 +153,8 @@ export type ResultadoPrueba =
       tokensEntrada: number | null;
       tokensSalida: number | null;
       duracionMs: number;
+      /** Datos del prefiltro que leería de la conversación (con el proceso de selección activo). */
+      extraido?: DatosPrefiltro | null;
     }
   | { ok: false; error: string };
 
@@ -205,17 +192,38 @@ export async function probarAgente(f: AgenteFormulario, mensajes: MensajeHistori
   }
 
   const historial = mensajes.slice(-mensajesALeer(config));
+  const enSeleccion = config.preguntasRequisitos.trim() !== "";
+  // Igual que el chat real: la extracción de datos corre en paralelo con la respuesta.
+  const extraccion: Promise<DatosPrefiltro | null> = enSeleccion
+    ? generarRespuesta(config, claves, SISTEMA_EXTRACCION, [
+        { role: "user", content: transcribir(mensajes.map((m, i) => ({ ...m, id: String(i) }))).texto },
+      ])
+        .then((r) => interpretarExtraccion(r.texto))
+        .catch(() => null)
+    : Promise.resolve(null);
+  const ctx = enSeleccion ? await contextoSeleccion().catch(() => null) : null;
   const inicio = Date.now();
   try {
     const r = await generarRespuesta(
       config,
       claves,
-      construirSistema(config.prompt, null, new Date(), reglasSeleccion(config, resumirRecibidos(mensajes))),
+      construirSistema(config.prompt, null, new Date(), {
+        ...reglasSeleccion(
+          ctx?.respuestaReservada ? { ...config, respuestaReservada: ctx.respuestaReservada } : config,
+          resumirRecibidos(mensajes),
+          ctx?.autorizacion ?? "",
+          ctx?.requisitos ?? null
+        ),
+        bienvenida: mensajes.some((m) => m.direccion === "saliente") ? "" : ctx?.bienvenida ?? "",
+        nombreAsistente: ctx?.nombreAsistente ?? "",
+        respuestas: ctx?.respuestas ?? [],
+      }),
       construirHistorial(historial)
     );
-    const { texto, motivo } = decidirRespuesta(r);
+    const { texto, motivo } = decidirRespuesta(r, ctx?.autorizacion ?? "");
     return {
       ok: true,
+      extraido: await extraccion,
       texto,
       motivo,
       modeloUsado: r.modeloUsado,

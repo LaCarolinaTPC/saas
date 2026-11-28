@@ -5,7 +5,7 @@ usuario de **solo lectura** sobre su base ETL (`etl_00027`, PostgreSQL 17), que
 replica cada noche a las **2:00 am**. Gestivo copia esa base en tablas propias
 (`mgx_*`) para poder cruzarla con lo demás.
 
-- **Cada noche, sola:** tarea de Coolify que llama `/api/cron/sync-mgx` a las 5:00 am
+- **Cada noche, sola:** cron de Vercel que llama `/api/cron/sync-mgx` a las 5:00 am
   de Colombia (ver «Cron nocturno» más abajo).
 - **Pantalla:** Tesorería › Parámetros › «Sincronización con MGX» (solo administrador).
 - **Consola:** `npm run mgx:sincronizar`.
@@ -146,7 +146,7 @@ Cada corrida queda en Tesorería › Auditoría como «Sincronización MGX».
 
 ## Cron nocturno
 
-Una tarea programada de Coolify ([coolify-crons.md](coolify-crons.md)) llama
+El cron de Vercel (`vercel.json`, ver [crons.md](crons.md)) llama
 `/api/cron/sync-mgx` a las 10:00 UTC, las **5:00 am de Colombia**: después de la
 réplica de MGX (2:00) y del cron de GEMA (3:00).
 
@@ -160,7 +160,7 @@ réplica de MGX (2:00) y del cron de GEMA (3:00).
 - **Si hay otra corrida en curso** (pantalla o consola), esa noche se salta y lo
   dice en la respuesta. No se pisan.
 - **Exige `CRON_SECRET` siempre.** Si la variable no está en el entorno, la ruta
-  rechaza todo (401) en vez de quedar abierta; la tarea de Coolify la manda en el
+  rechaza todo (401) en vez de quedar abierta; Vercel la manda en el
   encabezado `Authorization`.
 - En la pantalla las corridas salen como **«automática (noche)»**, y en
   Tesorería › Auditoría como «Sincronización MGX» del usuario `cron`.
@@ -168,8 +168,8 @@ réplica de MGX (2:00) y del cron de GEMA (3:00).
   `20261026185216_origen_cron_en_las_corridas_de_mgx.sql`, que agrega `cron` a
   los orígenes aceptados. Sin ella la ruta responde 500 al abrir la corrida.
 
-Para probarlo sin esperar a la noche: **Execute Now** en la tarea `sync-mgx` de
-Coolify. Sin el encabezado, `curl.exe -i https://<dominio>/api/cron/sync-mgx`
+Para probarlo sin esperar a la noche: botón **Run** del cron `sync-mgx` en Vercel
+(Settings › Cron Jobs). Sin el encabezado, `curl.exe -i https://<dominio>/api/cron/sync-mgx`
 tiene que responder 401.
 
 ## Reconciliación de borrados (mensual)

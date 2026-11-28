@@ -186,7 +186,7 @@ export interface Plantilla {
 * **Condiciones:** ventana de 24 h de Meta abierta (con 15 min de margen), horario 7:00–20:00 de Colombia, una vez por silencio (si vuelve a escribir y se calla otra vez, se le puede recordar de nuevo).
 * **Para GH:** si a las 24 h del recordatorio sigue sin responder, el chat queda «Para humano» (una vez por recordatorio).
 * **Configuración:** Comunicaciones › Configuración (activo, horas, mensaje, horario, horas para marcar), tabla `wa_seguimiento` (migración `20261109221237`). Marcas por chat: `wa_conversaciones.seguimiento_enviado_at` y `seguimiento_escalado_at`.
-* **Ejecución:** solo el cron de Coolify, cada 15 min, que llama `/api/cron/seguimiento-whatsapp` (ver `docs/coolify-crons.md`). No va en el latido de las tareas programadas: así no envía WhatsApp desde el TV ni desde equipos de desarrollo con Gestivo abierto (el 2026-11-09 un servidor local envió 70 recordatorios reales). Cada chat se reserva antes de enviar, así que no hay envíos duplicados.
+* **Ejecución:** solo el cron de Vercel (`vercel.json`), cada 15 min, que llama `/api/cron/seguimiento-whatsapp` (ver `docs/crons.md`). No va en el latido de las tareas programadas: así no envía WhatsApp desde el TV ni desde equipos de desarrollo con Gestivo abierto (el 2026-11-09 un servidor local envió 70 recordatorios reales). Cada chat se reserva antes de enviar, así que no hay envíos duplicados.
 
 ### 7. Marca «pendiente por responder» (`marcarPendiente` en `actions.ts`)
 * **Para qué:** «Marcar como no leída» se borra apenas se abre el chat. La bandera sirve para no perder un chat que alguien abrió y todavía no ha contestado.

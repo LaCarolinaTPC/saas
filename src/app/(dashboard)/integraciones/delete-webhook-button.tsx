@@ -1,6 +1,7 @@
 "use client";
 
 import { usePermisos } from "@/components/permisos/permisos-provider";
+import { confirmar } from "@/components/ui/confirmar";
 import { useTransition } from "react";
 import { Trash2 } from "lucide-react";
 import { deleteWebhookConfig } from "@/lib/actions";
@@ -8,10 +9,10 @@ import { deleteWebhookConfig } from "@/lib/actions";
 function DeleteWebhookButtonSinGuardia({ id, name }: { id: string; name: string }) {
   const [isPending, startTransition] = useTransition();
 
-  function handleDelete(e: React.MouseEvent) {
+  async function handleDelete(e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
-    if (!confirm(`¿Eliminar la integración "${name}"?`)) return;
+    if (!await confirmar(`¿Eliminar la integración "${name}"?`)) return;
     startTransition(async () => {
       await deleteWebhookConfig(id);
     });

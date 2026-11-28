@@ -1,6 +1,7 @@
 "use client";
 
 import { useTransition } from "react";
+import { confirmar } from "@/components/ui/confirmar";
 import { useRouter } from "next/navigation";
 import { Loader2, Lock } from "lucide-react";
 import { toast } from "sonner";
@@ -33,7 +34,7 @@ export function CerrarBoton({
   const router = useRouter();
   const [pendiente, empezar] = useTransition();
 
-  function cerrar() {
+  async function cerrar() {
     const aviso =
       cobertura === "completo" || cobertura === "no_aplica"
         ? "El archivo contable está completo."
@@ -43,7 +44,7 @@ export function CerrarBoton({
     const texto =
       `¿Cerrar ${nombre} (${periodo})?\n\n${aviso}\n\n` +
       "Se consolida por última vez desde GEMA y las cifras quedan congeladas: después, reemplazar o reversar el archivo contable exige que el administrador lo reabra.";
-    if (!window.confirm(texto)) return;
+    if (!await confirmar(texto)) return;
     empezar(async () => {
       const res = await cerrarPeriodoAccion(periodo);
       if (res.success) {

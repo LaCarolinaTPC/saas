@@ -1,6 +1,7 @@
 "use client";
 
 import { usePermisos } from "@/components/permisos/permisos-provider";
+import { confirmar } from "@/components/ui/confirmar";
 import { useRef, useState, useTransition } from "react";
 import {
   Search,
@@ -61,8 +62,8 @@ export function EmpleadosClient({
   const edita = puede("empleados.editar");
   const elimina = puede("empleados.eliminar");
 
-  function handleDelete(emp: Employee) {
-    if (!confirm(`¿Eliminar al empleado "${emp.full_name}"? Esta acción no se puede deshacer.`)) return;
+  async function handleDelete(emp: Employee) {
+    if (!await confirmar(`¿Eliminar al empleado "${emp.full_name}"? Esta acción no se puede deshacer.`)) return;
     startTransition(async () => {
       await deleteEmployee(emp.id);
     });

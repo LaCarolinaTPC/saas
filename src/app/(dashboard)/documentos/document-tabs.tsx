@@ -1,6 +1,7 @@
 "use client";
 
 import { usePermisos } from "@/components/permisos/permisos-provider";
+import { confirmar } from "@/components/ui/confirmar";
 import { useRef, useState, useTransition } from "react";
 import {
   Search,
@@ -476,8 +477,8 @@ function DocumentActions({ doc }: { doc: DocumentRow }) {
     });
   }
 
-  function handleDelete() {
-    if (!confirm(`¿Eliminar "${doc.name}"? Esta acción no se puede deshacer.`)) return;
+  async function handleDelete() {
+    if (!await confirmar(`¿Eliminar "${doc.name}"? Esta acción no se puede deshacer.`)) return;
     startTransition(async () => {
       await deleteDocument(doc.id);
     });

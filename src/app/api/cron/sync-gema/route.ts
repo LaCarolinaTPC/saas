@@ -36,7 +36,7 @@ function isoHaceDias(dias: number): string {
 }
 
 /**
- * Cron diario (tarea programada de Coolify, ver docs/coolify-crons.md). Se llama
+ * Cron diario (Vercel, en vercel.json; ver docs/crons.md). Se llama
  * con el header `Authorization: Bearer <CRON_SECRET>`. También se puede invocar a mano con
  * ?from=YYYY-MM-DD&to=YYYY-MM-DD para forzar un rango concreto.
  */

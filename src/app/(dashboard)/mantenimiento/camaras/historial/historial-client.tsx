@@ -1,6 +1,7 @@
 "use client";
 
 import { SiExporta } from "@/components/permisos/permisos-provider";
+import { confirmar } from "@/components/ui/confirmar";
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -76,8 +77,8 @@ export function HistorialCamarasClient({ filtros, revisiones, tipos, recaudo, pu
     }
   }
 
-  function eliminar(id: string) {
-    if (!confirm("¿Eliminar esta revisión? Deja de contar en el historial y los indicadores.")) return;
+  async function eliminar(id: string) {
+    if (!await confirmar("¿Eliminar esta revisión? Deja de contar en el historial y los indicadores.")) return;
     startTransition(async () => {
       const r = await eliminarRevision(id);
       if (!r.success) { toast.error(r.error ?? "No se pudo eliminar."); return; }

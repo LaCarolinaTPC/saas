@@ -214,15 +214,23 @@ test("v3: los requisitos de contratación no cuentan al decidir; un pago previo 
   assert.match(validarDecision("elegible", pagado, false, "x") ?? "", /excepción/);
 });
 
-test("R13: el registro debe ser antes de iniciar la selección (con días de gracia)", () => {
-  const conProceso = (registradoEl: string) => est(evaluarReferido(referido({ registradoEl }), PARAMETROS_V3)).R13;
-  // El proceso de ejemplo empezó el 2026-11-01.
-  assert.equal(conProceso("2026-10-28"), "cumple");
-  assert.equal(conProceso("2026-11-01"), "cumple");
-  assert.equal(conProceso("2026-11-02"), "no_cumple");
+test("R13: el registro debe ser antes de la contratación (con días de gracia; 27-nov-2026)", () => {
+  // El proceso de ejemplo empezó el 2026-11-01; lo contratan el 2026-11-10.
+  const contratado = (registradoEl: string, p = PARAMETROS_V3) => est(evaluarReferido(referido({ registradoEl, fechaIngreso: "2026-11-10" }), p)).R13;
+  assert.equal(contratado("2026-10-28"), "cumple");
+  // Caso de la reunión: empezó el 18, lo registraron el 20 y lo contrataron después: cumple.
+  assert.equal(contratado("2026-11-05"), "cumple");
+  assert.equal(contratado("2026-11-10"), "cumple");
+  assert.equal(contratado("2026-11-11"), "no_cumple");
+  assert.match(evaluarReferido(referido({ registradoEl: "2026-11-11", fechaIngreso: "2026-11-10" }), PARAMETROS_V3).find((r) => r.codigo === "R13")!.dato, /tardío.*contrataron el 10/);
   const gracia = { ...PARAMETROS_V3, referido: { ...PARAMETROS_V3.referido, tolerancia_registro_dias: 3 } };
-  assert.equal(est(evaluarReferido(referido({ registradoEl: "2026-11-04" }), gracia)).R13, "cumple");
-  assert.match(evaluarReferido(referido({ registradoEl: "2026-11-05" }), gracia).find((r) => r.codigo === "R13")!.dato, /tardío/);
+  assert.equal(contratado("2026-11-13", gracia), "cumple");
+  assert.equal(contratado("2026-11-14", gracia), "no_cumple");
+  // Con el proceso ya contratado (fecha de contrato), aunque no venga la fecha de ingreso.
+  const conContrato = referido({ registradoEl: "2026-11-12", proceso: { id: "p", fechaCreacion: "2026-11-01", simit: "ok", estado: "contratado", licencia: "C2", antecedentes: "ok", fechaContrato: "2026-11-10" } });
+  assert.equal(est(evaluarReferido(conContrato, PARAMETROS_V3)).R13, "no_cumple");
+  // Antes de contratar no bloquea: se confirma al contratar.
+  assert.equal(est(evaluarReferido(referido({ registradoEl: "2026-11-20" }), PARAMETROS_V3)).R13, "cumple");
   // En v2 no aplica.
   assert.equal(est(evaluarReferido(referido({ registradoEl: "2026-11-05" }), PARAMETROS_V2)).R13, undefined);
 });

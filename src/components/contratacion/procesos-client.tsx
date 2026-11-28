@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useAvisosProcesos } from "@/hooks/use-avisos-procesos";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { ClipboardList, FileSpreadsheet, HeartHandshake, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
@@ -9,8 +10,20 @@ import {
   PROCESO_ESTADOS, CAUSAS_NO_CONTRATO, SIMIT_ESTADOS, ANTECEDENTES_ESTADOS,
   MEDIOS_POSTULACION, LICENCIA_CATEGORIAS, CAMPOS_FECHA, estadoInfo, campoFecha,
   type ProcesoContratacion,
+  FILTRO_REINGRESOS,
+  FILTRO_ANTECEDENTES,
+  FILTRO_APADRINADOS,
+  FILTRO_PSICO_INSCRIBIR,
 } from "@/lib/contratacion/constants";
 import { createProceso, updateProceso, updateProcesoEstado, deleteProceso, exportarProcesos, type ProcesoInput } from "@/lib/contratacion/actions";
+import { toast } from "sonner";
+import { usePermisos } from "@/components/permisos/permisos-provider";
+import { PanelSeleccion } from "@/components/seleccion/panel-seleccion";
+import { confirmacionBorrado, pideParaBorrar } from "@/lib/contratacion/borrado";
+import { NovedadesDelDia } from "@/components/seleccion/novedades-del-dia";
+import { movimientoAlSoltar, type EtapaConPaso } from "@/lib/seleccion/mover-tablero";
+import { SemaforoPuntos } from "@/components/seleccion/semaforo";
+import { requiereLentes } from "@/lib/seleccion/preseleccion";
 
 interface Filters { q: string; estado: string; medio: string; campo: string; desde: string; hasta: string }
 
@@ -30,6 +43,8 @@ export interface ProcesosData {
   canEdit: boolean;
   /** Puede registrar referidos del Plan Padrino (sub-función padrino_registro). */
   puedePadrino?: boolean;
+  /** Ids de los candidatos en curso que vienen recomendados y todavía no tienen padrino en el Plan Padrino. */
+  apadrinadosSinPadrino?: string[];
 }
 
 interface Props extends ProcesosData {
@@ -59,11 +74,18 @@ function mesDeRango(desde: string, hasta: string): string {
   return hasta === finDeMes(mes) ? mes : "";
 }
 
-export function ContratacionClient({ rows, total, stats, page, pageSize, filters, canEdit, puedePadrino, headerActions, vacancies }: Props) {
+export function ContratacionClient({ rows, total, stats, page, pageSize, filters, canEdit, puedePadrino, apadrinadosSinPadrino, headerActions, vacancies }: Props) {
+  const sinPadrino = new Set(apadrinadosSinPadrino ?? []);
   const router = useRouter();
+  // La lista se actualiza sola cuando cambia un proceso, una cita o un registro del profesor.
+  useAvisosProcesos(useCallback(() => router.refresh(), [router]));
   const pathname = usePathname();
   const [search, setSearch] = useState(filters.q);
   const [editing, setEditing] = useState<ProcesoContratacion | null>(null);
+  // Elegido en el selector de la lista: hacia adelante, la ficha con lo que pide esa etapa;
+  // «Cierre», la ficha con el estado ya puesto (y el real para no confundirlo al guardar).
+  const [destinoLista, setDestinoLista] = useState<EtapaConPaso | null>(null);
+  const [estadoReal, setEstadoReal] = useState<string | undefined>(undefined);
   const [creating, setCreating] = useState(false);
   const [exportando, setExportando] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -238,6 +260,8 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
       </div>
 
       <div className="px-6 py-6">
+        {/* 27-nov-2026: las revisiones manuales del día (lo que se avisó por correo) y si ya se hicieron. */}
+        <NovedadesDelDia />
         {/* Stats */}
         <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Stat label="Postulaciones" value={stats.total} />
@@ -261,6 +285,10 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
             className="h-9 rounded-lg border border-[#E2E8F0] bg-white px-2 text-sm font-medium text-gray-700 outline-none focus:border-[#4F46E5]"
           >
             <option value="todos">Todos los estados</option>
+            <option value={FILTRO_REINGRESOS}>Reingresos por revisar</option>
+            <option value={FILTRO_ANTECEDENTES}>Antecedentes por revisar</option>
+            <option value={FILTRO_APADRINADOS}>Apadrinados sin padrino</option>
+            <option value={FILTRO_PSICO_INSCRIBIR}>Psicotécnica: por inscribir</option>
             {PROCESO_ESTADOS.map((e) => (
               <option key={e.value} value={e.value}>{e.label}</option>
             ))}
@@ -379,14 +407,42 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
                         ) : (
                           <span className="font-medium text-gray-900">{r.nombre}</span>
                         )}
+                        {r.estado === "pendiente" && <SemaforoPuntos resultado={r.preseleccion} className="ml-2 align-middle" />}
                         <span className="block text-xs text-gray-500">
                           CC {r.cedula}
                           {r.celular && <> · {r.celular}</>}
+                          {r.origen === "chat_prueba" && (
+                            <span className="ml-1.5 rounded-full bg-amber-50 px-1.5 py-px text-[10px] font-medium text-amber-700" title="Guardado desde el chat de prueba: no tiene WhatsApp ni teléfono">
+                              Chat de prueba
+                            </span>
+                          )}
+                          {r.origen === "whatsapp_agente" && (
+                            <span className="ml-1.5 rounded-full bg-[#EEF2FF] px-1.5 py-px text-[10px] font-medium text-[#4F46E5]" title="Lo creó el asistente de WhatsApp; el celular es el número desde el que escribe">
+                              WhatsApp
+                            </span>
+                          )}
                           {r.reingreso && (
                             <span className="ml-1.5 rounded-full bg-[#FEF3C7] px-1.5 py-0.5 text-[10px] font-semibold text-[#92400E]">
                               REINGRESO
                             </span>
                           )}
+                          {r.recomendado &&
+                            (sinPadrino.has(r.id) ? (
+                              <Link
+                                href={`/candidatos/plan-padrino?registrar=${r.id}`}
+                                className="ml-1.5 rounded-full bg-[#FCE7F3] px-1.5 py-0.5 text-[10px] font-semibold text-[#9D174D] hover:underline"
+                                title={`Dijo que viene recomendado${r.recomendado_por ? ` por ${r.recomendado_por}` : ""}. Falta asignarle el padrino en el Plan Padrino.`}
+                              >
+                                APADRINADO · SIN PADRINO
+                              </Link>
+                            ) : (
+                              <span
+                                className="ml-1.5 rounded-full bg-[#FCE7F3] px-1.5 py-0.5 text-[10px] font-semibold text-[#9D174D]"
+                                title={`Viene recomendado${r.recomendado_por ? ` por ${r.recomendado_por}` : ""}.`}
+                              >
+                                APADRINADO
+                              </span>
+                            ))}
                         </span>
                         {r.vacancies?.title && (
                           <span className="mt-0.5 block text-xs font-medium text-[#4F46E5]">
@@ -396,7 +452,17 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
                       </td>
                       <td className="px-4 py-3">
                         {canEdit ? (
-                          <EstadoSelect proceso={r} onCierre={() => setEditing({ ...r, estado: "cierre" })} />
+                          <EstadoSelect
+                            proceso={r}
+                            onCierre={() => {
+                              setEstadoReal(r.estado);
+                              setEditing({ ...r, estado: "cierre", causa_no_contrato: r.causa_no_contrato ?? r.requisito_incumplido ?? null });
+                            }}
+                            onAvanzar={(d) => {
+                              setDestinoLista(d);
+                              setEditing(r);
+                            }}
+                          />
                         ) : est ? (
                           <span
                             className="inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium"
@@ -430,7 +496,22 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
                         </span>
                         {" · "}
                         <span className="text-gray-400">Lic:</span>{" "}
-                        <span className="text-gray-600">{r.licencia_categoria ?? "—"}</span>
+                        <span className="text-gray-600">
+                          {r.licencia_categoria ?? "—"}
+                          {r.licencia_categoria && r.licencia_verificada_runt ? " (RUNT)" : ""}
+                        </span>
+                        {(r.fecha_citacion || r.fecha_prueba_manejo || r.profesor_concepto) && (
+                          <>
+                            <br />
+                            {r.fecha_citacion && !r.fecha_prueba_manejo && <span className="text-gray-600">Citado: {fmtDate(r.fecha_citacion)}</span>}
+                            {r.fecha_prueba_manejo && <span className="text-gray-600">Prueba: {fmtDate(r.fecha_prueba_manejo)}</span>}
+                            {r.profesor_concepto && (
+                              <span className={r.profesor_concepto === "acepta" ? "text-[#059669]" : "font-medium text-[#DC2626]"}>
+                                {" · "}Profesor: {r.profesor_concepto === "acepta" ? "lo acepta" : "no lo acepta"}
+                              </span>
+                            )}
+                          </>
+                        )}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-xs text-gray-600">{medio?.label ?? r.medio_postulacion ?? "—"}</td>
                       <td className="whitespace-nowrap px-4 py-3 text-gray-600">{fmtDate(r.fecha_contrato)}</td>
@@ -497,9 +578,13 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
         <ProcesoFormDialog
           proceso={editing}
           vacancies={vacancies}
+          destino={destinoLista}
+          estadoAlAbrir={estadoReal}
           onClose={() => {
             setCreating(false);
             setEditing(null);
+            setDestinoLista(null);
+            setEstadoReal(undefined);
           }}
         />
       )}
@@ -530,21 +615,31 @@ function Stat({ label, value, color = "#0F172A" }: { label: string; value: numbe
 
 /**
  * Selector de estado inline con estilo de badge. Pasar a "Cierre de proceso"
- * abre el formulario para capturar la causa; los demás estados se guardan al
- * instante.
+ * abre el formulario para capturar la causa; hacia adelante abre la ficha con lo
+ * que pide esa etapa (24-nov-2026, como el tablero); hacia atrás se guarda al instante.
  */
-function EstadoSelect({ proceso, onCierre }: { proceso: ProcesoContratacion; onCierre: () => void }) {
+function EstadoSelect({ proceso, onCierre, onAvanzar }: { proceso: ProcesoContratacion; onCierre: () => void; onAvanzar: (destino: EtapaConPaso) => void }) {
   const [isPending, startTransition] = useTransition();
   const est = estadoInfo(proceso.estado);
 
   function handleChange(estado: string) {
-    if (estado === proceso.estado) return;
-    if (estado === "cierre") {
+    const mov = movimientoAlSoltar(proceso.estado, estado);
+    if (mov.tipo === "nada") return;
+    if (mov.tipo === "cierre") {
       onCierre();
       return;
     }
+    if (mov.tipo === "ficha") {
+      onAvanzar(mov.destino);
+      return;
+    }
     startTransition(async () => {
-      await updateProcesoEstado(proceso.id, estado);
+      try {
+        const r = await updateProcesoEstado(proceso.id, estado);
+        if (!r.ok) toast.error(r.error, { duration: 10_000 });
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "No se pudo cambiar el estado.");
+      }
     });
   }
 
@@ -564,16 +659,9 @@ function EstadoSelect({ proceso, onCierre }: { proceso: ProcesoContratacion; onC
   );
 }
 
+// 27-nov-2026: sin «Eliminar» en la lista (un clic bastaba para borrar uno real por error):
+// se elimina desde la ficha, escribiendo la cédula del candidato.
 function RowActions({ proceso, onEdit, puedePadrino }: { proceso: ProcesoContratacion; onEdit: () => void; puedePadrino?: boolean }) {
-  const [isPending, startTransition] = useTransition();
-
-  function handleDelete() {
-    if (!confirm(`¿Eliminar el proceso de "${proceso.nombre}"? Esta acción no se puede deshacer.`)) return;
-    startTransition(async () => {
-      await deleteProceso(proceso.id);
-    });
-  }
-
   return (
     <div className="inline-flex gap-1">
       {puedePadrino && (
@@ -591,14 +679,6 @@ function RowActions({ proceso, onEdit, puedePadrino }: { proceso: ProcesoContrat
         title="Editar"
       >
         <Pencil className="h-4 w-4" />
-      </button>
-      <button
-        onClick={handleDelete}
-        disabled={isPending}
-        className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
-        title="Eliminar"
-      >
-        <Trash2 className="h-4 w-4" />
       </button>
     </div>
   );
@@ -623,6 +703,8 @@ export function ProcesoFormDialog({
   inicial,
   onCreado,
   titulo,
+  destino,
+  estadoAlAbrir,
 }: {
   proceso: ProcesoContratacion | null;
   vacancies: VacanteOption[];
@@ -630,9 +712,17 @@ export function ProcesoFormDialog({
   inicial?: Partial<ProcesoInput>;
   onCreado?: (id: string) => void;
   titulo?: string;
+  /** Se abrió al arrastrar la tarjeta hacia adelante en el tablero (24-nov-2026). */
+  destino?: EtapaConPaso | null;
+  /** El estado real cuando la ficha se abre con otro ya elegido (p. ej. «Cierre» desde la lista). */
+  estadoAlAbrir?: string;
 }) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  // Eliminar (27-nov-2026): solo aquí, con la cédula escrita.
+  const [borrando, setBorrando] = useState(false);
+  const [confirmacion, setConfirmacion] = useState("");
+  const [eliminando, setEliminando] = useState(false);
   const [form, setForm] = useState<ProcesoInput>(() => ({
     fecha_creacion: proceso?.fecha_creacion ?? todayBogota(),
     nombre: proceso?.nombre ?? inicial?.nombre ?? "",
@@ -653,7 +743,20 @@ export function ProcesoFormDialog({
     fecha_examenes_fase2: proceso?.fecha_examenes_fase2 ?? "",
     fecha_prueba_manejo: proceso?.fecha_prueba_manejo ?? "",
     fecha_contrato: proceso?.fecha_contrato ?? "",
+    edad: proceso?.edad ?? null,
+    ciudad_residencia: proceso?.ciudad_residencia ?? "",
+    dispuesto_traslado: proceso?.dispuesto_traslado ?? null,
+    experiencia_meses: proceso?.experiencia_meses ?? null,
+    licencia_verificada_runt: proceso?.licencia_verificada_runt ?? false,
+    recomendado: proceso?.recomendado ?? null,
+    recomendado_por: proceso?.recomendado_por ?? "",
+    recomendado_motivo: "",
   }));
+  const permisos = usePermisos();
+  const puedeEditar = permisos("candidatos.editar");
+  // «Viene recomendado» lo responde el candidato; solo un administrador lo corrige (21-nov-2026).
+  const puedeCorregirRecomendado = permisos("candidatos.padrino_aprobacion");
+  const cambiaRecomendado = puedeCorregirRecomendado && (form.recomendado ?? null) !== (proceso?.recomendado ?? null);
 
   function set<K extends keyof ProcesoInput>(key: K, value: ProcesoInput[K]) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -666,16 +769,22 @@ export function ProcesoFormDialog({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // Lo que mostraba el formulario al abrir: al guardar solo va lo que la persona cambió
+  // (una acción del panel pudo cambiar el estado o las fechas mientras tanto).
+  const [formAlAbrir] = useState(() => (estadoAlAbrir ? { ...form, estado: estadoAlAbrir } : form));
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     startTransition(async () => {
       try {
         if (proceso) {
-          await updateProceso(proceso.id, form);
+          const r = await updateProceso(proceso.id, form, formAlAbrir);
+          if (!r.ok) return setError(r.error);
         } else {
-          const { id } = await createProceso(form);
-          onCreado?.(id);
+          const r = await createProceso(form);
+          if (!r.ok) return setError(r.error);
+          onCreado?.(r.id);
         }
         onClose();
       } catch (err) {
@@ -687,18 +796,37 @@ export function ProcesoFormDialog({
   const showDeuda = form.simit === "deuda" || form.simit === "acuerdo_pago";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 sm:p-8">
-      <form onSubmit={handleSubmit} className="w-full max-w-2xl rounded-xl bg-white p-6 shadow-xl">
-        <div className="mb-5 flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-gray-900">
-            {titulo ?? (proceso ? "Editar proceso" : "Nuevo proceso de contratación")}
-          </h3>
-          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-2 sm:p-4">
+      {/* 24-nov-2026: con un proceso, en pantalla ancha, dos columnas que se desplazan por separado
+          (datos a la izquierda, selección a la derecha) y encabezado y botones siempre a la vista. */}
+      <form
+        onSubmit={handleSubmit}
+        className={`flex w-full flex-col rounded-xl bg-white shadow-xl ${proceso ? "max-w-[1400px] lg:h-[calc(100vh-2rem)]" : "max-w-2xl"}`}
+      >
+        <div className="flex items-center justify-between gap-3 border-b border-[#F1F5F9] px-5 py-3">
+          <div className="min-w-0">
+            <h3 className="truncate text-lg font-semibold text-gray-900">
+              {titulo ?? (proceso ? proceso.nombre || "Editar proceso" : "Nuevo proceso de contratación")}
+            </h3>
+            {proceso && (
+              <p className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                <span>CC {proceso.cedula}</span>
+                {estadoInfo(proceso.estado) && (
+                  <span className="rounded-full px-2 py-0.5 font-medium" style={{ backgroundColor: estadoInfo(proceso.estado)!.bg, color: estadoInfo(proceso.estado)!.color }}>
+                    {estadoInfo(proceso.estado)!.label}
+                  </span>
+                )}
+              </p>
+            )}
+          </div>
+          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600" aria-label="Cerrar">
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className={proceso ? "grid min-h-0 flex-1 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]" : ""}>
+        <div className={`p-5 ${proceso ? "min-h-0 lg:overflow-y-auto lg:border-r lg:border-[#F1F5F9]" : ""}`}>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Nombre completo *">
             <input
               required
@@ -785,6 +913,49 @@ export function ProcesoFormDialog({
             </Field>
           )}
 
+          <Field label="¿Viene recomendado? (Plan Padrino)">
+            <select
+              value={form.recomendado == null ? "" : form.recomendado ? "si" : "no"}
+              onChange={(e) => set("recomendado", e.target.value === "" ? null : e.target.value === "si")}
+              disabled={!puedeCorregirRecomendado}
+              title={puedeCorregirRecomendado ? undefined : "Lo responde el candidato en el chat. Solo quien tiene «Plan Padrino · aprobación» puede corregirlo."}
+              className={inputCls}
+            >
+              <option value="">Sin respuesta</option>
+              <option value="si">Sí, viene recomendado</option>
+              <option value="no">No</option>
+            </select>
+            {!puedeCorregirRecomendado && (
+              <p className="mt-1 text-[11px] text-gray-500">Lo responde el candidato en el chat; lo corrige quien tiene «Plan Padrino · aprobación».</p>
+            )}
+          </Field>
+          {cambiaRecomendado && (
+            <Field label="Motivo del cambio (queda en el historial)">
+              <input
+                type="text"
+                value={form.recomendado_motivo ?? ""}
+                onChange={(e) => set("recomendado_motivo", e.target.value)}
+                placeholder="Por ejemplo: se equivocó en el chat; lo confirmó el padrino"
+                maxLength={300}
+                required
+                className={inputCls}
+              />
+            </Field>
+          )}
+          {form.recomendado === true && (
+            <Field label="Quién lo recomendó (opcional)">
+              <input
+                type="text"
+                value={form.recomendado_por ?? ""}
+                onChange={(e) => set("recomendado_por", e.target.value)}
+                disabled={!puedeCorregirRecomendado}
+                placeholder="Si se sabe; el padrino se asigna en el Plan Padrino"
+                maxLength={120}
+                className={inputCls}
+              />
+            </Field>
+          )}
+
           <Field label="SIMIT">
             <select value={form.simit ?? ""} onChange={(e) => set("simit", e.target.value)} className={inputCls}>
               <option value="">Sin verificar</option>
@@ -840,26 +1011,115 @@ export function ProcesoFormDialog({
             </datalist>
           </Field>
 
-          <Field label="Fecha de citación">
-            <input type="date" value={form.fecha_citacion ?? ""} onChange={(e) => set("fecha_citacion", e.target.value)} className={inputCls} />
-          </Field>
-          <Field label="Citación exámenes médicos · fase 1">
-            <input type="date" value={form.fecha_examenes ?? ""} onChange={(e) => set("fecha_examenes", e.target.value)} className={inputCls} />
-          </Field>
-          <Field label="Citación exámenes médicos · fase 2">
-            <input type="date" value={form.fecha_examenes_fase2 ?? ""} onChange={(e) => set("fecha_examenes_fase2", e.target.value)} className={inputCls} />
-          </Field>
-          <Field label="Fecha prueba de manejo">
-            <input type="date" value={form.fecha_prueba_manejo ?? ""} onChange={(e) => set("fecha_prueba_manejo", e.target.value)} className={inputCls} />
-          </Field>
-          <Field label="Fecha de contrato">
-            <input type="date" value={form.fecha_contrato ?? ""} onChange={(e) => set("fecha_contrato", e.target.value)} className={inputCls} />
-          </Field>
+          <div className="sm:col-span-2 rounded-lg border border-[#F1F5F9] bg-[#F8FAFC] p-3">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Prefiltro</p>
+            <div className={`grid grid-cols-2 gap-3 ${proceso ? "xl:grid-cols-4" : "sm:grid-cols-4"}`}>
+              <Field label="Edad">
+                <input
+                  type="number"
+                  min={14}
+                  max={90}
+                  value={form.edad ?? ""}
+                  onChange={(e) => set("edad", e.target.value === "" ? null : Number(e.target.value))}
+                  className={inputCls}
+                />
+                {proceso?.fecha_nacimiento && (
+                  <span className="mt-1 block text-xs text-gray-500">
+                    Nació el{" "}
+                    {new Date(`${proceso.fecha_nacimiento.slice(0, 10)}T00:00:00Z`).toLocaleDateString("es-CO", { timeZone: "UTC", day: "numeric", month: "short", year: "numeric" })}
+                  </span>
+                )}
+              </Field>
+              <Field label="Ciudad donde vive">
+                <input value={form.ciudad_residencia ?? ""} onChange={(e) => set("ciudad_residencia", e.target.value)} className={inputCls} placeholder="Barranquilla" />
+              </Field>
+              <Field label="¿Se traslada?">
+                <select
+                  value={form.dispuesto_traslado == null ? "" : form.dispuesto_traslado ? "si" : "no"}
+                  onChange={(e) => set("dispuesto_traslado", e.target.value === "" ? null : e.target.value === "si")}
+                  className={inputCls}
+                >
+                  <option value="">Sin dato</option>
+                  <option value="si">Sí</option>
+                  <option value="no">No</option>
+                </select>
+              </Field>
+              <Field label="Experiencia (meses)">
+                <input
+                  type="number"
+                  min={0}
+                  max={600}
+                  value={form.experiencia_meses ?? ""}
+                  onChange={(e) => set("experiencia_meses", e.target.value === "" ? null : Number(e.target.value))}
+                  className={inputCls}
+                />
+              </Field>
+            </div>
+            <label className="mt-3 flex items-center gap-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                checked={Boolean(proceso?.licencia_runt) || Boolean(form.licencia_verificada_runt)}
+                disabled={Boolean(proceso?.licencia_runt)}
+                onChange={(e) => set("licencia_verificada_runt", e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300 accent-[#4F46E5] disabled:opacity-60"
+              />
+              Licencia verificada en el RUNT
+              {proceso?.licencia_runt && (
+                <span className="text-xs text-gray-500">
+                  (consultada con Croma
+                  {proceso.licencia_runt.consultadoEl ? ` el ${new Date(proceso.licencia_runt.consultadoEl).toLocaleDateString("es-CO", { timeZone: "America/Bogota" })}` : ""}
+                  )
+                </span>
+              )}
+            </label>
+            {proceso?.licencia_runt && (proceso.licencia_runt.restricciones?.length ?? 0) > 0 && (
+              <p className="mt-2 text-sm text-gray-700">
+                <span className="font-medium">Restricciones de la licencia (RUNT):</span> {proceso.licencia_runt.restricciones!.join(" · ")}
+              </p>
+            )}
+            {requiereLentes(proceso?.licencia_runt?.restricciones) && (
+              <p className="mt-1 text-sm font-medium text-amber-700">Debe traer los lentes a la prueba de manejo (restricción de la licencia).</p>
+            )}
+            {proceso?.renovara_licencia != null && (
+              <p className="mt-1 text-sm text-gray-700">
+                Licencia vencida: {proceso.renovara_licencia ? "dijo que la va a renovar." : "dijo que no la va a renovar."}
+              </p>
+            )}
+          </div>
+
+          {/* Las fechas casi siempre las llena el sistema (citar, exámenes, contratar): plegadas para no alargar la ficha. */}
+          <details className="group sm:col-span-2 rounded-lg border border-[#F1F5F9] p-3" open={!proceso}>
+            <summary className="cursor-pointer select-none text-xs font-semibold uppercase tracking-wide text-gray-500">
+              Fechas del proceso
+              {proceso && (
+                <span className="ml-2 font-normal normal-case tracking-normal text-gray-400">
+                  {[form.fecha_citacion, form.fecha_prueba_manejo, form.fecha_examenes, form.fecha_examenes_fase2, form.fecha_contrato].filter(Boolean).length} de 5 con fecha
+                </span>
+              )}
+            </summary>
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              <Field label="Fecha de citación">
+                <input type="date" value={form.fecha_citacion ?? ""} onChange={(e) => set("fecha_citacion", e.target.value)} className={inputCls} />
+              </Field>
+              <Field label="Fecha prueba de manejo">
+                <input type="date" value={form.fecha_prueba_manejo ?? ""} onChange={(e) => set("fecha_prueba_manejo", e.target.value)} className={inputCls} />
+              </Field>
+              <Field label="Exámenes · fase 1">
+                <input type="date" value={form.fecha_examenes ?? ""} onChange={(e) => set("fecha_examenes", e.target.value)} className={inputCls} />
+              </Field>
+              <Field label="Exámenes · fase 2">
+                <input type="date" value={form.fecha_examenes_fase2 ?? ""} onChange={(e) => set("fecha_examenes_fase2", e.target.value)} className={inputCls} />
+              </Field>
+              <Field label="Fecha de contrato">
+                <input type="date" value={form.fecha_contrato ?? ""} onChange={(e) => set("fecha_contrato", e.target.value)} className={inputCls} />
+              </Field>
+            </div>
+          </details>
 
           <div className="sm:col-span-2">
             <Field label="Observación">
               <textarea
-                rows={3}
+                rows={2}
                 value={form.observacion ?? ""}
                 onChange={(e) => set("observacion", e.target.value)}
                 className={`${inputCls} h-auto py-2`}
@@ -869,9 +1129,60 @@ export function ProcesoFormDialog({
           </div>
         </div>
 
-        {error && <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
+        </div>
 
-        <div className="mt-6 flex justify-end gap-2">
+        {proceso && (
+          <div className="min-h-0 border-t border-[#F1F5F9] p-5 lg:overflow-y-auto lg:border-t-0">
+            <PanelSeleccion proceso={proceso} puedeEditar={puedeEditar} onCerrado={onClose} destino={destino} lateral />
+          </div>
+        )}
+        </div>
+
+        {error && <p className="mx-5 mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
+
+        {proceso && puedeEditar && borrando && (
+          <div className="mx-5 mt-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            <p className="font-medium">¿Eliminar el proceso de {proceso.nombre || "este candidato"}?</p>
+            <p className="mt-1 text-xs">
+              Se borra con su historial, citas, consultas y documentos. No se puede deshacer. Para confirmar, escriba su {pideParaBorrar(proceso).que}
+              {pideParaBorrar(proceso).que === "cédula" ? ` (${pideParaBorrar(proceso).valor})` : ""}.
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <input
+                value={confirmacion}
+                onChange={(e) => setConfirmacion(e.target.value)}
+                placeholder={pideParaBorrar(proceso).que === "cédula" ? "Cédula" : "Nombre completo"}
+                className="h-9 w-56 rounded-lg border border-red-300 bg-white px-3 text-sm outline-none focus:border-red-500"
+                autoFocus
+              />
+              <Button
+                type="button"
+                disabled={eliminando || !confirmacionBorrado(proceso, confirmacion)}
+                onClick={async () => {
+                  setEliminando(true);
+                  const r = await deleteProceso(proceso.id, confirmacion).catch((e: Error) => ({ ok: false, error: e.message }));
+                  setEliminando(false);
+                  if (!r.ok) return setError(r.error ?? "No se pudo eliminar.");
+                  toast.success(`Proceso de ${proceso.nombre || "el candidato"} eliminado.`);
+                  onClose();
+                }}
+                className="bg-red-600 text-white hover:bg-red-700 disabled:opacity-40"
+              >
+                {eliminando ? "Eliminando…" : "Eliminar definitivamente"}
+              </Button>
+              <Button type="button" variant="outline" onClick={() => { setBorrando(false); setConfirmacion(""); }} disabled={eliminando}>
+                No eliminar
+              </Button>
+            </div>
+          </div>
+        )}
+
+        <div className="flex items-center justify-end gap-2 border-t border-[#F1F5F9] px-5 py-3">
+          {proceso && puedeEditar && !borrando && (
+            <button type="button" onClick={() => setBorrando(true)} className="mr-auto inline-flex h-9 items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 text-sm font-medium text-red-600 hover:bg-red-50">
+              <Trash2 className="h-3.5 w-3.5" /> Eliminar proceso
+            </button>
+          )}
           <Button type="button" variant="outline" onClick={onClose} disabled={isPending}>
             Cancelar
           </Button>

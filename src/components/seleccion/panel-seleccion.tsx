@@ -1,0 +1,907 @@
+"use client";
+
+/**
+ * Panel de selección dentro de la ficha del proceso: semáforo de
+ * preselección con la propuesta de cierre, autorización de datos, SIMIT,
+ * postulaciones anteriores (B3) e historial de cambios (NF6).
+ */
+import Link from "next/link";
+import { confirmar } from "@/components/ui/confirmar";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { Bot, ExternalLink, History, Search, ShieldCheck, ShieldX, TriangleAlert } from "lucide-react";
+import { estadoInfo, type ProcesoContratacion } from "@/lib/contratacion/constants";
+import { consultarSimit, type DocumentoProceso, updateProcesoEstado, type ConsultaExternaVista, type EventoProcesoVista, type PostulacionAnterior, reintentarFuenteEnCroma } from "@/lib/contratacion/actions";
+import { SemaforoDetalle } from "./semaforo";
+import { SeccionCitas } from "./seccion-citas";
+import { RevisionManual, type FuentePendiente } from "./revision-manual";
+import { SeccionAntecedentes } from "./seccion-antecedentes";
+import { SeccionCarpeta, SeccionContratacion, SeccionExamenesRutas } from "./seccion-entrega3";
+import { PasoTablero, pestanaDeEtapa } from "./paso-tablero";
+import type { EtapaConPaso } from "@/lib/seleccion/mover-tablero";
+import { SeccionDiaContratacion, SeccionDocumentosLeidos } from "./seccion-entrega4";
+import { SeccionExperiencia } from "./seccion-experiencia";
+import { fechaEnTexto, horaEnTexto } from "@/lib/seleccion/agenda";
+import { interpretarConsulta } from "@/lib/verificacion/interpretacion";
+import { evaluarAntecedentes, NOMBRE_FUENTE, hallazgoDe, type ConsultaGuardada } from "@/lib/seleccion/antecedentes";
+import { resumenVinculo, type VinculoEmpresa } from "@/lib/seleccion/vinculo";
+import { marcarGuardado } from "@/lib/guardado-reciente";
+import { leerFicha } from "@/lib/lectura-ficha";
+
+/** Fuentes que se pueden volver a consultar en Croma después de una revisión manual (27-nov-2026). */
+const FUENTES_REINTENTO = ["policia", "procuraduria", "contraloria", "rnmc", "simit"];
+
+// Consulta ciudadana por documento (gratuita, con captcha).
+const RUNT_URL = "https://www.runt.gov.co/actores/ciudadano/consulta-por-tipo-de-documento";
+
+const fechaHora = (iso: string) =>
+  new Intl.DateTimeFormat("es-CO", { dateStyle: "medium", timeStyle: "short", timeZone: "America/Bogota" }).format(new Date(iso));
+
+const ACTOR: Record<EventoProcesoVista["actor"], string> = { usuario: "", agente: "Asistente IA", sistema: "Sistema" };
+
+/** Pasos del correo para la prueba psicotécnica (24-nov-2026). */
+function textoCorreoPsico(d: Record<string, unknown>): string {
+  const correo = d.correo ? ` ${String(d.correo)}` : "";
+  const envio = d.envio && d.envio !== "enviado" ? ` (${String(d.envio).replace(/_/g, " ")})` : "";
+  switch (d.correo_psico) {
+    case "pedido":
+      return `Se le pidió el correo para la psicotécnica${envio}`;
+    case "escrito":
+      return `Escribió su correo:${correo}`;
+    case "enviado":
+      return `Se envió el correo para confirmar a${correo}`;
+    case "no_enviado":
+      return `No se pudo enviar el correo a${correo}: ${String(d.error ?? "")}`;
+    case "validado":
+      return `Confirmó su correo en el enlace:${correo}`;
+    case "validado_a_mano":
+      return `Correo confirmado a mano:${correo}`;
+    case "rechazado_en_enlace":
+      return `Dijo en el enlace que el correo${correo} no es suyo: se le pide de nuevo`;
+    case "recordatorio":
+      return `Recordatorio ${String(d.vez ?? "")} del correo para la psicotécnica${envio}`;
+    case "sin_respuesta":
+      return "No respondió a los recordatorios del correo: el chat queda para una persona";
+    case "inscrito":
+      return `Inscrito en la plataforma psicotécnica; se le avisó por WhatsApp${envio}`;
+    case "inscripcion_deshecha":
+      return "Se deshizo «inscrito en la plataforma psicotécnica»";
+    default:
+      return "Correo para la psicotécnica";
+  }
+}
+
+function describirEvento(e: EventoProcesoVista): string {
+  const label = (v: string | null) => estadoInfo(v)?.label ?? v ?? "—";
+  switch (e.tipo) {
+    case "creado":
+      return `Creó el proceso en «${label(e.estado_nuevo)}»`;
+    case "estado":
+      if (e.detalle?.reabierto) return `Reabierto: volvió a escribir después del cierre («${String(e.detalle.causa_anterior ?? "")}») · queda para que una persona lo llame`;
+      // 25-nov-2026: la etapa «Listo para contratar» entra y sale sola según las condiciones.
+      if (e.detalle?.listo_para_contratar) return `${label(e.estado_anterior)} → ${label(e.estado_nuevo)} · cumple todo para contratar: falta el visto bueno`;
+      if (e.detalle?.ya_no_esta_listo) {
+        const falta = Array.isArray(e.detalle.falta) ? (e.detalle.falta as unknown[]).map(String).join("; ") : "";
+        return `${label(e.estado_anterior)} → ${label(e.estado_nuevo)} · dejó de estar listo para contratar${falta ? `: falta ${falta}` : ""}`;
+      }
+      return `${label(e.estado_anterior)} → ${label(e.estado_nuevo)}${e.causa ? ` (${e.causa})` : ""}${e.detalle?.falta_simit ? " · sin el SIMIT (Croma no respondió): revisarlo a mano" : ""}${
+        e.detalle?.contratado_con_excepcion
+          ? ` · contratado con excepción: ${String(e.detalle.justificacion ?? "")}${
+              Array.isArray(e.detalle.faltaban) && e.detalle.faltaban.length ? ` · faltaba: ${(e.detalle.faltaban as unknown[]).map(String).join("; ")}` : ""
+            }`
+          : ""
+      }`;
+    case "preseleccion": {
+      const g = (e.detalle?.global as string) ?? "";
+      return g === "pasa" ? "Preselección: cumple los 4 requisitos" : g === "no_cumple" ? `Preselección: no cumple (${e.causa ?? "—"})` : "Preselección: faltan datos";
+    }
+    case "autorizacion":
+      return e.detalle?.respuesta === "si" ? "Autorizó el tratamiento de datos" : "No autorizó el tratamiento de datos";
+    case "recomendado":
+      if (e.detalle?.origen === "correccion") {
+        const valor = (v: unknown) => (v === true ? "Sí" : v === false ? "No" : "Sin respuesta");
+        return `Corrigió «viene recomendado»: ${valor(e.detalle.anterior)} → ${valor(e.detalle.nuevo)}. Motivo: ${String(e.detalle.motivo ?? "")}`;
+      }
+      return e.detalle?.respuesta === "si"
+        ? `Dijo que viene recomendado${e.detalle?.por ? ` por ${String(e.detalle.por)}` : ""}: queda como apadrinado hasta que se le asigne el padrino`
+        : "Dijo que no viene recomendado por nadie de la empresa";
+    case "laboratorio": {
+      const d = e.detalle ?? {};
+      if (d.orden_laboratorio) return `Orden de exámenes enviada a ${String(d.orden_laboratorio)} (${d.canal === "whatsapp" ? "WhatsApp" : "correo"})`;
+      if (Array.isArray(d.documentos_enviados)) return `Se le enviaron por WhatsApp: ${d.documentos_enviados.map(String).join(", ")}`;
+      return d.laboratorio ? `Laboratorio de exámenes: ${String(d.laboratorio)}` : "Sin laboratorio asignado";
+    }
+    case "cita":
+      return describirCita(e.detalle ?? {});
+    case "prueba":
+      return describirProfesor(e.detalle ?? {});
+    case "examen_medico": {
+      const d = e.detalle ?? {};
+      return `Exámenes, fase ${String(d.fase ?? "")}: ${d.resultado === "apto" ? "apto" : "no apto"}${d.observacion ? ` · ${String(d.observacion)}` : ""}`;
+    }
+    case "carpeta": {
+      const d = e.detalle ?? {};
+      if (d.item) return `Carpeta: ${String(d.item)} · ${d.estado === "validado" ? "validado" : d.estado === "recibido" ? "recibido" : "pendiente"}`;
+      if (d.archivo) return `Subió un archivo: ${String(d.archivo)}`;
+      if (d.archivo_anulado) return `Anuló el archivo ${String(d.archivo_anulado)}: ${String(d.motivo ?? "")}`;
+      if (d.referencia_validada) return `Validó la referencia de ${String(d.referencia_validada)} (habló con ${String(d.hablo_con ?? "")})`;
+      if (d.referencia) return `Agregó la referencia ${d.tipo === "personal" ? "personal" : "laboral"} de ${String(d.referencia)}`;
+      return "Carpeta";
+    }
+    case "examen": {
+      // Prueba psicotécnica propia, quitada el 24-nov-2026: queda para
+      // leer los eventos que ya están en el historial.
+      const d = e.detalle ?? {};
+      if (d.accion === "asignada") return "Prueba psicotécnica asignada";
+      if (d.accion === "presentada") return "Presentó la prueba psicotécnica · pendiente del concepto de psicología";
+      if (d.accion === "concepto") return `Prueba psicotécnica: ${d.concepto === "apto" ? "apto" : "no apto"}`;
+      if (d.accion === "anulada") return "Prueba psicotécnica anulada";
+      return "Prueba psicotécnica";
+    }
+    default: {
+      if (e.detalle?.reiniciado) return "Reiniciado desde el chat de prueba: se borran los datos y se vuelve a consultar Croma";
+      if (e.detalle?.correo_psico) return textoCorreoPsico(e.detalle);
+      if (e.detalle?.revision_no_apto) return `Revisión del no apto (fase ${String(e.detalle.fase ?? "")}): sigue. ${String(e.detalle.decision ?? "")}`;
+      if (e.detalle?.reconocimiento_aviso) return "Se le avisó que debe hacer el reconocimiento de ruta y se le preguntó cuántas rutas conoce";
+      if (e.detalle?.certificado_banco === "recordatorio") return `Se le recordó enviar el certificado bancario (vez ${String(e.detalle.vez ?? "")})`;
+      if (e.detalle?.certificado_banco === "sin_respuesta") return "No envió el certificado bancario tras los recordatorios: el chat quedó para una persona";
+      if (e.detalle?.banco_cuenta) return e.detalle.banco_cuenta === "si" ? "Dijo que tiene cuenta en el Banco de Bogotá: se le pidió el certificado bancario" : "Dijo que no tiene cuenta en el Banco de Bogotá: se le envió la carta para abrirla";
+      if (e.detalle && "rutas_declaradas" in e.detalle) return `Dijo que lleva ${Number(e.detalle.rutas_declaradas) >= 99 ? "todas las" : String(e.detalle.rutas_declaradas)} rutas aprendidas`;
+      const campos = e.detalle?.campos as string[] | undefined;
+      if (campos?.length) return `Editó: ${campos.join(", ").replace(/_/g, " ")}`;
+      if (e.detalle?.simit != null) return `SIMIT consultado: $${Number(e.detalle.simit).toLocaleString("es-CO")}`;
+      if (e.detalle?.runt) {
+        const r = e.detalle.runt as { registrado?: boolean; tiene_licencia?: boolean; categorias?: { categoria: string }[] };
+        const nombre = (e.detalle.nombre as { nuevo?: string } | undefined)?.nuevo;
+        const lic = r.registrado === false ? "la cédula no aparece" : r.tiene_licencia ? `licencia ${[...new Set((r.categorias ?? []).map((c) => c.categoria))].join(", ")}` : "sin licencia";
+        return `RUNT consultado: ${lic}${nombre ? ` · nombre: ${nombre}` : ""}`;
+      }
+      if (e.detalle?.listo_para_citar) {
+        const NOMBRE: Record<string, string> = {
+          rnmc: "el RNMC",
+          simit: "el SIMIT",
+          runt: "la licencia en el RUNT",
+          policia: "los antecedentes de la Policía",
+          procuraduria: "la Procuraduría",
+          contraloria: "la Contraloría",
+          antecedentes: "los antecedentes (Croma en pausa)",
+        };
+        const lista = Array.isArray(e.detalle.faltan)
+          ? (e.detalle.faltan as string[])
+          : [e.detalle.falta_rnmc ? "rnmc" : null, e.detalle.falta_simit ? "simit" : null].filter((x): x is string => !!x);
+        const faltan = lista.map((f) => NOMBRE[f] ?? f);
+        return faltan.length
+          ? `Quedó «Listo para citar» · falta revisar a mano ${faltan.join(", ")}: ${lista.includes("antecedentes") ? "Croma estaba en pausa" : "Croma no respondió"}. No se cita solo`
+          : "Quedó «Listo para citar»";
+      }
+      if (e.detalle?.aviso_no_seleccionado) {
+        // Lo que de verdad pasó con el aviso (antes decía «se le avisó» aunque no saliera).
+        switch (e.detalle.aviso as string | undefined) {
+          case "borrador":
+            return "Aviso de que no continúa (sin el motivo): quedó como borrador para enviarlo a mano (ventana cerrada)";
+          case "fallido":
+            return "Aviso de que no continúa: no se pudo enviar por WhatsApp. Avísele a mano";
+          case "sin_conversacion":
+            return "Aviso de que no continúa: no se envió (no tiene chat de WhatsApp). Avísele a mano";
+          default:
+            return "Se le avisó que no continúa en el proceso (sin el motivo)";
+        }
+      }
+      if (e.detalle?.revision_manual) {
+        const r = e.detalle.revision_manual as {
+          fuente?: string;
+          hallazgo?: boolean;
+          valor?: number | null;
+          nota?: string | null;
+          pdf?: boolean;
+          licencia?: { categorias?: string[]; vence?: string | null; restricciones?: string | null };
+        };
+        const que =
+          r.fuente === "simit"
+            ? `$${Number(r.valor ?? 0).toLocaleString("es-CO")}`
+            : r.fuente === "runt" && r.licencia
+              ? `licencia ${(r.licencia.categorias ?? []).join(", ")} verificada${r.licencia.vence ? `, vence ${r.licencia.vence}` : ""}${r.licencia.restricciones ? `, ${r.licencia.restricciones}` : ""}`
+              : r.hallazgo
+                ? "con hallazgo"
+                : "sin novedad";
+        return `Revisión manual de ${FUENTE[r.fuente ?? ""] ?? r.fuente}: ${que}${r.nota ? ` · ${r.nota}` : ""}${r.pdf ? " · con certificado en PDF" : ""}`;
+      }
+      if (e.detalle && "aprobacion_contratacion" in e.detalle) {
+        return e.detalle.aprobacion_contratacion ? "Dio el visto bueno para contratar" : "Retiró el visto bueno para contratar";
+      }
+      if (e.detalle?.decision_antecedentes) {
+        const j = e.detalle.justificacion as string | undefined;
+        return `Antecedentes: ${e.detalle.decision_antecedentes === "aprobado" ? "aprobó seguir con el proceso" : "rechazó al aspirante"}${j ? ` · ${j}` : ""}`;
+      }
+      if (e.detalle?.revision_reingreso) return "Trabajó antes en la empresa: reingreso para revisión de una persona";
+      if (e.detalle?.revision_antecedentes) {
+        const aviso = e.detalle.aviso as string | undefined;
+        return `${e.detalle.propone_cierre ? "Antecedentes: las reglas proponen el cierre; lo confirma una persona" : "Antecedentes para revisión de una persona"}${aviso === "enviado" ? " · se le avisó al aspirante" : aviso === "borrador" ? " · aviso como borrador (ventana cerrada)" : ""}`;
+      }
+      if (e.detalle?.rnmc) {
+        const r = e.detalle.rnmc as { fecha_coincide?: boolean; medidas_pendientes?: boolean | null };
+        return r.fecha_coincide === false
+          ? "RNMC: la fecha de expedición no coincide con la cédula"
+          : `RNMC consultado: ${r.medidas_pendientes ? "con medidas correctivas pendientes" : "sin medidas pendientes"}`;
+      }
+      if (e.detalle?.antecedente) {
+        const a = e.detalle.antecedente as { fuente?: string; hallazgo?: boolean | null };
+        return `${FUENTE[a.fuente ?? ""] ?? a.fuente} consultada: ${a.hallazgo ? "con antecedentes" : a.hallazgo === false ? "sin antecedentes" : "sin veredicto"}`;
+      }
+      if (e.detalle?.policia) {
+        const nombre = (e.detalle.nombre as { nuevo?: string } | undefined)?.nuevo;
+        return `Policía consultada${nombre ? ` · nombre: ${nombre}` : ""}`;
+      }
+      return "Actualizó el proceso";
+    }
+  }
+}
+
+const ENVIO: Record<string, string> = {
+  enviado: " · mensaje enviado",
+  borrador: " · mensaje como borrador en la bandeja",
+  prueba: " · mensaje en el chat de prueba",
+  sin_conversacion: " · sin WhatsApp: avisar por otro medio",
+  sin_plantilla: " · mensaje sin enviar (sin plantilla)",
+  falta_dato: " · mensaje sin enviar (falta un dato)",
+  fallido: " · WhatsApp rechazó el mensaje",
+};
+
+function describirCita(d: Record<string, unknown>): string {
+  const cuando = typeof d.fecha === "string" && typeof d.hora === "string" ? `${fechaEnTexto(d.fecha)} a las ${horaEnTexto(d.hora)}` : "";
+  const envio = ENVIO[String(d.envio ?? "")] ?? "";
+  switch (d.accion) {
+    case "citado":
+      return `Citado a la prueba de manejo: ${cuando}${envio}`;
+    case "reprogramada":
+      return `Cita reprogramada por ${d.por === "empresa" ? "la empresa" : "el aspirante"}: ${cuando}${envio}`;
+    case "confirmada":
+      return `Confirmó la cita del ${cuando}`;
+    case "pide_otra_fecha":
+      return `Pidió otra fecha para la cita del ${cuando}`;
+    case "llego":
+      return "Llegó a la cita";
+    case "no_asistio":
+      return `No asistió a la cita del ${cuando}`;
+    case "deshacer_no_asistio":
+      return "Se corrigió el «No asistió»: la cita sigue en pie";
+    case "recordatorio":
+      return `Recordatorio de la cita${envio}`;
+    case "alerta_no_confirmo":
+      return "No ha confirmado la cita: llamar";
+    default:
+      return "Cita actualizada";
+  }
+}
+
+const RESULTADO_PROFESOR: Record<string, string> = {
+  aprobo: "pasa a exámenes",
+  escuela: "va a escuela",
+  no_continua: "no continúa",
+  sigue: "sigue en escuela",
+  listo: "listo, pasa a exámenes",
+  aprendida: "aprendida",
+  repetir: "debe repetirla",
+};
+
+function describirProfesor(d: Record<string, unknown>): string {
+  const res = RESULTADO_PROFESOR[String(d.resultado ?? "")] ?? "";
+  const obs = typeof d.observacion === "string" && d.observacion ? ` · ${d.observacion}` : "";
+  switch (d.accion) {
+    case "prueba_manejo":
+      return `Prueba de manejo: ${res}${obs}`;
+    case "clase_escuela":
+      if (d.falto) return `No llegó a la clase de escuela${d.resultado === "no_continua" ? ": no continúa" : ""}${obs}`;
+      return `Clase de escuela: ${res}${d.clases_faltantes != null ? ` · le faltan ${String(d.clases_faltantes)}` : ""}${obs}`;
+    case "reconocimiento_ruta":
+      return `Reconocimiento de ruta ${String(d.ruta ?? "")}: ${res}${obs}`;
+    case "rutas_completas":
+      return `Rutas completas (${String(d.rutas ?? "")} de ${String(d.minimas ?? "")})`;
+    case "reconocimiento_finalizado":
+      return `Reconocimiento de ruta terminado${d.nota ? ` · ${String(d.nota)}` : ""}`;
+    case "reconocimiento_reabierto":
+      return "Reconocimiento de ruta reabierto";
+    case "observacion":
+      return `Observación del profesor${obs}`;
+    case "concepto":
+      return `Concepto del profesor: ${d.concepto === "acepta" ? "lo acepta" : "no lo acepta"}${obs}`;
+    default:
+      return "Registro del profesor";
+  }
+}
+
+const FUENTE: Record<string, string> = {
+  runt: "RUNT",
+  simit: "SIMIT",
+  policia: "Policía (antecedentes)",
+  rnmc: "RNMC (medidas correctivas)",
+  procuraduria: "Procuraduría (disciplinarios)",
+  contraloria: "Contraloría (fiscales)",
+};
+
+/** Una línea por consulta: estado y lo principal de lo que devolvió. */
+function resumirConsulta(c: ConsultaExternaVista): string {
+  if (c.proveedor === "manual") {
+    const r = (c.resultado ?? {}) as { nota?: string | null };
+    const h = c.fuente === "simit" ? null : hallazgoDe(c.fuente as never, c.resultado);
+    const que = c.fuente === "simit" ? `$${Number(c.valor ?? 0).toLocaleString("es-CO")} en comparendos` : h ? "con hallazgo" : "sin novedad";
+    return `${que}${r.nota ? ` · ${r.nota}` : ""} · ${c.consultado_por ?? ""}`;
+  }
+  if (c.estado === "reiniciada") return "anterior al reinicio del chat de prueba (no cuenta)";
+  if (c.estado === "pendiente") return "en curso en Croma";
+  if (c.estado === "error") return `falló${c.error ? `: ${c.error}` : ""}`;
+  if (c.fuente === "simit") return c.valor != null ? `$${Number(c.valor).toLocaleString("es-CO")} en comparendos` : c.estado;
+  if (c.fuente === "procuraduria" || c.fuente === "contraloria") {
+    const h = hallazgoDe(c.fuente, c.resultado);
+    return h == null ? c.estado : h ? "con antecedentes" : "sin antecedentes";
+  }
+  if (c.fuente === "rnmc") {
+    const r = c.resultado as { has_pending_measures?: boolean | null; pending_measures?: unknown[] | null } | null;
+    if (r?.has_pending_measures === true) {
+      const n = r.pending_measures?.length ?? 0;
+      return `${n || "con"} ${n === 1 ? "medida correctiva pendiente" : "medidas correctivas pendientes"}`;
+    }
+    return r?.has_pending_measures === false ? "sin medidas correctivas pendientes" : c.estado;
+  }
+  if (c.fuente === "policia") {
+    const r = c.resultado as { full_name?: string | null; has_records?: boolean | null } | null;
+    const ant = r?.has_records === true ? "con asuntos pendientes" : r?.has_records === false ? "sin asuntos pendientes" : "sin dato de antecedentes";
+    return `${r?.full_name ?? "sin nombre"} · ${ant}`;
+  }
+  if (c.fuente === "runt") {
+    const r = c.resultado as { found?: boolean; person?: { full_name?: string | null } | null; licenses?: unknown[] | null } | null;
+    if (r?.found === false) return "la cédula no aparece en el RUNT";
+    const n = r?.licenses?.length ?? 0;
+    return `${r?.person?.full_name ?? "sin nombre"} · ${n} ${n === 1 ? "licencia" : "licencias"}`;
+  }
+  return c.estado;
+}
+
+type Pestana = "resumen" | "citas" | "croma" | "documentos" | "contratacion" | "historial";
+
+export function PanelSeleccion({
+  proceso,
+  puedeEditar,
+  onCerrado,
+  sinCitas = false,
+  conPestanas = true,
+  modoCitas = "real",
+  version = 0,
+  destino,
+  lateral = false,
+  onCambio,
+}: {
+  proceso: ProcesoContratacion;
+  puedeEditar: boolean;
+  onCerrado: () => void;
+  /** Sin la pestaña «Citas y profesor». */
+  sinCitas?: boolean;
+  /** En pestañas (ficha y perfil del candidato); si no, todo seguido. */
+  conPestanas?: boolean;
+  /** «prueba»: el chat de prueba lee las citas y lo del profesor con sus propias acciones. */
+  modoCitas?: "real" | "prueba";
+  /** Cambia para volver a leer las citas y lo del profesor. */
+  version?: number;
+  /** Se abrió al arrastrar la tarjeta hacia adelante en el tablero: lo que pide esa etapa (24-nov-2026). */
+  destino?: EtapaConPaso | null;
+  /** En la columna derecha de la ficha (sin el margen ni la línea de arriba). */
+  lateral?: boolean;
+  /** Algo cambió desde el panel (p. ej. «Lo revisé a mano»): quien lo muestra vuelve a leer el proceso (26-nov-2026). */
+  onCambio?: () => void;
+}) {
+  const [eventos, setEventos] = useState<EventoProcesoVista[] | null>(null);
+  const [anteriores, setAnteriores] = useState<PostulacionAnterior[]>([]);
+  const [consultas, setConsultas] = useState<ConsultaExternaVista[]>([]);
+  // Mientras se leen, no se dice «no se ha consultado nada» ni «(0)» (23-nov-2026).
+  const [consultasLeidas, setConsultasLeidas] = useState(false);
+  // Cuántas veces se han leído: «Lo revisé a mano» quita su «actualizando la ficha…» con la lectura siguiente.
+  const [lecturasConsultas, setLecturasConsultas] = useState(0);
+  // «Reintentar en Croma» en curso (fuente).
+  const [reintentando, setReintentando] = useState<string | null>(null);
+  const [documentos, setDocumentos] = useState<DocumentoProceso[]>([]);
+  const [vinculo, setVinculo] = useState<VinculoEmpresa | null>(null);
+  const [mensaje, setMensaje] = useState<string | null>(null);
+  const [pendiente, startTransition] = useTransition();
+  // Cambia al guardar una revisión manual, para volver a leer consultas e historial.
+  const [recarga, setRecarga] = useState(0);
+  const onCambioRef = useRef(onCambio);
+  useEffect(() => {
+    onCambioRef.current = onCambio;
+  }, [onCambio]);
+  useEffect(() => {
+    if (recarga > 0) onCambioRef.current?.();
+  }, [recarga]);
+  const [pestana, setPestana] = useState<Pestana>(destino ? pestanaDeEtapa(destino) : "resumen");
+  // Cambia cuando el paso del tablero hace avanzar el proceso: se releen las secciones.
+  const [avances, setAvances] = useState(0);
+  const ver = (p: Pestana) => !conPestanas || pestana === p;
+
+  useEffect(() => {
+    let vivo = true;
+    // Una sola llamada (27-nov-2026): las cinco acciones iban en fila y la ficha tardaba en cargar.
+    leerFicha("datosFichaProceso", { id: proceso.id, cedula: proceso.cedula, celular: proceso.celular })
+      .then((d) => {
+        if (!vivo) return;
+        setEventos(d.eventos ?? []);
+        if (d.anteriores) setAnteriores(d.anteriores);
+        if (d.consultas) setConsultas(d.consultas);
+        setLecturasConsultas((n) => n + 1);
+        if (d.documentos) setDocumentos(d.documentos);
+        setVinculo(d.vinculo);
+      })
+      .catch(() => vivo && setEventos([]))
+      .finally(() => vivo && setConsultasLeidas(true));
+    return () => {
+      vivo = false;
+    };
+  }, [proceso.id, proceso.cedula, proceso.celular, recarga, version]);
+
+  // Fuentes que Croma no respondió (falló o sigue en curso) y que una persona puede revisar a mano.
+  const abiertoParaRevisar = proceso.estado !== "cierre" && proceso.estado !== "contratado";
+  const pendientesCroma: FuentePendiente[] = [];
+  // Fuentes con un hallazgo de Croma: también se pueden revisar a mano, para corregirlo con el certificado oficial.
+  const conHallazgo: FuentePendiente[] = [];
+  if (abiertoParaRevisar && consultas.length > 0) {
+    const vivas = consultas.filter((c) => c.estado !== "reiniciada");
+    const motivo = (estado: string, detalle: string | null) => (estado === "pendiente" ? "Sigue en curso en Croma" : estado === "error" ? `Falló${detalle ? `: ${detalle}` : ""}` : "Sin consultar todavía");
+    if (vivas.some((c) => c.fuente in NOMBRE_FUENTE)) {
+      for (const f of evaluarAntecedentes(vivas as ConsultaGuardada[]).fuentes) {
+        if (f.estado === "error" || f.estado === "pendiente") pendientesCroma.push({ fuente: f.fuente, motivo: motivo(f.estado, f.detalle) });
+        // El hallazgo ya lo confirmó una persona a mano (27-nov-2026): no se vuelve a ofrecer; lo decide GH en Antecedentes.
+        else if (f.estado === "hallazgo" && vivas.find((c) => c.fuente === f.fuente)?.proveedor !== "manual") conHallazgo.push({ fuente: f.fuente, conHallazgo: true, motivo: "Trae un hallazgo: si lo revisó en el portal oficial, registre aquí lo que encontró" });
+      }
+    }
+    const simit = vivas.find((c) => c.fuente === "simit");
+    if (!proceso.simit && simit && (simit.estado === "error" || simit.estado === "pendiente")) {
+      pendientesCroma.unshift({ fuente: "simit", motivo: motivo(simit.estado, simit.error) });
+    }
+  }
+  // RUNT (24-nov-2026): sin la licencia verificada, si Croma no respondió va en rojo; si
+  // todavía no se ha consultado (Croma en pausa), se puede verificar a mano igual.
+  const sinRunt: FuentePendiente[] = [];
+  if (abiertoParaRevisar && !proceso.licencia_runt && !proceso.licencia_verificada_runt && proceso.cedula) {
+    const runt = consultas.filter((c) => c.estado !== "reiniciada").find((c) => c.fuente === "runt");
+    if (runt && (runt.estado === "error" || runt.estado === "pendiente")) pendientesCroma.unshift({ fuente: "runt", motivo: runt.estado === "pendiente" ? "Sigue en curso en Croma" : `Falló${runt.error ? `: ${runt.error}` : ""}` });
+    else if (!runt && (proceso.estado === "pendiente" || proceso.estado === "antecedentes"))
+      sinRunt.push({ fuente: "runt", sinConsultar: true, motivo: "Sin consultar en el RUNT: verifique la licencia a mano (portal o foto que envió)" });
+  }
+
+  const pre = proceso.preseleccion;
+  // Cerrado aquí mismo (27-nov-2026): en el chat real y en el de prueba la ficha no recibe el proceso
+  // nuevo enseguida, y el aviso «Se propone cerrar» seguía como si no se hubiera hecho. Vale mientras
+  // el proceso que llega sea el mismo y no haya cambiado de estado (si se reabre, deja de valer).
+  const [cerradoAqui, setCerradoAqui] = useState<{ id: string; estadoAntes: string; causa: string } | null>(null);
+  const cerradoLocal = cerradoAqui && cerradoAqui.id === proceso.id && cerradoAqui.estadoAntes === proceso.estado ? cerradoAqui : null;
+  const abierto = !cerradoLocal && proceso.estado !== "cierre" && proceso.estado !== "contratado";
+  const causa = proceso.requisito_incumplido;
+
+  async function cerrarConCausa() {
+    if (!causa) return;
+    if (!await confirmar(`¿Cerrar el proceso de ${proceso.nombre} con la causa «${causa}»?`)) return;
+    startTransition(async () => {
+      try {
+        const r = await updateProcesoEstado(proceso.id, "cierre", causa);
+        if (!r.ok) return setMensaje(r.error);
+        // La acción ya revalida /candidatos; en el chat real o el de prueba no hace falta recargar la página (27-nov-2026).
+        marcarGuardado();
+        setCerradoAqui({ id: proceso.id, estadoAntes: proceso.estado, causa });
+        setMensaje(`Proceso cerrado con la causa «${causa}».`);
+        // Que quien contiene la ficha (chat, tablero) vuelva a leer el proceso.
+        setRecarga((n) => n + 1);
+        onCerrado();
+      } catch (e) {
+        setMensaje(e instanceof Error ? e.message : "No se pudo cerrar.");
+      }
+    });
+  }
+
+  function pedirSimit() {
+    setMensaje(null);
+    startTransition(async () => {
+      try {
+        const r = await consultarSimit(proceso.id);
+        setMensaje(
+          r.modo === "consultado"
+            ? `SIMIT consultado: $${r.valor.toLocaleString("es-CO")}.`
+            : r.mensaje
+        );
+        marcarGuardado();
+        setRecarga((n) => n + 1);
+      } catch (e) {
+        setMensaje(e instanceof Error ? e.message : "No se pudo consultar.");
+      }
+    });
+  }
+
+  const vivas = consultas.filter((c) => c.estado !== "reiniciada");
+  const pestanas: { id: Pestana; texto: string; aviso?: boolean }[] = [
+    { id: "resumen", texto: "Resumen" },
+    ...(sinCitas ? [] : [{ id: "citas" as Pestana, texto: "Citas y profesor" }]),
+    // La pestaña se llamaba «Croma»: ahora empieza por los antecedentes y sus reglas, y debajo van las consultas.
+    { id: "croma", texto: consultasLeidas ? `Antecedentes (${vivas.length})` : "Antecedentes (…)", aviso: pendientesCroma.length > 0 },
+    { id: "documentos", texto: "Carpeta" },
+    // Entrega 4: psicotécnica, entrevista e inducción.
+    ...(sinCitas ? [] : [{ id: "contratacion" as Pestana, texto: "Día de contratación" }]),
+    { id: "historial", texto: `Historial${eventos ? ` (${eventos.length})` : ""}` },
+  ];
+
+  return (
+    <div className={lateral ? "space-y-5" : "mt-6 space-y-5 border-t border-[#F1F5F9] pt-5"}>
+      {destino && puedeEditar && (
+        <PasoTablero
+          procesoId={proceso.id}
+          nombre={proceso.nombre}
+          destino={destino}
+          onAvanzo={() => {
+            marcarGuardado();
+            setAvances((n) => n + 1);
+            setRecarga((n) => n + 1);
+          }}
+          onVerPestana={setPestana}
+        />
+      )}
+
+      {conPestanas && (
+        <nav className="-mx-1 flex gap-1 overflow-x-auto border-b border-[#E2E8F0] px-1" aria-label="Secciones del proceso">
+          {pestanas.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => setPestana(p.id)}
+              className={`relative shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium ${
+                pestana === p.id ? "border-[#4F46E5] text-[#4F46E5]" : "border-transparent text-gray-500 hover:text-gray-800"
+              }`}
+            >
+              {p.texto}
+              {p.aviso && <span className="ml-1.5 inline-block h-2 w-2 rounded-full bg-red-500 align-middle" title="Croma no respondió alguna fuente" />}
+            </button>
+          ))}
+        </nav>
+      )}
+
+      {conPestanas && pestana === "resumen" && pendientesCroma.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setPestana("croma")}
+          className="flex w-full items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-left text-sm text-red-800 hover:bg-red-100"
+        >
+          <TriangleAlert className="h-4 w-4 shrink-0" />
+          Croma no respondió: {pendientesCroma.map((p) => FUENTE[p.fuente] ?? p.fuente).join(", ")}. Ver y revisar a mano →
+        </button>
+      )}
+
+      {ver("resumen") && (
+      <section>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h4 className="text-sm font-semibold text-gray-900">Preselección</h4>
+          {proceso.origen === "whatsapp_agente" && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-[#EEF2FF] px-2 py-0.5 text-[11px] font-medium text-[#4F46E5]">
+              <Bot className="h-3 w-3" /> Creado por el asistente de WhatsApp
+            </span>
+          )}
+          {proceso.origen === "chat_prueba" && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+              <Bot className="h-3 w-3" /> Guardado desde el chat de prueba
+            </span>
+          )}
+        </div>
+        {pre ? <SemaforoDetalle resultado={pre} /> : <p className="text-sm text-gray-500">Sin evaluar todavía: guarde el proceso para calcular el semáforo.</p>}
+
+        {abierto && pre?.global === "no_cumple" && causa && (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2">
+            <p className="flex items-center gap-2 text-sm text-red-700">
+              <TriangleAlert className="h-4 w-4 shrink-0" /> Se propone cerrar: {causa}
+              {(proceso.origen === "whatsapp_agente" || proceso.origen === "chat_prueba") && (
+                <span className="text-xs font-normal"> · si no cambia, se cierra solo a los 30 minutos</span>
+              )}
+            </p>
+            {puedeEditar && (
+              <button
+                type="button"
+                onClick={cerrarConCausa}
+                disabled={pendiente}
+                className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                Cerrar con esta causa
+              </button>
+            )}
+          </div>
+        )}
+
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+          {proceso.autorizacion_datos === "si" ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-emerald-700">
+              <ShieldCheck className="h-3.5 w-3.5" /> Autorizó datos
+              {proceso.autorizacion_datos_at ? ` · ${fechaHora(proceso.autorizacion_datos_at)}` : ""}
+            </span>
+          ) : proceso.autorizacion_datos === "no" ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-1 text-red-700">
+              <ShieldX className="h-3.5 w-3.5" /> No autorizó datos
+            </span>
+          ) : (
+            <span className="rounded-full bg-gray-100 px-2 py-1 text-gray-600">Autorización de datos pendiente</span>
+          )}
+          {proceso.cedula_fecha_expedicion && (
+            <span className="rounded-full bg-gray-100 px-2 py-1 text-gray-600">
+              Cédula expedida el{" "}
+              {new Date(`${proceso.cedula_fecha_expedicion.slice(0, 10)}T00:00:00Z`).toLocaleDateString("es-CO", { timeZone: "UTC", day: "numeric", month: "short", year: "numeric" })}
+            </span>
+          )}
+          {proceso.hoja_vida_recibida_at && (
+            <span className="rounded-full bg-gray-100 px-2 py-1 text-gray-600">Hoja de vida recibida · {fechaHora(proceso.hoja_vida_recibida_at)}</span>
+          )}
+          {proceso.carta_laboral_pendiente && (
+            <span className="rounded-full bg-amber-50 px-2 py-1 text-amber-700">Carta laboral pendiente</span>
+          )}
+          <a href={RUNT_URL} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-1 text-gray-600 hover:text-[#4F46E5]">
+            Consultar licencia en el RUNT <ExternalLink className="h-3 w-3" />
+          </a>
+          {puedeEditar && abierto && (
+            <button
+              type="button"
+              onClick={pedirSimit}
+              disabled={pendiente}
+              className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-1 text-gray-600 hover:text-[#4F46E5] disabled:opacity-50"
+            >
+              <Search className="h-3 w-3" /> Consultar SIMIT
+            </button>
+          )}
+        </div>
+        {mensaje && <p className="mt-2 text-xs text-gray-600">{mensaje}</p>}
+      </section>
+      )}
+
+      {/* Experiencia laboral (sin verificar hasta la carta laboral o la llamada a la referencia) y referencias. */}
+      {ver("resumen") && <SeccionExperiencia procesoId={proceso.id} version={recarga + version} />}
+
+      {!sinCitas && ver("citas") && <SeccionCitas proceso={proceso} puedeEditar={puedeEditar} modo={modoCitas} version={version + avances} onCitado={() => {
+            marcarGuardado();
+            setRecarga((n) => n + 1);
+          }} />}
+      {/* Entrega 3: exámenes médicos y rutas, después de lo del profesor. */}
+      {!sinCitas && ver("citas") && <SeccionExamenesRutas procesoId={proceso.id} abierto={abierto} version={recarga + version} />}
+      {/* Lo que respondió a las preguntas de los mensajes de exámenes (24-nov-2026). */}
+      {!sinCitas && ver("citas") && (proceso.banco_preguntado_at || proceso.rutas_preguntado_at || proceso.reconocimiento_estado) && (
+        <section className="rounded-lg border border-[#F1F5F9] p-3 text-sm">
+          <h4 className="mb-1 text-sm font-semibold text-gray-900">Respuestas a los mensajes de exámenes</h4>
+          {proceso.banco_preguntado_at && (
+            <p className="text-gray-700">
+              ¿Cuenta de ahorros en el Banco de Bogotá?{" "}
+              {proceso.banco_cuenta === "si" ? (
+                <strong>Sí: se le pidió el certificado bancario</strong>
+              ) : proceso.banco_cuenta === "no" ? (
+                <strong>No: se le envió la carta del banco y, al abrir la cuenta, debe enviar el certificado</strong>
+              ) : (
+                <span className="text-amber-700">sin respuesta todavía</span>
+              )}
+              {proceso.banco_cuenta && (
+                <span className="block text-xs text-gray-500">
+                  Cuando lo envíe por WhatsApp se lee solo (banco, cédula y cuenta vigente): se acepta en «Documentos leídos» y se valida en la Carpeta, ítem «Certificado bancario». Para contratar tiene que estar validado. Si no lo envía, se le recuerda solo (Tiempos y reglas).
+                </span>
+              )}
+            </p>
+          )}
+          {proceso.reconocimiento_estado && (
+            <p className="text-gray-700">
+              Reconocimiento de ruta:{" "}
+              <strong>
+                {proceso.reconocimiento_estado === "finalizado"
+                  ? `terminado${proceso.reconocimiento_finalizado_por ? ` (${proceso.reconocimiento_finalizado_por})` : ""}`
+                  : proceso.reconocimiento_estado === "por_verificar"
+                    ? "dice que conoce las rutas: por verificar"
+                    : proceso.reconocimiento_estado === "en_curso"
+                      ? "en curso"
+                      : "pendiente de citar"}
+              </strong>{" "}
+              <Link href="/candidatos/reconocimiento" className="text-xs text-[#4F46E5] underline">
+                abrir
+              </Link>
+            </p>
+          )}
+          {proceso.rutas_preguntado_at && (
+            <p className="text-gray-700">
+              ¿Cuántas rutas conoce?{" "}
+              {proceso.rutas_declaradas != null ? <strong>{proceso.rutas_declaradas >= 99 ? "dice que todas" : `dice que ${proceso.rutas_declaradas}`}</strong> : <span className="text-amber-700">sin respuesta todavía</span>}
+            </p>
+          )}
+        </section>
+      )}
+
+      {ver("resumen") && vinculo && (
+        <section className={`rounded-lg border p-3 ${vinculo.tipo === "activo" ? "border-red-200 bg-red-50" : "border-amber-200 bg-amber-50"}`}>
+          <h4 className="mb-1 text-sm font-semibold text-gray-900">
+            {vinculo.tipo === "activo" ? "Ya trabaja en la empresa" : "Trabajó antes en la empresa · reingreso para revisión"}
+          </h4>
+          <p className="text-sm text-gray-700">{resumenVinculo(vinculo)}</p>
+          {vinculo.tipo === "retirado" && abierto && (
+            <p className="mt-1 text-xs text-gray-600">
+              No queda «Listo para citar» solo: una persona decide si sigue (citarlo) o no (cerrar, por ejemplo con «No aprobado reintegro»). Está en el filtro «Reingresos por revisar».
+            </p>
+          )}
+        </section>
+      )}
+
+      {ver("resumen") && anteriores.length > 0 && (
+        <section>
+          <h4 className="mb-2 text-sm font-semibold text-gray-900">
+            Postuló antes: {anteriores.length} {anteriores.length === 1 ? "vez" : "veces"}
+          </h4>
+          <ul className="space-y-1 text-sm text-gray-600">
+            {anteriores.slice(0, 5).map((a) => (
+              <li key={a.id}>
+                {a.fecha_creacion} · {estadoInfo(a.estado)?.label ?? a.estado}
+                {a.causa_no_contrato ? ` · ${a.causa_no_contrato}` : ""}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {!sinCitas && ver("contratacion") && <SeccionDiaContratacion procesoId={proceso.id} abierto={abierto} version={recarga + version} />}
+
+      {/* Entrega 4: lo leído con IA, para aceptar, corregir o rechazar. */}
+      {ver("documentos") && <SeccionDocumentosLeidos procesoId={proceso.id} version={recarga + version} />}
+      {ver("documentos") && <SeccionCarpeta procesoId={proceso.id} version={recarga + version} />}
+      {ver("documentos") && conPestanas && documentos.length === 0 && <p className="text-sm text-gray-500">Todavía no ha enviado documentos por WhatsApp.</p>}
+      {ver("documentos") && documentos.length > 0 && (
+        <section>
+          <h4 className="mb-2 text-sm font-semibold text-gray-900">Documentos recibidos por WhatsApp</h4>
+          <ul className="grid gap-2 sm:grid-cols-2">
+            {documentos.map((d) => (
+              <li key={d.id} className="rounded-lg border border-[#F1F5F9] p-2 text-xs text-gray-700">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-medium">
+                    {d.tipo === "image" ? "Foto" : d.tipo === "audio" ? "Audio" : d.tipo === "video" ? "Video" : (d.nombre ?? "Documento")}
+                    {d.origen === "chat_prueba" ? " (chat de prueba)" : ""}
+                  </span>
+                  <span className="text-gray-400">{fechaHora(d.fecha)}</span>
+                </div>
+                {d.url && d.tipo === "image" ? (
+                  <a href={d.url} target="_blank" rel="noreferrer">
+                    {/* eslint-disable-next-line @next/next/no-img-element -- URL firmada del bucket privado */}
+                    <img src={d.url} alt="Documento recibido" className="mt-1 max-h-40 rounded" />
+                  </a>
+                ) : d.url ? (
+                  <a href={d.url} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-[#4F46E5]">
+                    Abrir <ExternalLink className="h-3 w-3" />
+                  </a>
+                ) : null}
+                {d.lectura && <p className="mt-1 text-gray-600">Lectura automática: {d.lectura}</p>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {ver("croma") && puedeEditar && (
+        <RevisionManual
+          procesoId={proceso.id}
+          pendientes={[...pendientesCroma, ...sinRunt, ...conHallazgo]}
+          lecturas={lecturasConsultas}
+          onGuardado={() => {
+            // La acción ya revalida /candidatos (Next trae la página nueva con la respuesta):
+            // un router.refresh() aquí la volvía a pedir y la ficha tardaba el doble (27-nov-2026).
+            marcarGuardado();
+            setRecarga((n) => n + 1);
+          }}
+        />
+      )}
+      {ver("croma") && !puedeEditar && pendientesCroma.length > 0 && (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+          Croma no respondió: {pendientesCroma.map((p) => FUENTE[p.fuente] ?? p.fuente).join(", ")}. Gestivo sigue reintentando; una persona puede revisarlo a mano en la ficha.
+        </p>
+      )}
+
+      {/* Entrega 3: qué le falta para contratar, en las últimas etapas. */}
+      {ver("resumen") && (
+        <SeccionContratacion procesoId={proceso.id} estado={proceso.estado} version={recarga + version} onCambio={(contratado) => { setRecarga((n) => n + 1); if (contratado) onCerrado(); }} />
+      )}
+      {/* En el Resumen, solo el veredicto; el detalle, las reglas y la decisión van en la pestaña «Antecedentes». */}
+      {conPestanas && pestana === "resumen" && (
+        <SeccionAntecedentes
+          procesoId={proceso.id}
+          abierto={abierto}
+          puedeEditar={puedeEditar}
+          version={recarga + version}
+          compacta
+          onCambio={() => setRecarga((n) => n + 1)}
+          onVerDetalle={() => setPestana("croma")}
+        />
+      )}
+      {ver("croma") && (
+        <SeccionAntecedentes procesoId={proceso.id} abierto={abierto} puedeEditar={puedeEditar} version={recarga + version} onCambio={() => setRecarga((n) => n + 1)} />
+      )}
+
+      {ver("croma") && conPestanas && consultas.length === 0 && (
+        <p className="text-sm text-gray-500">{consultasLeidas ? "Todavía no se ha consultado nada en Croma." : "Cargando las consultas…"}</p>
+      )}
+      {ver("croma") && consultas.length > 0 && (
+        <section>
+          <h4 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-gray-900">
+            <Search className="h-4 w-4" /> Consultas a Croma
+          </h4>
+          <ul className="space-y-1.5 text-sm">
+            {consultas.map((c) => (
+              <li key={c.id} className="rounded-lg border border-[#F1F5F9] px-3 py-2">
+                <div className="flex flex-wrap items-center gap-x-2 text-gray-700">
+                  <span className="text-xs text-gray-400">{fechaHora(c.created_at)}</span>
+                  <span className="font-medium">{FUENTE[c.fuente] ?? c.fuente.toUpperCase()}</span>
+                  {c.proveedor === "manual" && <span className="rounded-full bg-[#EEF2FF] px-2 py-0.5 text-[11px] font-medium text-[#4338CA]">Revisión manual</span>}
+                  {/* 27-nov-2026: con revisión manual Gestivo ya no la consulta solo; esto la reintenta una vez. */}
+                  {c.proveedor === "manual" && puedeEditar && abierto && FUENTES_REINTENTO.includes(c.fuente) && consultas.find((y) => y.fuente === c.fuente && y.estado !== "reiniciada")?.id === c.id && (
+                    <button
+                      type="button"
+                      disabled={reintentando === c.fuente}
+                      onClick={async () => {
+                        if (!await confirmar(`¿Consultar ${FUENTE[c.fuente] ?? c.fuente} otra vez en Croma? Gasta una consulta. Si Croma responde, vale su respuesta; si no, sigue valiendo la revisión manual.`)) return;
+                        setReintentando(c.fuente);
+                        void reintentarFuenteEnCroma(proceso.id, c.fuente as "policia" | "procuraduria" | "contraloria" | "rnmc" | "simit")
+                          .then((r) => setMensaje(r.mensaje))
+                          .catch((e: Error) => setMensaje(e.message))
+                          .finally(() => {
+                            setReintentando(null);
+                            setRecarga((n) => n + 1);
+                          });
+                      }}
+                      className="rounded-lg border border-[#C7D2FE] px-2 py-0.5 text-[11px] font-medium text-[#4338CA] hover:bg-[#EEF2FF] disabled:opacity-50"
+                    >
+                      {reintentando === c.fuente ? "Consultando…" : "Reintentar en Croma"}
+                    </button>
+                  )}
+                  {c.proveedor === "simulado" && <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">Simulado (chat de prueba)</span>}
+                  {(c.estado === "error" || c.estado === "pendiente") && (
+                    <span className="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-medium text-red-700">{c.estado === "error" ? "Error en Croma" : "En curso"}</span>
+                  )}
+                  <span className="text-xs text-gray-500">{resumirConsulta(c)}</span>
+                  {c.pdf_url && (
+                    <a href={c.pdf_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-[#4F46E5]">
+                      Ver el certificado (PDF) <ExternalLink className="h-3 w-3" />
+                    </a>
+                  )}
+                </div>
+                {interpretarConsulta(c.fuente, c.resultado).length > 0 && (
+                  <dl className="mt-1 grid gap-x-3 gap-y-0.5 text-xs sm:grid-cols-[auto_1fr]">
+                    {interpretarConsulta(c.fuente, c.resultado).map((x, i) => (
+                      <div key={i} className="contents">
+                        <dt className="text-gray-500">{x.etiqueta}</dt>
+                        <dd className={x.alerta ? "font-medium text-red-700" : "text-gray-800"}>{x.valor}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                )}
+                {c.resultado != null && (
+                  <details className="mt-1">
+                    <summary className="cursor-pointer text-xs text-[#4F46E5]">Ver la respuesta completa de {c.proveedor === "croma" ? "Croma" : c.proveedor}</summary>
+                    <pre className="mt-1 max-h-64 overflow-auto rounded bg-gray-50 p-2 text-[11px] leading-snug text-gray-700">{JSON.stringify(c.resultado, null, 2)}</pre>
+                  </details>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {ver("historial") && (
+      <section>
+        <h4 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-gray-900">
+          <History className="h-4 w-4" /> Historial
+        </h4>
+        {eventos === null ? (
+          <p className="text-sm text-gray-400">Cargando…</p>
+        ) : eventos.length === 0 ? (
+          <p className="text-sm text-gray-500">Sin cambios registrados.</p>
+        ) : (
+          <ol className={`space-y-1.5 text-sm ${conPestanas ? "" : "max-h-56 overflow-y-auto"}`}>
+            {eventos.map((e) => (
+              <li key={e.id} className="flex flex-wrap gap-x-2 text-gray-700">
+                <span className="text-xs text-gray-400">{fechaHora(e.created_at)}</span>
+                <span>{describirEvento(e)}</span>
+                <span className="text-xs text-gray-400">{ACTOR[e.actor] || e.usuario_email || ""}</span>
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
+      )}
+    </div>
+  );
+}

@@ -20,6 +20,7 @@
  *    "revisar" para que la coordinadora lo confirme.
  */
 import { causaRetiro, causaLabel } from "@/lib/conductores/retiro";
+import { ESTADOS_EN_CURSO } from "@/lib/contratacion/constants";
 import {
   CATALOGO_REQUISITOS,
   PARAMETROS_V2,
@@ -141,6 +142,8 @@ export interface HechosReferido {
     antecedentes?: string | null;
     fechaExamenes?: string | null;
     fechaExamenesFase2?: string | null;
+    /** Fecha de contrato del proceso, si ya se contrató (R13 se mide contra ella). */
+    fechaContrato?: string | null;
   };
   candidatoCreado: string | null;
   otrosProcesos: { id: string; estado: string; fechaCreacion: string }[];
@@ -175,7 +178,7 @@ export interface HechosReferido {
 }
 
 /** Estados del proceso que cuentan como "en curso" (ver contratacion/constants). */
-const EN_CURSO = new Set(["pendiente", "citado", "en_examenes", "en_examenes_fase2", "prueba_manejo", "en_escuela", "reconocimiento_ruta"]);
+const EN_CURSO = new Set<string>(ESTADOS_EN_CURSO);
 
 const TITULOS = Object.fromEntries(CATALOGO_REQUISITOS.map((r) => [r.codigo, r.titulo])) as Record<string, string>;
 
@@ -499,7 +502,8 @@ export function evaluarReferido(h: HechosReferido, p: ParametrosPolitica = PARAM
   // R9 — inducción y capacitación PESV: el proceso ya pasó la escuela.
   if (activo(p, "R9") && !h.sinProceso) {
     const e = h.proceso.estado ?? "";
-    if (e === "reconocimiento_ruta" || e === "contratado") add("R9", "cumple", "El proceso ya pasó la escuela (inducción y PESV).");
+    // A exámenes solo se llega aprobando la prueba de manejo o terminando la escuela.
+    if (["en_examenes", "en_examenes_fase2", "reconocimiento_ruta", "listo_contratar", "contratado"].includes(e)) add("R9", "cumple", "El proceso ya pasó la escuela (inducción y PESV).");
     else add("R9", "revisar", e === "en_escuela" ? "El candidato está en la escuela: inducción y PESV en curso." : "El candidato todavía no llega a la escuela (inducción y PESV).");
   }
 
@@ -524,20 +528,25 @@ export function evaluarReferido(h: HechosReferido, p: ParametrosPolitica = PARAM
     add("R12", esquema.sinBonificacion ? "no_cumple" : esquema.revisar ? "revisar" : "cumple", esquema.dato);
   }
 
-  // R13 — el padrino registró la hoja de vida ANTES de que empezara la selección.
+  // R13 — el padrino registró al referido a tiempo. Desde el 27-nov-2026 (decisión de GH en la
+  // reunión de soporte) la referencia es la FECHA DE CONTRATACIÓN, no el inicio de la selección:
+  // el aspirante dice que viene recomendado el día 5, lo contratan el 10, y el plan se activa el 10.
   if (activo(p, "R13")) {
     const registro = h.registradoEl ?? null;
     const tol = p.referido.tolerancia_registro_dias;
+    const contratacion = h.fechaIngreso ?? h.proceso.fechaContrato ?? null;
     if (h.sinProceso) {
       add("R13", "cumple", `Prerregistrado${registro ? ` el ${fmtCorta(registro)}` : ""}, antes de iniciar la selección: se enlaza solo cuando se cree su proceso de contratación.`);
     } else if (!registro) {
       add("R13", "revisar", "No se sabe cuándo se registró en el plan.");
+    } else if (!contratacion) {
+      add("R13", "cumple", `Registrado el ${fmtCorta(registro)}, antes de la contratación (se confirma al contratar).`);
     } else {
-      const limite = sumarDias(inicioProceso, tol);
+      const limite = sumarDias(contratacion, tol);
       if (registro <= limite) {
-        add("R13", "cumple", `Registrado el ${fmtCorta(registro)}; el proceso de selección empezó el ${fmtCorta(inicioProceso)}.`);
+        add("R13", "cumple", `Registrado el ${fmtCorta(registro)}; lo contrataron el ${fmtCorta(contratacion)}.`);
       } else {
-        add("R13", "no_cumple", `Registro tardío: el proceso de selección empezó el ${fmtCorta(inicioProceso)} y el padrino lo registró el ${fmtCorta(registro)}${tol ? ` (más de ${tol} día(s) después)` : ""}. La hoja de vida debe registrarse antes de iniciar la selección.`);
+        add("R13", "no_cumple", `Registro tardío: lo contrataron el ${fmtCorta(contratacion)} y el padrino lo registró el ${fmtCorta(registro)}${tol ? ` (más de ${tol} día(s) después)` : ""}. El padrino debe registrarlo antes de la contratación.`);
       }
     }
   }
@@ -573,6 +582,18 @@ export function resumenDecision(v: Validacion | null | undefined) {
 
 /** Requisitos que bloquean y no se cumplen (para la verificación al contratar). */
 export const bloqueantesNoCumplidos = (rs: Requisito[]) => rs.filter((r) => r.estado === "no_cumple" && r.bloquea !== false);
+
+/**
+ * El candidato respondió en el chat que no venía recomendado: no se le puede
+ * poner padrino. Solo quien tiene «Plan Padrino · aprobación» lo corrige en
+ * Candidatos, con motivo, y queda en el historial (Salud Ocupacional,
+ * 21-nov-2026). Sin respuesta (procesos manuales o anteriores) no bloquea.
+ */
+export function bloqueoPorRecomendado(recomendado: boolean | null): string | null {
+  return recomendado === false
+    ? "En el chat dijo que no venía recomendado por nadie de la empresa. Solo quien tenga el permiso «Plan Padrino · aprobación» puede corregirlo en Candidatos (con el motivo) antes de registrarle padrino."
+    : null;
+}
 
 /** El padrino debe estar activo para registrar (RQ-01): P1, y en v3 también P2, distintos de "no cumple". */
 export function padrinoPuedeRegistrar(padrino: Requisito[]): string | null {

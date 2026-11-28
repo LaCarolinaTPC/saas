@@ -4,11 +4,19 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCanal, marcarLeido, parseWebhook } from "@/lib/comunicaciones/whatsapp";
 import { archivarMedioDeMeta } from "@/lib/comunicaciones/medios";
 import { responderConAgente } from "@/lib/comunicaciones/agente/responder";
+import { procesarRespuestaCita } from "@/lib/seleccion/agenda-ejecutar";
+import { procesarMensajeLaboratorio } from "@/lib/seleccion/laboratorio-lectura";
+import { enviarDocumentosPendientes } from "@/lib/seleccion/laboratorios-servidor";
+import { procesarCorreoPsico } from "@/lib/seleccion/correo-psico-servidor";
+import { procesarRespuestaExamenes } from "@/lib/seleccion/respuestas-examenes-servidor";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-// El agente de IA responde con after(): espera unos segundos y consulta al modelo.
-export const maxDuration = 60;
+// El agente de IA responde con after() (el 200 a Meta sale antes): espera unos
+// segundos, consulta al modelo y, en la selección, verifica en Croma, que a
+// veces tarda cerca de un minuto solo en el RNMC. after() corre dentro de este
+// límite (Vercel Pro admite hasta 300 s).
+export const maxDuration = 300;
 
 /**
  * Webhook de la WhatsApp Cloud API (portado de Varylo, un solo canal):
@@ -94,19 +102,10 @@ export async function POST(req: NextRequest) {
         .maybeSingle();
       if (previo) continue;
 
-      // Copia local del medio: Meta lo borra a los 30 días.
-      let mediaPath: string | null = null;
-      let mimeType = m.mimeType;
-      let nombreArchivo = m.nombreArchivo;
-      if (m.mediaId) {
-        const archivado = await archivarMedioDeMeta(conv.id, m.mediaId, m.nombreArchivo);
-        if (archivado) {
-          mediaPath = archivado.ruta;
-          mimeType = archivado.mimeType;
-          nombreArchivo = archivado.nombreArchivo;
-        }
-      }
-
+      // El mensaje se guarda antes de bajar el medio: la descarga tarda unos
+      // segundos y, si la persona manda la foto y enseguida un texto, el texto
+      // quedaba guardado (y respondido) antes que la foto, que después ya no se
+      // contestaba. El agente espera a que termine la copia (medios pendientes).
       const { data: nuevo, error: eMsj } = await db.from("wa_mensajes").insert({
         conversacion_id: conv.id,
         direccion: "entrante",
@@ -114,14 +113,26 @@ export async function POST(req: NextRequest) {
         wamid: m.wamid,
         media_tipo: m.mediaTipo,
         media_id: m.mediaId,
-        mime_type: mimeType,
-        nombre_archivo: nombreArchivo,
-        media_path: mediaPath,
+        mime_type: m.mimeType,
+        nombre_archivo: m.nombreArchivo,
+        media_path: null,
         timestamp: m.timestamp.toISOString(),
       }).select("id").single();
       if (eMsj) {
         if (eMsj.code === "23505") continue; // duplicado: reintento de Meta
         throw new Error(eMsj.message);
+      }
+
+      // Copia local del medio: Meta lo borra a los 30 días. Si falla, queda el
+      // media_id y asegurarMedios lo reintenta al abrir el hilo.
+      if (m.mediaId && nuevo) {
+        const archivado = await archivarMedioDeMeta(conv.id, m.mediaId, m.nombreArchivo);
+        if (archivado) {
+          await db
+            .from("wa_mensajes")
+            .update({ media_path: archivado.ruta, mime_type: archivado.mimeType, nombre_archivo: archivado.nombreArchivo })
+            .eq("id", nuevo.id);
+        }
       }
 
       await db
@@ -157,9 +168,24 @@ export async function POST(req: NextRequest) {
   }
 
   for (const [conversacionId, mensajeId] of paraAgente) {
-    after(() =>
-      responderConAgente(conversacionId, mensajeId).catch((e) => console.error("webhook whatsapp (agente):", e))
-    );
+    after(async () => {
+      // Antes del asistente y aunque esté pausado: «Sí, voy» confirma la cita y
+      // «Necesito otra fecha» la deja marcada para una persona (entrega 2).
+      await procesarRespuestaCita(conversacionId, mensajeId).catch((e) => console.error("webhook whatsapp (cita):", e));
+      // Escribió: si tenía la orden de exámenes y la carta del banco pendientes (ventana cerrada), salen ahora.
+      await enviarDocumentosPendientes(conversacionId);
+      // Entrega 3: si el número es del laboratorio, se lee el resultado (el asistente no le contesta).
+      await procesarMensajeLaboratorio(conversacionId, mensajeId).catch((e) => console.error("webhook whatsapp (laboratorio):", e));
+      // 24-nov-2026: la respuesta a la pregunta del mensaje de exámenes (¿cuenta en el
+      // Banco de Bogotá?, ¿cuántas rutas lleva?). Si era eso, ya se le respondió.
+      const deExamen = await procesarRespuestaExamenes(conversacionId, mensajeId).catch((e) => (console.error("webhook whatsapp (exámenes):", e), false));
+      if (deExamen) return;
+      // 24-nov-2026: el correo para la psicotécnica (lo escribe, o dice si está bien).
+      // Si el mensaje era eso, ya se le respondió y el asistente no contesta.
+      const delCorreo = await procesarCorreoPsico(conversacionId, mensajeId).catch((e) => (console.error("webhook whatsapp (correo):", e), false));
+      if (delCorreo) return;
+      await responderConAgente(conversacionId, mensajeId).catch((e) => console.error("webhook whatsapp (agente):", e));
+    });
   }
 
   return NextResponse.json({ ok: true });

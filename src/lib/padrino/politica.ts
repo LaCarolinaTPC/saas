@@ -85,8 +85,9 @@ export const parametrosSchema = z.object({
     categorias_licencia: textos,
     ventana_hoja_vida_meses: meses,
     /**
-     * R13: días de gracia entre el inicio del proceso de selección y el
-     * registro del padrino (0 = el registro tiene que ser el mismo día o antes).
+     * R13: días de gracia entre la contratación y el registro del padrino
+     * (0 = el registro tiene que ser el día de la contratación o antes). Hasta el
+     * 27-nov-2026 se medía contra el inicio de la selección.
      */
     tolerancia_registro_dias: z.number().int().min(0).max(365).default(0),
     reintegro: z.object({
@@ -132,7 +133,7 @@ export const CATALOGO_REQUISITOS = [
   { codigo: "R10", sujeto: "referido", titulo: "Certificados laborales de experiencia (esquema A)" },
   { codigo: "R11", sujeto: "referido", titulo: "Sin bonificación pagada antes por esta cédula" },
   { codigo: "R12", sujeto: "referido", titulo: "Tipo de ingreso y reglas de reintegro" },
-  { codigo: "R13", sujeto: "referido", titulo: "Hoja de vida registrada por el padrino antes de iniciar la selección" },
+  { codigo: "R13", sujeto: "referido", titulo: "Registrado por el padrino antes de la contratación" },
 ] as const;
 
 export type CodigoRequisito = (typeof CATALOGO_REQUISITOS)[number]["codigo"];
@@ -501,7 +502,7 @@ export function diferencias(antes: ParametrosPolitica, despues: ParametrosPoliti
   const rd = despues.referido;
   cambio("Referido, categorías de licencia", lista(ra.categorias_licencia), lista(rd.categorias_licencia));
   cambio("Referido, ventana de hoja de vida", `${ra.ventana_hoja_vida_meses} meses`, `${rd.ventana_hoja_vida_meses} meses`);
-  cambio("Referido, días de gracia para registrar después de iniciar la selección", `${ra.tolerancia_registro_dias}`, `${rd.tolerancia_registro_dias}`);
+  cambio("Referido, días de gracia para registrar después de la contratación", `${ra.tolerancia_registro_dias}`, `${rd.tolerancia_registro_dias}`);
   cambio("Reintegros con reglas propias", sino(ra.reintegro.activo), sino(rd.reintegro.activo));
   cambio("Reintegro, meses mínimos fuera", `${ra.reintegro.meses_minimos_fuera}`, `${rd.reintegro.meses_minimos_fuera}`);
   cambio("Reintegro, tipos de retiro permitidos", lista(ra.reintegro.tipos_causa_permitidos), lista(rd.reintegro.tipos_causa_permitidos));

@@ -7,6 +7,7 @@
  * cédula: R11).
  */
 import { useState, useTransition } from "react";
+import { confirmar } from "@/components/ui/confirmar";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Trash2, Upload } from "lucide-react";
@@ -59,8 +60,8 @@ export function HistoricoPagos({ resumen }: { resumen: Awaited<ReturnType<typeof
     });
   }
 
-  function reversar(f: string) {
-    if (!window.confirm(`¿Reversar la carga «${f}»? Se borran todas sus filas.`)) return;
+  async function reversar(f: string) {
+    if (!await confirmar(`¿Reversar la carga «${f}»? Se borran todas sus filas.`)) return;
     start(async () => {
       const r = await reversarHistorico(f);
       if (r.ok) {

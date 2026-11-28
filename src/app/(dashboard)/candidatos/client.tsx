@@ -1,15 +1,20 @@
 "use client";
 
 import { usePermisos } from "@/components/permisos/permisos-provider";
-import { useRef, useState, useTransition } from "react";
-import { ClipboardList, LayoutGrid, List, Users, Trash2, MoreHorizontal, Eye, Briefcase, X } from "lucide-react";
+import { confirmar } from "@/components/ui/confirmar";
+import { leerFicha } from "@/lib/lectura-ficha";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { BarChart3, Brain, CalendarClock, ClipboardList, LayoutGrid, List, Users, Trash2, MoreHorizontal, Eye, Briefcase, X, Route, Stethoscope } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { KanbanBoard } from "@/components/candidatos/kanban-board";
+import { KanbanProcesos } from "@/components/candidatos/kanban-procesos";
+import { AgendaDia } from "@/components/seleccion/agenda-dia";
+import { AgendaExamenes } from "@/components/seleccion/agenda-examenes";
+import type { ProcesoContratacion } from "@/lib/contratacion/constants";
 import { CandidateTable } from "@/components/candidatos/candidate-table";
 import { ContratacionClient, type ProcesosData } from "@/components/contratacion/procesos-client";
 import { formatDateBogota } from "@/lib/utils";
 import { Paginador, usePaginacion } from "@/components/shared/paginacion";
-import { deleteCandidate, assignCandidateToVacancy } from "@/lib/actions";
+import { deleteCandidate, assignCandidateToVacancy, getAllCandidates, getCandidatesPipeline } from "@/lib/actions";
 import Link from "next/link";
 import {
   DropdownMenu,
@@ -19,7 +24,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 
-type View = "procesos" | "kanban" | "tabla" | "todos";
+type View = "procesos" | "agenda" | "kanban" | "tabla" | "todos";
 
 interface Vacancy {
   id: string;
@@ -27,23 +32,10 @@ interface Vacancy {
   departments: { name: string } | { name: string }[] | null;
 }
 
-export interface Stage {
-  id: string;
-  key: string;
-  label: string;
-  color: string;
-  text_color: string;
-  orden: number;
-  tipo: string;
-  activo: boolean;
-}
-
 interface CandidatosClientProps {
-  pipeline: any[];
-  allCandidates: any[];
   vacancies: Vacancy[];
-  stages: Stage[];
-  canManageStages: boolean;
+  /** Procesos para el tablero (en curso y cerrados recientes). */
+  tablero: ProcesoContratacion[];
   procesos: ProcesosData;
 }
 
@@ -56,36 +48,128 @@ function getInitials(name: string): string {
     .join("");
 }
 
-export function CandidatosClient({ pipeline, allCandidates, vacancies, stages, canManageStages, procesos }: CandidatosClientProps) {
+export function CandidatosClient({ vacancies, tablero, procesos }: CandidatosClientProps) {
   const [view, setView] = useState<View>("procesos");
   const [vacancyFilter, setVacancyFilter] = useState("all");
 
   const isKanban = view === "kanban";
 
+  // Se cargan al abrir su pestaña (27-nov-2026): antes venían con la página en cada carga.
+  const [pipeline, setPipeline] = useState<any[] | null>(null);
+  const [allCandidates, setAllCandidates] = useState<any[] | null>(null);
+  const cargarPipeline = useCallback(() => {
+    void getCandidatesPipeline()
+      .then((d) => setPipeline(d ?? []))
+      .catch(() => setPipeline([]));
+  }, []);
+  const cargarTodos = useCallback(() => {
+    void getAllCandidates()
+      .then((d) => setAllCandidates(d ?? []))
+      .catch(() => setAllCandidates([]));
+  }, []);
+  useEffect(() => {
+    if (view === "tabla") cargarPipeline();
+    if (view === "todos") cargarTodos();
+  }, [view, cargarPipeline, cargarTodos]);
+
   const filteredPipeline =
     vacancyFilter === "all"
-      ? pipeline
-      : pipeline.filter((r) => r.vacancy_id === vacancyFilter);
+      ? (pipeline ?? [])
+      : (pipeline ?? []).filter((r) => r.vacancy_id === vacancyFilter);
+  // Tablero por mes (27-nov-2026): llega el mes actual; otro mes (o «todos») se pide al elegirlo.
+  const meses = useMemo(() => mesesDelTablero(), []);
+  const [mesTablero, setMesTablero] = useState(meses[0].valor);
+  const [otroMes, setOtroMes] = useState<{ mes: string; filas: ProcesoContratacion[] } | null>(null);
+  const [cargandoMes, setCargandoMes] = useState(false);
+  function elegirMes(mes: string) {
+    setMesTablero(mes);
+    if (mes === meses[0].valor) return setOtroMes(null);
+    setCargandoMes(true);
+    leerFicha("tableroDelMes", mes)
+      .then((filas) => setOtroMes({ mes, filas }))
+      .catch(() => setOtroMes({ mes, filas: [] }))
+      .finally(() => setCargandoMes(false));
+  }
+  // Con el tablero abierto y la pestaña visible, se vuelve a leer cada minuto (27-nov-2026): las
+  // tarjetas y su semáforo al día sin recargar la página (y sin saturar el servidor).
+  useEffect(() => {
+    if (view !== "kanban") return;
+    const t = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      const mes = mesTablero;
+      leerFicha("tableroDelMes", mes)
+        .then((filas) => setOtroMes((actual) => (mesTablero === mes ? { mes, filas } : actual)))
+        .catch(() => undefined);
+    }, 60_000);
+    return () => clearInterval(t);
+  }, [view, mesTablero]);
+  const tableroDelMes = otroMes && otroMes.mes === mesTablero ? otroMes.filas : mesTablero === meses[0].valor ? tablero : [];
+  const filteredTablero =
+    vacancyFilter === "all" ? tableroDelMes : tableroDelMes.filter((p) => p.vacancy_id === vacancyFilter);
 
   const viewSwitcher = (
-    <div className="flex items-center gap-1 rounded-lg border border-[#F1F5F9] bg-white p-1">
+    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-[#F1F5F9] bg-white p-1">
       <Button variant={view === "procesos" ? "default" : "ghost"} size="sm" onClick={() => setView("procesos")} className={view === "procesos" ? "bg-[#4F46E5] text-white hover:bg-[#4338CA]" : "text-gray-500"}>
         <ClipboardList className="h-4 w-4" /> Procesos
+      </Button>
+      <Button variant={view === "agenda" ? "default" : "ghost"} size="sm" onClick={() => setView("agenda")} className={view === "agenda" ? "bg-[#4F46E5] text-white hover:bg-[#4338CA]" : "text-gray-500"}>
+        <CalendarClock className="h-4 w-4" /> Agenda
       </Button>
       <Button variant={view === "todos" ? "default" : "ghost"} size="sm" onClick={() => setView("todos")} className={view === "todos" ? "bg-[#4F46E5] text-white hover:bg-[#4338CA]" : "text-gray-500"}>
         <Users className="h-4 w-4" /> Todos
       </Button>
       <Button variant={view === "kanban" ? "default" : "ghost"} size="sm" onClick={() => setView("kanban")} className={view === "kanban" ? "bg-[#4F46E5] text-white hover:bg-[#4338CA]" : "text-gray-500"}>
-        <LayoutGrid className="h-4 w-4" /> Pipeline
+        <LayoutGrid className="h-4 w-4" /> Tablero
       </Button>
       <Button variant={view === "tabla" ? "default" : "ghost"} size="sm" onClick={() => setView("tabla")} className={view === "tabla" ? "bg-[#4F46E5] text-white hover:bg-[#4338CA]" : "text-gray-500"}>
         <List className="h-4 w-4" /> Tabla
       </Button>
+      {/* Página aparte: lee la base en el servidor y su periodo va en la URL. */}
+      <Link
+        href="/candidatos/indicadores"
+        className="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-sm font-medium text-gray-500 hover:bg-gray-100"
+      >
+        <BarChart3 className="h-4 w-4" /> Indicadores
+      </Link>
+      {/* 24-nov-2026: inscribir en PsicoAlianza y subir los resultados. */}
+      <Link
+        href="/candidatos/psicotecnica"
+        className="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-sm font-medium text-gray-500 hover:bg-gray-100"
+      >
+        <Brain className="h-4 w-4" /> Psicotécnica
+      </Link>
+      {/* 27-nov-2026: el reconocimiento de ruta, dentro de Candidatos (antes solo en /reconocimiento). */}
+      <Link
+        href="/candidatos/reconocimiento"
+        className="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-sm font-medium text-gray-500 hover:bg-gray-100"
+      >
+        <Route className="h-4 w-4" /> Reconocimiento
+      </Link>
+      {/* 27-nov-2026: resultados de la fase 2 de exámenes (médicos: los pone una persona). */}
+      <Link
+        href="/candidatos/examenes-fase2"
+        className="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-sm font-medium text-gray-500 hover:bg-gray-100"
+      >
+        <Stethoscope className="h-4 w-4" /> Exámenes fase 2
+      </Link>
     </div>
   );
 
   if (view === "procesos") {
     return <ContratacionClient {...procesos} headerActions={viewSwitcher} />;
+  }
+
+  if (view === "agenda") {
+    return (
+      <div className="min-h-screen bg-[#F8FAFC]">
+        <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-3 px-4 py-6 sm:px-6">
+          <h1 className="text-xl font-bold text-gray-900">Agenda de citas</h1>
+          {viewSwitcher}
+        </div>
+        <AgendaExamenes puedeEditar={procesos.canEdit} />
+        <AgendaDia puedeEditar={procesos.canEdit} />
+      </div>
+    );
   }
 
   return (
@@ -94,13 +178,26 @@ export function CandidatosClient({ pipeline, allCandidates, vacancies, stages, c
         <div className={`flex items-center justify-between ${isKanban ? "mb-3" : "mb-6"}`}>
           <div className="flex items-center gap-3">
             <h1 className={`font-bold text-gray-900 ${isKanban ? "text-lg" : "text-xl"}`}>
-              {isKanban ? "Pipeline de Candidatos" : "Candidatos"}
+              {isKanban ? "Tablero de procesos" : "Candidatos"}
             </h1>
             <span className="rounded-full bg-[#EEF2FF] px-2.5 py-0.5 text-xs font-semibold text-[#4F46E5]">
-              {isKanban ? filteredPipeline.length : allCandidates.length}
+              {isKanban ? filteredTablero.length : view === "tabla" ? (pipeline ? filteredPipeline.length : "…") : (allCandidates?.length ?? "…")}
             </span>
           </div>
           <div className="flex items-center gap-2">
+          {isKanban && (
+            <select
+              value={mesTablero}
+              onChange={(e) => elegirMes(e.target.value)}
+              disabled={cargandoMes}
+              title="Procesos creados en ese mes (en cualquier etapa)"
+              className="h-9 rounded-lg border border-[#E2E8F0] bg-white px-2 text-sm font-medium text-gray-700 outline-none focus:border-[#4F46E5] disabled:opacity-60"
+            >
+              {meses.map((m) => (
+                <option key={m.valor} value={m.valor}>{m.texto}</option>
+              ))}
+            </select>
+          )}
           {view !== "todos" && (
             <select
               value={vacancyFilter}
@@ -120,19 +217,19 @@ export function CandidatosClient({ pipeline, allCandidates, vacancies, stages, c
 
       {isKanban ? (
         <div className="flex-1 overflow-hidden px-4">
-          <KanbanBoard
-            key={vacancyFilter + "|" + stages.map((s) => `${s.id}:${s.orden}:${s.label}:${s.color}:${s.tipo}`).join(",")}
-            pipeline={filteredPipeline}
-            stages={stages}
-            canManage={canManageStages}
+          <KanbanProcesos
+            procesos={filteredTablero}
+            vacancies={vacancies.map((v) => ({ id: v.id, title: v.title }))}
           />
         </div>
       ) : (
         <div className="mx-auto max-w-[1400px] px-6">
-          {view === "tabla" ? (
+          {(view === "tabla" ? pipeline : allCandidates) === null ? (
+            <p className="py-10 text-center text-sm text-gray-500">Cargando…</p>
+          ) : view === "tabla" ? (
             <CandidateTable pipeline={filteredPipeline} />
           ) : (
-            <AllCandidatesView candidates={allCandidates} vacancies={vacancies} />
+            <AllCandidatesView candidates={allCandidates ?? []} vacancies={vacancies} onCambio={cargarTodos} />
           )}
         </div>
       )}
@@ -140,7 +237,7 @@ export function CandidatosClient({ pipeline, allCandidates, vacancies, stages, c
   );
 }
 
-function AllCandidatesView({ candidates, vacancies }: { candidates: any[]; vacancies: Vacancy[] }) {
+function AllCandidatesView({ candidates, vacancies, onCambio }: { candidates: any[]; vacancies: Vacancy[]; onCambio: () => void }) {
   const [search, setSearch] = useState("");
 
   const filtered = candidates.filter((c) => {
@@ -233,7 +330,7 @@ function AllCandidatesView({ candidates, vacancies }: { candidates: any[]; vacan
                       {formatDateBogota(c.created_at)}
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <CandidateActions id={c.id} name={c.full_name} hasVacancy={!!cv} vacancies={vacancies} />
+                      <CandidateActions id={c.id} name={c.full_name} hasVacancy={!!cv} vacancies={vacancies} onCambio={onCambio} />
                     </td>
                   </tr>
                 );
@@ -247,7 +344,7 @@ function AllCandidatesView({ candidates, vacancies }: { candidates: any[]; vacan
   );
 }
 
-function CandidateActions({ id, name, hasVacancy, vacancies }: { id: string; name: string | null; hasVacancy: boolean; vacancies: Vacancy[] }) {
+function CandidateActions({ id, name, hasVacancy, vacancies, onCambio }: { id: string; name: string | null; hasVacancy: boolean; vacancies: Vacancy[]; onCambio: () => void }) {
   const [isPending, startTransition] = useTransition();
   // Asignar exige `candidatos.editar` y eliminar `candidatos.eliminar` (también en el servidor).
   const puede = usePermisos();
@@ -255,10 +352,11 @@ function CandidateActions({ id, name, hasVacancy, vacancies }: { id: string; nam
   const elimina = puede("candidatos.eliminar");
   const [showAssign, setShowAssign] = useState(false);
 
-  function handleDelete() {
-    if (!confirm(`¿Eliminar candidato "${name ?? "Sin nombre"}"? Esta acción no se puede deshacer.`)) return;
+  async function handleDelete() {
+    if (!await confirmar(`¿Eliminar candidato "${name ?? "Sin nombre"}"? Esta acción no se puede deshacer.`)) return;
     startTransition(async () => {
       await deleteCandidate(id);
+      onCambio();
     });
   }
 
@@ -266,6 +364,7 @@ function CandidateActions({ id, name, hasVacancy, vacancies }: { id: string; nam
     startTransition(async () => {
       await assignCandidateToVacancy(id, vacancyId);
       setShowAssign(false);
+      onCambio();
     });
   }
 
@@ -335,4 +434,18 @@ function CandidateActions({ id, name, hasVacancy, vacancies }: { id: string; nam
       )}
     </>
   );
+}
+
+/** Los meses del filtro del tablero: el actual y los 11 anteriores, más «todos» (en curso de cualquier mes). */
+function mesesDelTablero(): { valor: string; texto: string }[] {
+  const ahora = new Date(Date.now() - 5 * 3_600_000);
+  const lista: { valor: string; texto: string }[] = [];
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(Date.UTC(ahora.getUTCFullYear(), ahora.getUTCMonth() - i, 1));
+    const valor = d.toISOString().slice(0, 7);
+    const texto = d.toLocaleDateString("es-CO", { month: "long", year: "numeric", timeZone: "UTC" });
+    lista.push({ valor, texto: `${i === 0 ? "Este mes · " : ""}${texto.charAt(0).toUpperCase()}${texto.slice(1)}` });
+  }
+  lista.push({ valor: "todos", texto: "En curso (todos los meses)" });
+  return lista;
 }

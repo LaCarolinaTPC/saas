@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState, useTransition } from "react";
+import { pedirTexto } from "@/components/ui/confirmar";
 import { useRouter } from "next/navigation";
 import { Ban, Download, Eye, FileText, ImageIcon, Loader2, Paperclip, Upload, X } from "lucide-react";
 import { toast } from "sonner";
@@ -158,8 +159,8 @@ export function SoportesVehiculo({ v, cedula, soportes, modo, puedeSubir, dispon
 function FilaSoporte({ s, verUrl, bajarUrl, anular: anularAccion }: { s: SoporteVista; verUrl: string; bajarUrl: string; anular?: AnularSoporte }) {
   const router = useRouter();
   const [pendiente, start] = useTransition();
-  function anular() {
-    const motivo = window.prompt(`Motivo para anular «${s.archivoNombre}» (el afiliado dejará de verlo):`);
+  async function anular() {
+    const motivo = await pedirTexto(`Motivo para anular «${s.archivoNombre}» (el afiliado dejará de verlo):`);
     if (motivo === null || !anularAccion) return;
     start(async () => {
       const r = await anularAccion(s.id, motivo);

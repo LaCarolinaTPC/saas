@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { pedirTexto } from "@/components/ui/confirmar";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import {
@@ -447,8 +448,8 @@ export default function CroquisEditor({
       posicion: ya ? "previa" : "final",
     });
   }
-  function agregarTexto() {
-    const t = window.prompt("Texto (nombre de la calle, referencia…)")?.trim();
+  async function agregarTexto() {
+    const t = (await pedirTexto("Texto (nombre de la calle, referencia…)"))?.trim();
     if (t) agregar({ id: nuevoId(), tipo: "texto", x: px, y: py, rot: 0, texto: t.slice(0, 40) });
   }
   function borrar() {

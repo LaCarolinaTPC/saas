@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { canAccessSub, getCurrentPermissions, puedeAdministrarPoliticaPadrino, puedeEditarEn } from "@/lib/permissions";
 import { MODULE_HOME } from "@/lib/permissions-shared";
 import { PageHeader } from "@/components/layout/page-header";
-import { catalogosPolitica, cedulaDelUsuario, getPoliticas, getResumenHistorico, getPoliticaVigente, getProcesoOpcion, hoyBogota, listarReferidos } from "@/lib/padrino/datos";
+import { catalogosPolitica, cedulaDelUsuario, getApadrinadosPendientes, getPoliticas, getResumenHistorico, getPoliticaVigente, getProcesoOpcion, hoyBogota, listarReferidos } from "@/lib/padrino/datos";
 import { PlanPadrinoClient } from "./plan-padrino-client";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +22,7 @@ export default async function PlanPadrinoPage({
   const puedeRegistrar = puedeEditarEn(perms, "candidatos.padrino_registro");
 
   const cedula = await cedulaDelUsuario(perms.userId, perms.userEmail);
-  const [lista, politica, procesoInicial, todas] = await Promise.all([
+  const [lista, politica, procesoInicial, todas, pendientes] = await Promise.all([
     listarReferidos(filtros, cedula).then(
       (filas) => ({ filas, error: null as string | null }),
       (e: Error) => ({ filas: [], error: e.message })
@@ -30,6 +30,8 @@ export default async function PlanPadrinoPage({
     getPoliticaVigente(hoyBogota()).catch(() => null),
     puedeRegistrar && sp.registrar ? getProcesoOpcion(sp.registrar) : Promise.resolve(null),
     getPoliticas(undefined, { borradores: true }).catch(() => []),
+    // Candidatos que dijeron venir recomendados y esperan que se les asigne el padrino.
+    getApadrinadosPendientes().catch(() => []),
   ]);
   // Las listas del editor solo hacen falta a quien puede editar la política.
   const administraPolitica = puedeAdministrarPoliticaPadrino(perms);
@@ -73,6 +75,7 @@ export default async function PlanPadrinoPage({
         catalogos={catalogos}
         historico={historico}
         procesoInicial={procesoInicial}
+        pendientes={pendientes}
       />
     </div>
   );

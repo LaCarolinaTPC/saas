@@ -1,22 +1,24 @@
 "use server";
 
 import { randomBytes } from "crypto";
+import { ESTADOS_EN_CURSO } from "@/lib/contratacion/constants";
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { canAccessSub, getCurrentPermissions, puedeAdministrarPoliticaPadrino, tienePermiso } from "@/lib/permissions";
 import {
-  BUCKET_PADRINO, cedulaDelUsuario, fechaDe, getPoliticaPorId, getPoliticas, getPoliticaVigente, hoyBogota, referidoVigente, validar,
+  BUCKET_PADRINO, cedulaDelUsuario, fechaRegistro, getPoliticaPorId, getPoliticas, getPoliticaVigente, hoyBogota, referidoVigente, validar,
 } from "./datos";
 import { esquemasLegadoDe, parsearParametros, siguienteVersion, totalesEsquema, validarPublicacion } from "./politica";
-import { actualizarEstadoReferido, bitacora, bitacoraHito, evaluarHitos, sincronizarConProceso, sincronizarIncentivos } from "./servidor";
+import { actualizarEstadoReferido, bitacora, bitacoraHito, evaluarHitos, sincronizarIncentivos } from "./servidor";
 import { CERT_MAX, CERT_MIMES, firmaCoincide } from "./archivos";
 import ExcelJS from "exceljs";
 import { leerTablaHistorico, resumenLectura, tablaDeCsv } from "./historico";
 import { validarAprobacionHito, validarPago } from "./hitos";
 import { aplicarRetroactivo, calcularRetroactivo } from "./retroactivo-servidor";
+import { aprobarHitosPorExcepcionNucleo, decidirElegibilidadNucleo, leerReferido, registrarReferidoNucleo } from "./registro-servidor";
 import type { SimulacionRetroactiva } from "./retroactivo";
 import {
-  ESTADOS_ABIERTOS, ESTADOS_CAMBIO_ESQUEMA, ESTADOS_DECISION, esRegistroTardio, hitosPorBeneficiario, padrinoPuedeRegistrar, resumenDecision, validarDecision,
+  ESTADOS_ABIERTOS, ESTADOS_CAMBIO_ESQUEMA, ESTADOS_DECISION, hitosPorBeneficiario, padrinoPuedeRegistrar, resumenDecision,
   type DecisionEsquema, type HitoBeneficiario, type Validacion,
 } from "./reglas";
 
@@ -32,7 +34,7 @@ const columnasEsquema = (e: DecisionEsquema) => ({
 const faltaColumna = (e: { code?: string; message?: string } | null) => Boolean(e && (e.code === "PGRST204" || /column/i.test(e.message ?? "")));
 
 /** Estados del proceso de contratación en curso (contratacion/constants). */
-const ESTADOS_PROCESO_EN_CURSO = new Set(["pendiente", "citado", "en_examenes", "en_examenes_fase2", "prueba_manejo", "en_escuela", "reconocimiento_ruta"]);
+const ESTADOS_PROCESO_EN_CURSO = new Set<string>(ESTADOS_EN_CURSO);
 
 type Resultado<T = object> = ({ ok: true } & T) | { ok: false; error: string };
 
@@ -47,19 +49,6 @@ async function exigir(sub: Sub, opciones: { editar?: boolean } = {}) {
   if (opciones.editar && !tienePermiso(perms, `candidatos.${sub}.editar`)) throw new Error("Tu rol es de solo lectura.");
   const cedula = await cedulaDelUsuario(perms.userId, perms.userEmail);
   return { perms, cedula };
-}
-
-/** Lee el referido y bloquea al padrino sobre su propio registro. */
-async function leerReferido(id: string, cedulaUsuario: string | null) {
-  const { data } = await createAdminClient().from("padrino_referidos").select("*").eq("id", id).maybeSingle();
-  if (!data) throw new Error("El referido no existe.");
-  if (cedulaUsuario && data.cedula_padrino === cedulaUsuario) throw new Error("No puedes gestionar un registro en el que eres el padrino.");
-  return data as {
-    id: string; estado: string; esquema: "A" | "B" | "C"; proceso_id: string | null; cedula_padrino: string; cedula_referido: string;
-    politica_id: string; fecha_ingreso: string | null; created_at: string; nombre_referido: string | null;
-    validacion: Validacion; experiencia_certificada: boolean; certificado_ruta: string | null; certificado_validado_at: string | null;
-    anulado_at: string | null; created_by: string | null;
-  };
 }
 
 function ok(): { ok: true };
@@ -129,54 +118,10 @@ export async function buscarPadrinos(q: string, opciones: { todosLosEmpleados?: 
 export async function registrarReferido(input: { procesoId: string; cedulaPadrino: string }): Promise<Resultado<{ id: string }>> {
   try {
     const { perms, cedula: propia } = await exigir("padrino_registro", { editar: true });
-    const cedulaPadrino = input.cedulaPadrino.trim();
-    if (!input.procesoId || !cedulaPadrino) throw new Error("Elija el proceso del referido y el padrino.");
-    if (propia && cedulaPadrino === propia) throw new Error("No puedes registrarte como padrino.");
-    const admin = createAdminClient();
-
-    // Con la versión vigente hoy. Al contratar se reasigna la vigente en la
-    // fecha de ingreso (servidor.ts, ajustarAlContratar).
-    const { validacion, padrino, referido, politica, esquema } = await validar(input.procesoId, cedulaPadrino, admin);
-    if (referido.cedula === cedulaPadrino) throw new Error("El padrino y el referido no pueden ser la misma persona.");
-    if (propia && referido.cedula === propia) throw new Error("No puedes registrar un referido con tu propia cédula.");
-    const bloqueo = padrinoPuedeRegistrar(validacion.padrino);
-    if (bloqueo) throw new Error(bloqueo);
-
-    const previo = await referidoVigente(referido.cedula, admin);
-    if (previo) {
-      const cuando = new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", dateStyle: "medium" }).format(new Date(previo.created_at));
-      throw new Error(`Este referido ya está registrado con el padrino ${previo.nombre_padrino ?? previo.cedula_padrino}, por ${previo.created_by_email ?? "otro usuario"} el ${cuando}.`);
-    }
-
-    if (!politica) throw new Error("No hay una versión de la política vigente hoy.");
-
-    const esConductor = padrino.conductor?.estado === "ACTIVO";
-    const fila = {
-        politica_id: politica.id,
-        candidate_id: referido.candidateId,
-        proceso_id: input.procesoId,
-        cedula_referido: referido.cedula,
-        nombre_referido: referido.nombre,
-        cedula_padrino: cedulaPadrino,
-        nombre_padrino: esConductor ? padrino.conductor!.nombre : padrino.empleado?.nombre ?? padrino.conductor?.nombre ?? null,
-        padrino_tipo: esConductor ? "conductor" : "empleado",
-        padrino_cargo: esConductor ? padrino.conductor!.tipo : padrino.empleado?.cargo ?? null,
-        estado: "en_validacion",
-        validacion,
-        validacion_at: new Date().toISOString(),
-        created_by: perms.userId,
-        created_by_email: perms.userEmail,
-    };
-    // El esquema según el tipo de referido (sin certificado validado todavía: B, o C si es reintegro).
-    let { data, error } = await admin.from("padrino_referidos").insert({ ...fila, ...columnasEsquema(esquema) }).select("id").single();
-    if (faltaColumna(error)) ({ data, error } = await admin.from("padrino_referidos").insert({ ...fila, esquema: esquema.esquema === "C" ? "B" : esquema.esquema }).select("id").single());
-    if (error || !data) {
-      if (error?.code === "23505") throw new Error("Este referido ya tiene un registro vigente.");
-      throw new Error(error?.message ?? "No se pudo registrar el referido.");
-    }
-    await bitacora(data.id as string, "registro", { proceso_id: input.procesoId, cedula_padrino: cedulaPadrino, politica: politica.version, validacion, esquema: esquema.esquema, tipo_ingreso: esquema.tipoIngreso, sin_bonificacion: esquema.sinBonificacion, registro_tardio: esRegistroTardio(validacion) }, perms);
+    const id = await registrarReferidoNucleo(input, perms, propia);
     revalidatePath(RUTA);
-    return ok({ id: data.id as string });
+    revalidatePath("/candidatos");
+    return ok({ id });
   } catch (e) {
     return falla(e);
   }
@@ -262,7 +207,7 @@ export async function revalidarReferido(id: string): Promise<Resultado> {
       politica,
       referidoId: id,
       experienciaCertificada: r.certificado_validado_at ? r.experiencia_certificada : null,
-      registradoEl: fechaDe(r.created_at),
+      registradoEl: fechaRegistro(r),
       cedula: r.cedula_referido,
       nombre: r.nombre_referido,
     });
@@ -348,7 +293,7 @@ export async function validarCertificado(id: string, valido: boolean, observacio
         referidoId: id,
         experienciaCertificada: valido,
         fechaIngreso: r.fecha_ingreso,
-        registradoEl: fechaDe(r.created_at),
+        registradoEl: fechaRegistro(r),
         cedula: r.cedula_referido,
         nombre: r.nombre_referido,
       })
@@ -377,35 +322,25 @@ export async function validarCertificado(id: string, valido: boolean, observacio
 export async function decidirElegibilidad(input: { id: string; decision: "elegible" | "no_elegible"; observacion: string; excepcion: boolean }): Promise<Resultado> {
   try {
     const { perms, cedula } = await exigir("padrino_aprobacion", { editar: true });
-    const r = await leerReferido(input.id, cedula);
-    if (r.anulado_at || !ESTADOS_DECISION.includes(r.estado)) throw new Error("La elegibilidad de este referido ya se decidió.");
-    if (!r.proceso_id && input.decision === "elegible") {
-      throw new Error("Es un prerregistro: la elegibilidad se decide cuando Selección cree su proceso de contratación (se enlaza solo).");
-    }
-    // Con el proceso ya contratado, aprobar crea los hitos y congela el esquema:
-    // un certificado adjunto sin validar dejaría al padrino en B ($200.000) sin remedio.
-    if (input.decision === "elegible" && r.certificado_ruta && !r.certificado_validado_at) {
-      throw new Error("Hay un certificado de experiencia sin validar. Valídelo o rechácelo antes de aprobar la elegibilidad: al contratar se crean los hitos y el esquema ya no cambia.");
-    }
-    const error = validarDecision(input.decision, r.validacion, input.excepcion, input.observacion);
-    if (error) throw new Error(error);
-    const excepcion = input.decision === "elegible" && input.excepcion;
-    const { error: e } = await createAdminClient()
-      .from("padrino_referidos")
-      .update({
-        estado: input.decision,
-        elegibilidad_excepcion: excepcion,
-        elegibilidad_observacion: input.observacion.trim() || null,
-        elegibilidad_por_email: perms.userEmail,
-        elegibilidad_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", input.id)
-      .in("estado", ESTADOS_DECISION);
-    if (e) throw new Error(e.message);
-    await bitacora(input.id, input.decision === "elegible" ? (excepcion ? "elegible_por_excepcion" : "elegible") : "no_elegible", { observacion: input.observacion.trim() || null }, perms);
-    if (input.decision === "elegible" && r.proceso_id) await sincronizarConProceso(r.proceso_id, perms);
+    await decidirElegibilidadNucleo(input, perms, cedula);
     revalidatePath(`${RUTA}/${input.id}`);
+    revalidatePath(RUTA);
+    return ok();
+  } catch (e) {
+    return falla(e);
+  }
+}
+
+/**
+ * Hitos bloqueados al contratar (27-nov-2026): con un requisito que bloquea en
+ * «no cumple» al contratar no se crean los hitos. Gestión Humana puede
+ * aprobarlos como excepción documentada (observación obligatoria).
+ */
+export async function aprobarHitosPorExcepcion(id: string, observacion: string): Promise<Resultado> {
+  try {
+    const { perms, cedula } = await exigir("padrino_aprobacion", { editar: true });
+    await aprobarHitosPorExcepcionNucleo(id, observacion, perms, cedula);
+    revalidatePath(`${RUTA}/${id}`);
     revalidatePath(RUTA);
     return ok();
   } catch (e) {
@@ -651,7 +586,7 @@ export async function simularVersiones(input: {
       input.referidoId ? admin.from("padrino_referidos").select("*").eq("id", input.referidoId).maybeSingle() : Promise.resolve({ data: null }),
       admin.from("procesos_contratacion").select("fecha_contrato").eq("id", input.procesoId).maybeSingle(),
     ]);
-    const r = ref.data as { id: string; fecha_ingreso: string | null; experiencia_certificada: boolean; certificado_validado_at: string | null; created_at: string } | null;
+    const r = ref.data as { id: string; fecha_ingreso: string | null; experiencia_certificada: boolean; certificado_validado_at: string | null; created_at: string; registrado_el?: string | null } | null;
     const vigente = vigenteEn(todas.filter((p) => p.estado === "publicada"), hoy);
     const versiones = [...(vigente ? [vigente] : []), ...todas.filter((p) => p.estado === "borrador")];
     if (!versiones.length) throw new Error("No hay versiones de la política para comparar.");
@@ -674,7 +609,7 @@ export async function simularVersiones(input: {
         referidoId: r?.id ?? null,
         experienciaCertificada,
         fechaIngreso,
-        registradoEl: r ? fechaDe(r.created_at) : hoy,
+        registradoEl: r ? fechaRegistro(r) : hoy,
       });
       const p = politica.parametros;
       const sin = Boolean(v.esquema.sinBonificacion);

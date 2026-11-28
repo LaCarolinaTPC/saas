@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { confirmar } from "@/components/ui/confirmar";
 import Link from "next/link";
 import { toast } from "sonner";
 import { Loader2, ExternalLink, Hand } from "lucide-react";
@@ -154,8 +155,8 @@ function ArranqueAbonos({ arranque, esAdmin }: { arranque: string | null; esAdmi
         <button
           type="button"
           disabled={guardando}
-          onClick={() => {
-            if (!arranque && !confirm("Desde hoy, cada abono «REVISIÓN CÁMARA» de GEMA abrirá una solicitud de revisión. Los abonos anteriores no se cargan. ¿Activar?")) return;
+          onClick={async () => {
+            if (!arranque && !await confirmar("Desde hoy, cada abono «REVISIÓN CÁMARA» de GEMA abrirá una solicitud de revisión. Los abonos anteriores no se cargan. ¿Activar?")) return;
             cambiar(!arranque);
           }}
           className="rounded-lg border border-[#E2E8F0] bg-white px-2 py-0.5 font-medium text-gray-700 hover:bg-[#F8FAFC] disabled:opacity-50"

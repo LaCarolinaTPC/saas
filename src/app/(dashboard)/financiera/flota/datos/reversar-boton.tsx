@@ -1,6 +1,7 @@
 "use client";
 
 import { useTransition } from "react";
+import { confirmar } from "@/components/ui/confirmar";
 import { useRouter } from "next/navigation";
 import { Loader2, Undo2 } from "lucide-react";
 import { toast } from "sonner";
@@ -11,8 +12,8 @@ export function ReversarBoton({ periodo, deshabilitado, motivo }: { periodo: str
   const router = useRouter();
   const [pendiente, empezar] = useTransition();
 
-  function reversar() {
-    if (!window.confirm(`¿Reversar el archivo contable de ${periodo}? Se borran los rubros del archivo de todos los vehículos del mes; lo que vino de GEMA no se toca.`)) return;
+  async function reversar() {
+    if (!await confirmar(`¿Reversar el archivo contable de ${periodo}? Se borran los rubros del archivo de todos los vehículos del mes; lo que vino de GEMA no se toca.`)) return;
     empezar(async () => {
       const res = await reversarPeriodo(periodo);
       if (res.success && res.resultado) {
