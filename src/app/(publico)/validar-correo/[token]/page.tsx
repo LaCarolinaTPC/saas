@@ -5,7 +5,7 @@ import { responderCorreoAccion } from "./actions";
 
 /**
  * Página del enlace que le llega al aspirante para confirmar su correo
- * (prueba psicosensotécnica, 24-nov-2026). Pública: sin cuenta de Gestivo.
+ * (prueba psicotécnica, 24-nov-2026). Pública: sin cuenta de Gestivo.
  * Abrir el enlace no confirma nada (los antivirus del correo abren los
  * enlaces solos): la respuesta va con un botón.
  */
@@ -49,7 +49,7 @@ export default async function ValidarCorreoPage({
       <Final
         icono={<CheckCircle2 className="h-6 w-6 text-emerald-600" />}
         titulo="¡Listo! Tu correo quedó confirmado"
-        texto="Cuando te inscribamos en la plataforma de la prueba psicosensotécnica te avisamos por WhatsApp, y la información para presentarla te llegará a este correo. Ya puedes cerrar esta página."
+        texto="Cuando te inscribamos en la plataforma de la prueba psicotécnica te avisamos por WhatsApp, y la información para presentarla te llegará a este correo. Ya puedes cerrar esta página."
       />
     );
   }
@@ -94,7 +94,7 @@ export default async function ValidarCorreoPage({
       <h1 className="text-lg font-semibold text-[#0F172A]">{v.nombre ? `${v.nombre}, ¿este es tu correo?` : "¿Este es tu correo?"}</h1>
       <p className="mt-3 break-all rounded-lg bg-slate-50 px-3 py-2 text-base font-medium text-[#0F172A]">{v.correo}</p>
       <p className="mt-3 text-sm leading-relaxed text-[#475569]">
-        Aquí te llegará la información para presentar la prueba psicosensotécnica de tu proceso de selección.
+        Aquí te llegará la información para presentar la prueba psicotécnica de tu proceso de selección.
       </p>
       <form action={responderCorreoAccion} className="mt-6 flex flex-col gap-2">
         <input type="hidden" name="token" value={token} />

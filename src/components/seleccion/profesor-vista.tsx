@@ -426,14 +426,17 @@ function FichaAspirante({
 
   const opcionesRuta = useMemo(() => rutas.map((r) => ({ valor: r, etiqueta: r, claves: [r] })), [rutas]);
 
-  async function guardar(fn: () => Promise<ResultadoProfesor>, mensaje: (r: ResultadoProfesor) => string, decirSiHuboMensaje = true) {
-    if (ocupado) return;
+  async function guardar(fn: () => Promise<ResultadoProfesor>, mensaje: (r: ResultadoProfesor) => string, decirSiHuboMensaje = true): Promise<boolean> {
+    if (ocupado) return false;
     setOcupado(true);
     setError(null);
     setListo(null);
     const r = await fn().catch((e: Error) => ({ ok: false as const, error: e.message }));
     setOcupado(false);
-    if (!r.ok) return setError(r.error ?? "No se pudo guardar. Revisa la señal e inténtalo otra vez.");
+    if (!r.ok) {
+      setError(r.error ?? "No se pudo guardar. Revisa la señal e inténtalo otra vez.");
+      return false;
+    }
     // Que quede claro si al aspirante le salió algo (23-nov-2026).
     setListo(`${mensaje(r)}${r.envio ? ` ${textoEnvio(r.envio)}` : decirSiHuboMensaje ? " Al aspirante no se le envió ningún mensaje." : ""}`);
     setSalidas([{ ruta: "", resultado: null }]);
@@ -453,6 +456,7 @@ function FichaAspirante({
     setPanel("principal");
     setVersion((v) => v + 1);
     onHecho(r);
+    return true;
   }
 
   const faltaNota = (cierra: boolean) => cierra && !nota.trim();
@@ -776,28 +780,36 @@ function FichaAspirante({
       ? {
           texto: "Guardar la prueba",
           deshabilitado: !resPrueba || faltaNota(resPrueba === "no_continua"),
-          fn: () =>
-            guardar(
+          fn: async () => {
+            const aExamenes = resPrueba === "aprobo";
+            const ok = await guardar(
               () => acciones.prueba(elegido.procesoId, { resultado: resPrueba!, rutaEscrita, partesMotor, clasesSugeridas: clases ? Number(clases) : null, observacion: nota }),
-              () => (resPrueba === "aprobo" ? "Prueba guardada. Cuando estés listo, pulsa «Listo para exámenes»." : resPrueba === "escuela" ? "Guardado: pasa a escuela." : "Guardado: el proceso quedó cerrado.")
-            ),
+              () => (aExamenes ? "Prueba guardada. Revisa la fecha de los exámenes y confirma." : resPrueba === "escuela" ? "Guardado: pasa a escuela." : "Guardado: el proceso quedó cerrado.")
+            );
+            // 27-nov-2026: enseguida la fecha propuesta del examen; el segundo toque confirma (antes eran tres).
+            if (ok && aExamenes) await verPlanExamenes();
+          },
         }
       : etapa === "escuela"
         ? {
             texto: vino === "no" ? "Guardar la falta" : "Guardar la clase",
             deshabilitado: !vino || !resClase || faltaNota(resClase === "no_continua"),
-            fn: () =>
-              guardar(
+            fn: async () => {
+              const aExamenes = resClase === "listo" && vino === "si";
+              const ok = await guardar(
                 () => acciones.clase(elegido.procesoId, { resultado: resClase!, observacion: nota, asistio: vino === "si", clasesFaltantes: vino === "si" && faltan ? Number(faltan) : null }),
                 () =>
                   resClase === "listo"
-                    ? "Clase guardada. Cuando estés listo, pulsa «Listo para exámenes»."
+                    ? "Clase guardada. Revisa la fecha de los exámenes y confirma."
                     : resClase === "no_continua"
                       ? "Guardado: el proceso quedó cerrado."
                       : vino === "no"
                         ? "Falta guardada: sigue en escuela."
                         : `Clase guardada: sigue en escuela${faltan ? ` (le faltan ${faltan})` : ""}.`
-              ),
+              );
+              // 27-nov-2026: enseguida la fecha propuesta del examen; el segundo toque confirma.
+              if (ok && aExamenes) await verPlanExamenes();
+            },
           }
         : etapa === "ruta"
           ? noContinua

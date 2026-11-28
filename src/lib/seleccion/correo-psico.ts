@@ -1,5 +1,5 @@
 /**
- * Correo para la prueba psicosensotécnica (24-nov-2026). PURO; lo que escribe
+ * Correo para la prueba psicotécnica (24-nov-2026). PURO; lo que escribe
  * y envía está en ./correo-psico-servidor.
  *
  * La prueba se presenta en una plataforma externa que necesita el correo del

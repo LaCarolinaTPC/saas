@@ -9,6 +9,7 @@
  * desde cualquier equipo; los candidatos guardados quedan en Candidatos.
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { confirmar } from "@/components/ui/confirmar";
 import { Bot, Clock, FlaskConical, Loader2, MessageCirclePlus, Plus, X } from "lucide-react";
 import type { AgenteFormulario } from "@/lib/comunicaciones/agente/formulario";
 import { estadoInfo } from "@/lib/contratacion/constants";
@@ -28,7 +29,7 @@ import { ChatPrueba, PREFIJO_GUARDADO, type ConfigChatPrueba, type ResumenChatPr
 import { cerrarChatRemoto, guardarChatRemoto, listarChatsRemotos } from "./chats-prueba-remoto";
 import { activarReloj, adelantarReloj, adelantoActual, ahoraPrueba, cambiarVelocidad, estadoReloj, reiniciarReloj, suscribirReloj } from "./reloj-prueba";
 import { ETIQUETA_MENSAJE, avisarPrueba } from "./profesor-tipos";
-import { cronPrueba } from "@/lib/seleccion/prueba-profesor-actions";
+import { cronPrueba, pendientesChatPrueba } from "@/lib/seleccion/prueba-profesor-actions";
 import type { ItemCronPrueba } from "@/lib/seleccion/cron-prueba-servidor";
 
 /** Copia en el navegador de la lista de chats de prueba (cada chat guarda lo suyo con PREFIJO_GUARDADO). La fuente es la base. */
@@ -193,12 +194,12 @@ export function ChatsPrueba({
     setNuevo(false);
     void guardarChatRemoto({ id, numero: siguiente, config });
   };
-  const cerrar = (id: number) => {
+  const cerrar = async (id: number) => {
     const c = chats.find((x) => x.id === id);
     const aviso = remoto
       ? "Se cierra este chat de prueba para todos los equipos y se pierde la conversación (el candidato guardado sigue en Candidatos). ¿Cerrarlo?"
       : "Se cierra este chat de prueba y se pierde la conversación (el candidato guardado sigue en Candidatos). ¿Cerrarlo?";
-    if (c?.resumen?.ultimo && !confirm(aviso)) return;
+    if (c?.resumen?.ultimo && !await confirmar(aviso)) return;
     try {
       localStorage.removeItem(`${PREFIJO_GUARDADO}${id}`);
     } catch {
@@ -254,6 +255,7 @@ export function ChatsPrueba({
   return (
     <div className="space-y-2">
       <SimuladorCron items={itemsCron} />
+      <PendientesExternos items={itemsCron} />
       <p className="text-[11px] text-text-muted">
         {descripcion ??
           "Conversa como si fueras el aspirante. No se envía nada por WhatsApp. Cada mensaje usa dos llamadas a la IA: la respuesta y la lectura de los datos."}
@@ -596,8 +598,8 @@ function NuevoChatDialog({ onClose, onAbrir }: { onClose: () => void; onAbrir: (
           </button>
           <button
             type="button"
-            onClick={() => {
-              if (cromaReal && !confirm("Este chat consultará Croma de verdad (cuesta consultas). Úsalo solo con cédulas autorizadas. ¿Continuar?")) return;
+            onClick={async () => {
+              if (cromaReal && !await confirmar("Este chat consultará Croma de verdad (cuesta consultas). Úsalo solo con cédulas autorizadas. ¿Continuar?")) return;
               onAbrir({ cromaReal, guardar, escenario });
             }}
             className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90"
@@ -640,6 +642,59 @@ function duracion(ms: number): string {
  * reloj que se puede acelerar y adelantar. Lo que le llegaría al aspirante
  * entra a su chat; lo demás queda como nota.
  */
+/**
+ * Lo que pasa por fuera del chat (27-nov-2026, pruebas más reales): el
+ * laboratorio responde por el WhatsApp real y Gestivo lee el resultado y le
+ * escribe al aspirante de prueba. Mientras la página está abierta y visible,
+ * cada 20 s se pregunta y cada cosa entra al chat de su candidato. Desde que se
+ * abrió la página (lo anterior ya está en la ficha).
+ */
+const CLAVE_PENDIENTES = "gestivo:seleccion:pendientes-externos-desde";
+function PendientesExternos({ items }: { items: () => ItemCronPrueba[] }) {
+  useEffect(() => {
+    let vivo = true;
+    let ocupado = false;
+    const desdeInicial = (() => {
+      try {
+        return sessionStorage.getItem(CLAVE_PENDIENTES) ?? new Date().toISOString();
+      } catch {
+        return new Date().toISOString();
+      }
+    })();
+    let desde = desdeInicial;
+    const revisar = async () => {
+      if (ocupado || document.visibilityState !== "visible") return;
+      const ids = items()
+        .map((i) => i.procesoId)
+        .filter((x): x is string => !!x);
+      if (!ids.length) return;
+      ocupado = true;
+      const r = await pendientesChatPrueba(ids, desde).catch(() => null);
+      ocupado = false;
+      if (!vivo || !r || "error" in r) return;
+      for (const p of r.pendientes) {
+        if (p.texto || p.adjuntos?.length) {
+          avisarPrueba({ procesoId: p.procesoId, texto: p.texto, clave: p.clave, adjuntos: p.adjuntos, etiqueta: `${(p.clave && ETIQUETA_MENSAJE[p.clave]) || "Mensaje de Gestivo"} (por la respuesta real)` });
+        } else if (p.nota) {
+          avisarPrueba({ procesoId: p.procesoId, nota: p.nota });
+        }
+      }
+      desde = r.pendientes.length ? r.pendientes[r.pendientes.length - 1].at : desde;
+      try {
+        sessionStorage.setItem(CLAVE_PENDIENTES, desde);
+      } catch {
+        // Sin almacenamiento: solo en memoria.
+      }
+    };
+    const t = setInterval(() => void revisar(), 20_000);
+    return () => {
+      vivo = false;
+      clearInterval(t);
+    };
+  }, [items]);
+  return null;
+}
+
 function SimuladorCron({ items }: { items: () => ItemCronPrueba[] }) {
   const [reloj, setReloj] = useState(estadoReloj);
   // La hora del reloj y lo adelantado, al día cada segundo (no se calcula en el render).
@@ -766,7 +821,7 @@ function SimuladorCron({ items }: { items: () => ItemCronPrueba[] }) {
       </button>
       <span className="basis-full text-[11px] text-text-muted">
         {ultimo ??
-          "Corre los pasos del cron (cierre de quien no pasó la preselección, recordatorio y «No asistió» de la cita, aviso de rutas, correo de la psicosensotécnica, certificado y documentos, y la reactivación por silencio) solo para los candidatos de los chats abiertos, con este reloj. Cada 30 s mientras esté encendido. La IA del chat usa esta hora."}
+          "Corre los pasos del cron (cierre de quien no pasó la preselección, recordatorio y «No asistió» de la cita, aviso de rutas, correo de la psicotécnica, certificado y documentos, y la reactivación por silencio) solo para los candidatos de los chats abiertos, con este reloj. Cada 30 s mientras esté encendido. La IA del chat usa esta hora."}
       </span>
     </div>
   );

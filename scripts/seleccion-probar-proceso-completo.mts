@@ -4,7 +4,7 @@
 //   pregunta del banco y recordatorio del certificado → resultado del laboratorio (frase acordada) →
 //   radiografía suelta a la carpeta → fase 2 apta → reconocimiento de ruta → correo y PsicoAlianza
 //   (no la presentó, se vuelve a inscribir, informes Ethikos + Ten DISC) → carpeta con el
-//   certificado bancario → condiciones para contratar (con la psicosensotécnica exigida) → contratado.
+//   certificado bancario → condiciones para contratar (con la psicotécnica exigida) → contratado.
 // Variantes: escuela (E), no apto que sigue (B), no apto que no sigue (C: cerrado, nada más le
 //   llega), sin cuenta en el banco (D: el primer recordatorio a las 72 h), la prueba sin terminar
 //   (informe con preguntas sin contestar), el tablero hacia atrás y el reporte diario con alertas.
@@ -226,7 +226,7 @@ try {
   const fin = await finalizarReconocimiento(A.id, "Aprendió las rutas en las salidas.", actor);
   revisar("A: reconocimiento de ruta terminado", fin.ok && (await proceso(A.id)).reconocimiento_estado === "finalizado", fin);
 
-  titulo("6. Psicosensotécnica en PsicoAlianza");
+  titulo("6. Psicotécnica en PsicoAlianza");
   await db.from("procesos_contratacion").update({ correo: "ana.completo@example.com", correo_estado: "validado", correo_validado_at: new Date().toISOString(), correo_validado_por: "enlace" }).eq("id", A.id);
   await db.from("procesos_contratacion").update({ correo: "edu.completo@example.com", correo_estado: "validado", correo_validado_at: new Date().toISOString(), correo_validado_por: "enlace" }).eq("id", E.id);
   let l = await listasPsico();
@@ -250,7 +250,7 @@ try {
   revisar("E: preguntas sin contestar → «no la terminó»", fe?.estadoPrueba === "incompleta", fe);
   const g = await guardarResultados([{ clave: fa!.clave, procesoId: A.id, resultado: "apto", fecha: fa!.fecha, puntaje: fa!.puntaje, archivos: fa!.archivos, detalle: fa!.detalle }], archivos, actor);
   const pA = await proceso(A.id);
-  revisar("A: psicosensotécnica apta guardada, con el detalle por prueba", g.guardados === 1 && pA.psicotecnica_resultado === "apto" && /Ten DISC/.test(String(pA.psicotecnica_entidad)), { g, ent: pA.psicotecnica_entidad });
+  revisar("A: psicotécnica apta guardada, con el detalle por prueba", g.guardados === 1 && pA.psicotecnica_resultado === "apto" && /Ten DISC/.test(String(pA.psicotecnica_entidad)), { g, ent: pA.psicotecnica_entidad });
   revisar("A: los 2 informes en su carpeta", ((await db.from("seleccion_adjuntos").select("id").eq("proceso_id", A.id).eq("tipo", "psicotecnica")).data ?? []).length === 2);
   const rpE = await reprogramarPsico(E.id, "incompleta", actor);
   revisar("E: no la terminó → se vuelve a inscribir", rpE.ok && (await proceso(E.id)).correo_estado === "validado", rpE);
@@ -260,7 +260,7 @@ try {
   await db.from("procesos_contratacion").update({ antecedentes_resultado: "revision", antecedentes_decision: "aprobado" }).eq("id", A.id);
   let cond = await condicionesDeProceso(A.id);
   const id = (k: string) => cond.condiciones.find((x) => x.id === k)?.cumple;
-  revisar("exámenes, rutas, antecedentes y psicosensotécnica: cumplidos", id("examenes") && id("rutas") && id("antecedentes") && id("psicotecnica"), cond.condiciones.map((c) => [c.id, c.cumple]));
+  revisar("exámenes, rutas, antecedentes y psicotécnica: cumplidos", id("examenes") && id("rutas") && id("antecedentes") && id("psicotecnica"), cond.condiciones.map((c) => [c.id, c.cumple]));
   revisar("falta la carpeta (con el certificado bancario) y el visto bueno", !id("carpeta") && !id("aprobacion"), cond.faltan);
   let error = "";
   try {
@@ -301,7 +301,7 @@ try {
   await cambiarEstadoProceso(A.id, "contratado", { actor });
   revisar("A: CONTRATADO", (await proceso(A.id)).estado === "contratado");
   revisar("se creó su registro de empleado", ((await db.from("employees").select("id").eq("document_number", A.cedula)).data ?? []).length === 1);
-  revisar("contratado: ya no se reprograma la psicosensotécnica", !(await reprogramarPsico(A.id, "no_presento", actor)).ok);
+  revisar("contratado: ya no se reprograma la psicotécnica", !(await reprogramarPsico(A.id, "no_presento", actor)).ok);
 
   titulo("8. Reporte diario con alertas");
   const datos = await datosReporteDiario();

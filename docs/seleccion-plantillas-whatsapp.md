@@ -242,7 +242,7 @@ botones dejan una respuesta inequívoca como evidencia.
 
 Botones: «Sí, autorizo» · «No autorizo»
 
-### 11. Recordatorio de las pruebas psicosensotécnicas (opcional, después)
+### 11. Recordatorio de las pruebas psicotécnicas (opcional, después)
 
 | Campo | Valor |
 |---|---|
@@ -256,7 +256,7 @@ límite: 23 de noviembre). Si se hacen el mismo día de la contratación, en la
 empresa, no hace falta. Meta suele aprobar las plantillas de utilidad en horas,
 así que puede pedirse después de esa decisión.
 
-> Buenos días, {{1}}. Te recordamos que hoy a las {{2}} tienes las pruebas psicosensotécnicas en {{3}}. ¿Nos confirmas que vienes?
+> Buenos días, {{1}}. Te recordamos que hoy a las {{2}} tienes las pruebas psicotécnicas en {{3}}. ¿Nos confirmas que vienes?
 
 | Variable | Qué es | Ejemplo |
 |---|---|---|
@@ -320,7 +320,7 @@ contratado (NF3). Por eso se propone este texto:
 
 ## Estado de todas las plantillas (25-nov-2026)
 
-Tomado de `seleccion_mensajes` (el cron lo sincroniza con Meta cada 15 minutos; se ve en Selección › Mensajes). Las secciones de arriba describen las primeras; desde entonces hay versiones nuevas y más mensajes. La de la prueba psicosensotécnica propia (`sel_recordatorio_psicotecnica`, sección 11) ya no se usa: esa prueba se quitó el 24-nov-2026.
+Tomado de `seleccion_mensajes` (el cron lo sincroniza con Meta cada 15 minutos; se ve en Selección › Mensajes). Las secciones de arriba describen las primeras; desde entonces hay versiones nuevas y más mensajes. La de la prueba psicotécnica propia (`sel_recordatorio_psicotecnica`, sección 11) ya no se usa: esa prueba se quitó el 24-nov-2026.
 
 | Mensaje del catálogo | Plantilla de Meta | Estado | Modo |
 |---|---|---|---|
@@ -337,7 +337,7 @@ Tomado de `seleccion_mensajes` (el cron lo sincroniza con Meta cada 15 minutos; 
 | Orden al laboratorio (WhatsApp) | `sel_orden_laboratorio` | Aprobada | Automático |
 | Documentos pendientes | `sel_documentos_pendientes` | Aprobada | Revisar |
 | No continúa en el proceso | `sel_no_seleccionado` | Aprobada | Automático |
-| Pedir el correo (psicosensotécnica) | `sel_pedir_correo` | Aprobada | Automático |
+| Pedir el correo (psicotécnica) | `sel_pedir_correo` | Aprobada | Automático |
 | Pedir el correo correcto | `sel_correo_corregir` | Aprobada | Automático |
 | Recordatorio: falta el correo | `sel_recordatorio_correo` | Aprobada | Automático |
 | Recordatorio: confirmar el correo | `sel_recordatorio_validar_correo` | Aprobada | Automático |

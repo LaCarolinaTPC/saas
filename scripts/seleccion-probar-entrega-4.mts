@@ -234,7 +234,11 @@ try {
   revisar("queda el costo de la lectura", docs.reduce((s, d) => s + d.costoUsd, 0) > 0 || !!carpetaGrabacion());
   const paraAsistente = await lecturasDocumentosDeConversacion(conv!.id as string);
   revisar("el asistente recibe lo leído junto a cada archivo", ids.every((id) => paraAsistente.has(id)) && /pendiente de revisión/.test(paraAsistente.get(ids[0]) ?? ""), [...paraAsistente.values()]);
-  revisar("nada se aplica al proceso antes de revisar", (await proceso(lec)).experiencia_meses == null);
+  // Con «validar_documentos_auto» (27-nov-2026, encendido por defecto) la hoja de vida que coincide con el
+  // aspirante se valida sola y aplica sus datos; apagado, nada se aplica antes de que una persona revise.
+  const auto = (await db.from("seleccion_ajustes").select("valor").eq("clave", "validar_documentos_auto").maybeSingle()).data?.valor !== false;
+  if (auto) revisar("validación automática: la hoja de vida que coincide ya aplicó sus datos", Number((await proceso(lec)).experiencia_meses) >= 58);
+  else revisar("nada se aplica al proceso antes de revisar", (await proceso(lec)).experiencia_meses == null);
 
   // ───────────────────────────────────────────────────────────────────────
   titulo("4. Revisión en «Documentos leídos»");
@@ -247,7 +251,11 @@ try {
   const { data: refs } = await db.from("seleccion_referencias").select("nombre, tipo").eq("proceso_id", lec);
   revisar("crea las referencias", (refs ?? []).length >= 2, refs);
   const carpeta = await estadosCarpeta(lec);
-  revisar("marca la hoja de vida como recibida (no validada)", carpeta.some((c) => /hoja de vida/i.test(c.item) && c.estado === "recibido"), carpeta);
+  revisar(
+    auto ? "la hoja de vida queda validada (validación automática)" : "marca la hoja de vida como recibida (no validada)",
+    carpeta.some((c) => /hoja de vida/i.test(c.item) && c.estado === (auto ? "validado" : "recibido")),
+    carpeta
+  );
   const { data: adj } = await db.from("seleccion_adjuntos").select("origen, wa_mensaje_id").eq("proceso_id", lec);
   revisar("copia el archivo a la carpeta, con origen WhatsApp", (adj ?? []).some((a) => a.origen === "whatsapp" && ids.includes(a.wa_mensaje_id as string)), adj);
   // Experiencia laboral: entra sin verificar.

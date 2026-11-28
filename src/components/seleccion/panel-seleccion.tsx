@@ -5,17 +5,12 @@
  * preselección con la propuesta de cierre, autorización de datos, SIMIT,
  * postulaciones anteriores (B3) e historial de cambios (NF6).
  */
+import Link from "next/link";
+import { confirmar } from "@/components/ui/confirmar";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { Bot, ExternalLink, History, Search, ShieldCheck, ShieldX, TriangleAlert } from "lucide-react";
 import { estadoInfo, type ProcesoContratacion } from "@/lib/contratacion/constants";
-import {
-  consultarSimit,
-  type DocumentoProceso,
-  updateProcesoEstado,
-  type ConsultaExternaVista,
-  type EventoProcesoVista,
-  type PostulacionAnterior,
-} from "@/lib/contratacion/actions";
+import { consultarSimit, type DocumentoProceso, updateProcesoEstado, type ConsultaExternaVista, type EventoProcesoVista, type PostulacionAnterior, reintentarFuenteEnCroma } from "@/lib/contratacion/actions";
 import { SemaforoDetalle } from "./semaforo";
 import { SeccionCitas } from "./seccion-citas";
 import { RevisionManual, type FuentePendiente } from "./revision-manual";
@@ -32,6 +27,9 @@ import { resumenVinculo, type VinculoEmpresa } from "@/lib/seleccion/vinculo";
 import { marcarGuardado } from "@/lib/guardado-reciente";
 import { leerFicha } from "@/lib/lectura-ficha";
 
+/** Fuentes que se pueden volver a consultar en Croma después de una revisión manual (27-nov-2026). */
+const FUENTES_REINTENTO = ["policia", "procuraduria", "contraloria", "rnmc", "simit"];
+
 // Consulta ciudadana por documento (gratuita, con captcha).
 const RUNT_URL = "https://www.runt.gov.co/actores/ciudadano/consulta-por-tipo-de-documento";
 
@@ -40,13 +38,13 @@ const fechaHora = (iso: string) =>
 
 const ACTOR: Record<EventoProcesoVista["actor"], string> = { usuario: "", agente: "Asistente IA", sistema: "Sistema" };
 
-/** Pasos del correo para la prueba psicosensotécnica (24-nov-2026). */
+/** Pasos del correo para la prueba psicotécnica (24-nov-2026). */
 function textoCorreoPsico(d: Record<string, unknown>): string {
   const correo = d.correo ? ` ${String(d.correo)}` : "";
   const envio = d.envio && d.envio !== "enviado" ? ` (${String(d.envio).replace(/_/g, " ")})` : "";
   switch (d.correo_psico) {
     case "pedido":
-      return `Se le pidió el correo para la psicosensotécnica${envio}`;
+      return `Se le pidió el correo para la psicotécnica${envio}`;
     case "escrito":
       return `Escribió su correo:${correo}`;
     case "enviado":
@@ -60,15 +58,15 @@ function textoCorreoPsico(d: Record<string, unknown>): string {
     case "rechazado_en_enlace":
       return `Dijo en el enlace que el correo${correo} no es suyo: se le pide de nuevo`;
     case "recordatorio":
-      return `Recordatorio ${String(d.vez ?? "")} del correo para la psicosensotécnica${envio}`;
+      return `Recordatorio ${String(d.vez ?? "")} del correo para la psicotécnica${envio}`;
     case "sin_respuesta":
       return "No respondió a los recordatorios del correo: el chat queda para una persona";
     case "inscrito":
-      return `Inscrito en la plataforma psicosensotécnica; se le avisó por WhatsApp${envio}`;
+      return `Inscrito en la plataforma psicotécnica; se le avisó por WhatsApp${envio}`;
     case "inscripcion_deshecha":
-      return "Se deshizo «inscrito en la plataforma psicosensotécnica»";
+      return "Se deshizo «inscrito en la plataforma psicotécnica»";
     default:
-      return "Correo para la psicosensotécnica";
+      return "Correo para la psicotécnica";
   }
 }
 
@@ -130,14 +128,14 @@ function describirEvento(e: EventoProcesoVista): string {
       return "Carpeta";
     }
     case "examen": {
-      // Prueba psicosensotécnica propia, quitada el 24-nov-2026: queda para
+      // Prueba psicotécnica propia, quitada el 24-nov-2026: queda para
       // leer los eventos que ya están en el historial.
       const d = e.detalle ?? {};
-      if (d.accion === "asignada") return "Prueba psicosensotécnica asignada";
-      if (d.accion === "presentada") return "Presentó la prueba psicosensotécnica · pendiente del concepto de psicología";
-      if (d.accion === "concepto") return `Prueba psicosensotécnica: ${d.concepto === "apto" ? "apto" : "no apto"}`;
-      if (d.accion === "anulada") return "Prueba psicosensotécnica anulada";
-      return "Prueba psicosensotécnica";
+      if (d.accion === "asignada") return "Prueba psicotécnica asignada";
+      if (d.accion === "presentada") return "Presentó la prueba psicotécnica · pendiente del concepto de psicología";
+      if (d.accion === "concepto") return `Prueba psicotécnica: ${d.concepto === "apto" ? "apto" : "no apto"}`;
+      if (d.accion === "anulada") return "Prueba psicotécnica anulada";
+      return "Prueba psicotécnica";
     }
     default: {
       if (e.detalle?.reiniciado) return "Reiniciado desde el chat de prueba: se borran los datos y se vuelve a consultar Croma";
@@ -395,6 +393,10 @@ export function PanelSeleccion({
   const [consultas, setConsultas] = useState<ConsultaExternaVista[]>([]);
   // Mientras se leen, no se dice «no se ha consultado nada» ni «(0)» (23-nov-2026).
   const [consultasLeidas, setConsultasLeidas] = useState(false);
+  // Cuántas veces se han leído: «Lo revisé a mano» quita su «actualizando la ficha…» con la lectura siguiente.
+  const [lecturasConsultas, setLecturasConsultas] = useState(0);
+  // «Reintentar en Croma» en curso (fuente).
+  const [reintentando, setReintentando] = useState<string | null>(null);
   const [documentos, setDocumentos] = useState<DocumentoProceso[]>([]);
   const [vinculo, setVinculo] = useState<VinculoEmpresa | null>(null);
   const [mensaje, setMensaje] = useState<string | null>(null);
@@ -422,6 +424,7 @@ export function PanelSeleccion({
         setEventos(d.eventos ?? []);
         if (d.anteriores) setAnteriores(d.anteriores);
         if (d.consultas) setConsultas(d.consultas);
+        setLecturasConsultas((n) => n + 1);
         if (d.documentos) setDocumentos(d.documentos);
         setVinculo(d.vinculo);
       })
@@ -443,7 +446,8 @@ export function PanelSeleccion({
     if (vivas.some((c) => c.fuente in NOMBRE_FUENTE)) {
       for (const f of evaluarAntecedentes(vivas as ConsultaGuardada[]).fuentes) {
         if (f.estado === "error" || f.estado === "pendiente") pendientesCroma.push({ fuente: f.fuente, motivo: motivo(f.estado, f.detalle) });
-        else if (f.estado === "hallazgo") conHallazgo.push({ fuente: f.fuente, conHallazgo: true, motivo: "Trae un hallazgo: si lo revisó en el portal oficial, registre aquí lo que encontró" });
+        // El hallazgo ya lo confirmó una persona a mano (27-nov-2026): no se vuelve a ofrecer; lo decide GH en Antecedentes.
+        else if (f.estado === "hallazgo" && vivas.find((c) => c.fuente === f.fuente)?.proveedor !== "manual") conHallazgo.push({ fuente: f.fuente, conHallazgo: true, motivo: "Trae un hallazgo: si lo revisó en el portal oficial, registre aquí lo que encontró" });
       }
     }
     const simit = vivas.find((c) => c.fuente === "simit");
@@ -462,18 +466,27 @@ export function PanelSeleccion({
   }
 
   const pre = proceso.preseleccion;
-  const abierto = proceso.estado !== "cierre" && proceso.estado !== "contratado";
+  // Cerrado aquí mismo (27-nov-2026): en el chat real y en el de prueba la ficha no recibe el proceso
+  // nuevo enseguida, y el aviso «Se propone cerrar» seguía como si no se hubiera hecho. Vale mientras
+  // el proceso que llega sea el mismo y no haya cambiado de estado (si se reabre, deja de valer).
+  const [cerradoAqui, setCerradoAqui] = useState<{ id: string; estadoAntes: string; causa: string } | null>(null);
+  const cerradoLocal = cerradoAqui && cerradoAqui.id === proceso.id && cerradoAqui.estadoAntes === proceso.estado ? cerradoAqui : null;
+  const abierto = !cerradoLocal && proceso.estado !== "cierre" && proceso.estado !== "contratado";
   const causa = proceso.requisito_incumplido;
 
-  function cerrarConCausa() {
+  async function cerrarConCausa() {
     if (!causa) return;
-    if (!confirm(`¿Cerrar el proceso de ${proceso.nombre} con la causa «${causa}»?`)) return;
+    if (!await confirmar(`¿Cerrar el proceso de ${proceso.nombre} con la causa «${causa}»?`)) return;
     startTransition(async () => {
       try {
         const r = await updateProcesoEstado(proceso.id, "cierre", causa);
         if (!r.ok) return setMensaje(r.error);
         // La acción ya revalida /candidatos; en el chat real o el de prueba no hace falta recargar la página (27-nov-2026).
         marcarGuardado();
+        setCerradoAqui({ id: proceso.id, estadoAntes: proceso.estado, causa });
+        setMensaje(`Proceso cerrado con la causa «${causa}».`);
+        // Que quien contiene la ficha (chat, tablero) vuelva a leer el proceso.
+        setRecarga((n) => n + 1);
         onCerrado();
       } catch (e) {
         setMensaje(e instanceof Error ? e.message : "No se pudo cerrar.");
@@ -679,9 +692,9 @@ export function PanelSeleccion({
                       ? "en curso"
                       : "pendiente de citar"}
               </strong>{" "}
-              <a href="/reconocimiento" className="text-xs text-[#4F46E5] underline">
+              <Link href="/candidatos/reconocimiento" className="text-xs text-[#4F46E5] underline">
                 abrir
-              </a>
+              </Link>
             </p>
           )}
           {proceso.rutas_preguntado_at && (
@@ -763,6 +776,7 @@ export function PanelSeleccion({
         <RevisionManual
           procesoId={proceso.id}
           pendientes={[...pendientesCroma, ...sinRunt, ...conHallazgo]}
+          lecturas={lecturasConsultas}
           onGuardado={() => {
             // La acción ya revalida /candidatos (Next trae la página nueva con la respuesta):
             // un router.refresh() aquí la volvía a pedir y la ficha tardaba el doble (27-nov-2026).
@@ -812,6 +826,27 @@ export function PanelSeleccion({
                   <span className="text-xs text-gray-400">{fechaHora(c.created_at)}</span>
                   <span className="font-medium">{FUENTE[c.fuente] ?? c.fuente.toUpperCase()}</span>
                   {c.proveedor === "manual" && <span className="rounded-full bg-[#EEF2FF] px-2 py-0.5 text-[11px] font-medium text-[#4338CA]">Revisión manual</span>}
+                  {/* 27-nov-2026: con revisión manual Gestivo ya no la consulta solo; esto la reintenta una vez. */}
+                  {c.proveedor === "manual" && puedeEditar && abierto && FUENTES_REINTENTO.includes(c.fuente) && consultas.find((y) => y.fuente === c.fuente && y.estado !== "reiniciada")?.id === c.id && (
+                    <button
+                      type="button"
+                      disabled={reintentando === c.fuente}
+                      onClick={async () => {
+                        if (!await confirmar(`¿Consultar ${FUENTE[c.fuente] ?? c.fuente} otra vez en Croma? Gasta una consulta. Si Croma responde, vale su respuesta; si no, sigue valiendo la revisión manual.`)) return;
+                        setReintentando(c.fuente);
+                        void reintentarFuenteEnCroma(proceso.id, c.fuente as "policia" | "procuraduria" | "contraloria" | "rnmc" | "simit")
+                          .then((r) => setMensaje(r.mensaje))
+                          .catch((e: Error) => setMensaje(e.message))
+                          .finally(() => {
+                            setReintentando(null);
+                            setRecarga((n) => n + 1);
+                          });
+                      }}
+                      className="rounded-lg border border-[#C7D2FE] px-2 py-0.5 text-[11px] font-medium text-[#4338CA] hover:bg-[#EEF2FF] disabled:opacity-50"
+                    >
+                      {reintentando === c.fuente ? "Consultando…" : "Reintentar en Croma"}
+                    </button>
+                  )}
                   {c.proveedor === "simulado" && <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">Simulado (chat de prueba)</span>}
                   {(c.estado === "error" || c.estado === "pendiente") && (
                     <span className="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-medium text-red-700">{c.estado === "error" ? "Error en Croma" : "En curso"}</span>

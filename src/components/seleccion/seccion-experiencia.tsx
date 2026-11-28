@@ -7,6 +7,7 @@
  * referencias con su llamada.
  */
 import { useCallback, useEffect, useState } from "react";
+import { confirmar } from "@/components/ui/confirmar";
 import { BriefcaseBusiness, Phone } from "lucide-react";
 import { guardarEmpleoFicha, marcarVerificacionFicha } from "@/app/(dashboard)/candidatos/entrega4-actions";
 import { ETIQUETA_COMO, ETIQUETA_VERIFICACION, type EstadoExperiencia, type ExperienciaLaboral } from "@/lib/seleccion/experiencia";
@@ -141,7 +142,7 @@ export function SeccionExperiencia({ procesoId, version }: { procesoId: string; 
                     type="button"
                     disabled={ocupado}
                     className="text-gray-400 hover:underline"
-                    onClick={() => confirm(`¿Quitar el empleo en ${e.empresa ?? "esta empresa"}?`) && correr(() => guardarEmpleoFicha(procesoId, { id: e.id }, true), "Empleo quitado.")}
+                    onClick={async () => await confirmar(`¿Quitar el empleo en ${e.empresa ?? "esta empresa"}?`) && correr(() => guardarEmpleoFicha(procesoId, { id: e.id }, true), "Empleo quitado.")}
                   >
                     quitar
                   </button>

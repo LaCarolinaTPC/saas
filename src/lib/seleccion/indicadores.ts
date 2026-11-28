@@ -8,7 +8,7 @@
  * contratación (contratados en el periodo) y la asistencia (citas del periodo).
  */
 import { diaBogota, etiquetaDia, sumarDias, tiempos, type Rango, type Tiempos } from "@/lib/comunicaciones/indicadores";
-import { CAUSA_ANTECEDENTES, MEDIOS_POSTULACION, PROCESO_ESTADOS, type ProcesoEstado } from "@/lib/contratacion/constants";
+import { CAUSA_ANTECEDENTES, CAUSAS_PRESELECCION, MEDIOS_POSTULACION, PROCESO_ESTADOS, type ProcesoEstado } from "@/lib/contratacion/constants";
 
 // ── Entrada ──────────────────────────────────────────────────────────────────
 
@@ -106,7 +106,20 @@ export interface IndicadoresSeleccion {
   /** Cuánto tardan en salir de cada etapa hacia la siguiente que alcanzaron. */
   tiempoEnEtapa: { estado: string; etiqueta: string; tiempos: Tiempos }[];
   causasCierre: Fila[];
-  porSemana: { fecha: string; etiqueta: string; aspirantes: number; contratados: number }[];
+  porSemana: {
+    fecha: string;
+    etiqueta: string;
+    aspirantes: number;
+    contratados: number;
+    /** 27-nov-2026: de los que se postularon esa semana, cuántos se citaron y cuántos llegaron a la prueba de manejo. */
+    citados: number;
+    presentaron: number;
+  }[];
+  /**
+   * Por día (27-nov-2026, pedido de GH): aspirantes nuevos y, de ellos, cuántos no
+   * cumplieron el perfil (cerrados por una causa de la preselección), con las causas.
+   */
+  porDia: { fecha: string; etiqueta: string; aspirantes: number; noCumplieron: number; causas: Fila[] }[];
   porCanal: (Fila & { contratados: number })[];
   asistenciaPorTipo: Fila[];
   costoPorConcepto: Fila[];
@@ -260,8 +273,27 @@ export function calcularIndicadoresSeleccion(e: EntradaIndicadoresSeleccion): In
       etiqueta: `sem. ${etiquetaDia(s)}`,
       aspirantes: procesos.filter((p) => enSemana(p.created_at)).length,
       contratados: e.contrataciones.filter((c) => enSemana(c.contratado_at)).length,
+      // Llegaron (o pasaron) a «Citado» y a «Prueba de manejo»: si se cerró después, cuenta igual.
+      citados: procesos.filter((p) => enSemana(p.created_at) && maxIndice.get(p.id)! >= indiceEtapa("citado")).length,
+      presentaron: procesos.filter((p) => enSemana(p.created_at) && maxIndice.get(p.id)! >= indiceEtapa("prueba_manejo")).length,
     };
   });
+
+  // Por día: los nuevos y los que no cumplieron el perfil (cerrados por una causa de la preselección).
+  const causasPerfil = new Set<string>(Object.values(CAUSAS_PRESELECCION));
+  const porDia: IndicadoresSeleccion["porDia"] = [];
+  for (let d = e.rango.desde; d <= e.rango.hasta; d = sumarDias(d, 1)) {
+    const delDia = procesos.filter((p) => diaBogota(p.created_at) === d);
+    const noCumplieron = delDia.filter((p) => p.estado === "cierre" && causasPerfil.has((p.causa_no_contrato ?? "").trim()));
+    const cuenta = contar(noCumplieron, (p) => (p.causa_no_contrato ?? "").trim());
+    porDia.push({
+      fecha: d,
+      etiqueta: etiquetaDia(d),
+      aspirantes: delDia.length,
+      noCumplieron: noCumplieron.length,
+      causas: [...cuenta.entries()].sort((a, b) => b[1] - a[1]).map(([c, n]) => ({ clave: c, etiqueta: c, n })),
+    });
+  }
 
   // Por canal.
   const canales = new Map<string, { n: number; contratados: number }>();
@@ -360,6 +392,7 @@ export function calcularIndicadoresSeleccion(e: EntradaIndicadoresSeleccion): In
     tiempoEnEtapa,
     causasCierre,
     porSemana,
+    porDia,
     porCanal,
     asistenciaPorTipo,
     costoPorConcepto,

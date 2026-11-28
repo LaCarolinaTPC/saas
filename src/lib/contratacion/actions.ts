@@ -1,6 +1,7 @@
 "use server";
 
 import { after } from "next/server";
+import { confirmacionBorrado } from "./borrado";
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { soloLoCambiado } from "./solo-lo-cambiado";
@@ -381,10 +382,12 @@ async function actualizarProceso(id: string, input: ProcesoInput, original: Proc
  * formulario). Al cerrar hay que dar la causa. Si no se puede (por ejemplo,
  * faltan condiciones para contratar), devuelve el motivo como valor.
  */
-export async function updateProcesoEstado(id: string, estado: string, causa?: string | null): Promise<ResultadoProceso> {
+export async function updateProcesoEstado(id: string, estado: string, causa?: string | null, observaciones?: string | null): Promise<ResultadoProceso> {
   return comoResultado(async () => {
     const perms = await assertEditor();
-    await cambiarEstadoProceso(id, estado, { actor: actorUsuario(perms), causa });
+    // 27-nov-2026: las observaciones del cierre (diálogo del tablero) quedan en el historial y en la observación.
+    const motivo = estado === "cierre" ? String(observaciones ?? "").trim().slice(0, 1500) : "";
+    await cambiarEstadoProceso(id, estado, { actor: actorUsuario(perms), causa, ...(motivo ? { detalle: { motivo } } : {}) });
     // Cierre por antecedentes: al aspirante se le dice solo que no pasó el proceso, sin el motivo.
     if (estado === "cierre" && causa?.trim() === CAUSA_ANTECEDENTES) {
       await avisarCierrePorAntecedentes(id).catch((e) => console.error("[seleccion] aviso de cierre por antecedentes:", e));
@@ -529,11 +532,11 @@ export async function leerCertificadoAMano(
 ): Promise<{ ok: true; lectura: LecturaCertificado } | { ok: false; error: string }> {
   try {
     await assertEditor();
-    const { data: p } = await createAdminClient().from("procesos_contratacion").select("cedula").eq("id", procesoId).maybeSingle();
+    const { data: p } = await createAdminClient().from("procesos_contratacion").select("cedula, nombre").eq("id", procesoId).maybeSingle();
     if (!p) return { ok: false, error: "El proceso no existe." };
     const { leerCertificado } = await import("@/lib/verificacion/lectura-certificado-servidor");
     const hoy = new Date(Date.now() - 5 * 3_600_000).toISOString().slice(0, 10);
-    return await leerCertificado({ fuente, base64: pdf.base64, nombre: pdf.nombre, cedulaProceso: (p.cedula as string | null) ?? null, procesoId, hoy });
+    return await leerCertificado({ fuente, base64: pdf.base64, nombre: pdf.nombre, cedulaProceso: (p.cedula as string | null) ?? null, nombreProceso: (p.nombre as string | null) ?? null, procesoId, hoy });
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "No se pudo leer el certificado." };
   }
@@ -775,12 +778,28 @@ export async function postulacionesAnteriores(params: { procesoId?: string; cedu
   return (data ?? []) as PostulacionAnterior[];
 }
 
-export async function deleteProceso(id: string) {
-  await assertEditor();
-  const admin = createAdminClient();
-  const { error } = await admin.from("procesos_contratacion").delete().eq("id", id);
-  if (error) throw new Error(error.message);
-  revalidatePath("/candidatos");
+/**
+ * Borra el proceso con todo lo suyo (historial, citas, consultas, documentos).
+ * Desde el 27-nov-2026 solo desde la ficha y escribiendo la cédula (o el nombre,
+ * si no tiene): había muchos candidatos de prueba y un clic en la lista bastaba
+ * para borrar uno real por error. El servidor también lo exige.
+ */
+export async function deleteProceso(id: string, confirmacion: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await assertEditor();
+    const admin = createAdminClient();
+    const { data: p } = await admin.from("procesos_contratacion").select("nombre, cedula").eq("id", id).maybeSingle();
+    if (!p) return { ok: false, error: "El proceso ya no existe." };
+    if (!confirmacionBorrado(p as { nombre: string | null; cedula: string | null }, confirmacion)) {
+      return { ok: false, error: p.cedula ? "La cédula escrita no es la del candidato." : "El nombre escrito no es el del candidato." };
+    }
+    const { error } = await admin.from("procesos_contratacion").delete().eq("id", id);
+    if (error) return { ok: false, error: error.message };
+    revalidatePath("/candidatos");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "No se pudo eliminar." };
+  }
 }
 
 export interface ExportFilters {
@@ -857,4 +876,18 @@ export async function datosFichaProceso(p: { id: string; cedula: string | null; 
     vinculoEmpresaProceso(p.id).catch(() => null),
   ]);
   return { eventos, anteriores, consultas, documentos, vinculo };
+}
+
+/** «Reintentar en Croma» una fuente revisada a mano (27-nov-2026). Gasta una consulta. */
+export async function reintentarFuenteEnCroma(procesoId: string, fuente: "policia" | "procuraduria" | "contraloria" | "rnmc" | "simit"): Promise<{ ok: boolean; mensaje: string }> {
+  try {
+    const perms = await assertEditor();
+    if (!["policia", "procuraduria", "contraloria", "rnmc", "simit"].includes(fuente)) return { ok: false, mensaje: "Fuente no válida." };
+    const { reintentarEnCroma } = await import("@/lib/verificacion/servidor");
+    const r = await reintentarEnCroma(procesoId, fuente, actorUsuario(perms));
+    revalidatePath("/candidatos");
+    return r;
+  } catch (e) {
+    return { ok: false, mensaje: e instanceof Error ? e.message : "No se pudo consultar Croma." };
+  }
 }

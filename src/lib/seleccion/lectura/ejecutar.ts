@@ -11,6 +11,7 @@
  * guardan con lo que ya se leyó.
  */
 import { randomUUID } from "node:crypto";
+import { NOMBRE_CLASE } from "./esquema";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { configDocumentos, getAgenteConClaves } from "@/lib/comunicaciones/agente/config";
 import type { ImagenEntrada } from "@/lib/comunicaciones/agente/proveedores";
@@ -25,7 +26,8 @@ import { enviarMensajeSeleccion } from "../envio";
 import { camposDeDocumento, conCedulaAlDia, resumenParaAsistente } from "./interpretar";
 import { leerArchivos, MAX_ARCHIVOS } from "./leer";
 import { archivoParaModelo, esDocAntiguo, formatoDe } from "./formatos";
-import { validarCartasAutomaticas } from "./revision-servidor";
+import { validarDocumentosAutomaticos } from "./revision-servidor";
+import { conContradicciones, type DatosAspirante, type LecturaPrevia } from "./contradicciones";
 import type { CampoLeido, ClaseDocumento } from "./esquema";
 
 /** Por archivo y por llamada. Las fotos de WhatsApp pesan menos de 1 MB; un PDF escaneado, varios. */
@@ -81,7 +83,7 @@ export async function leerDocumentosPendientes(conversacionId: string): Promise<
     if (leidos > 0) {
       const { data: conv } = await createAdminClient().from("wa_conversaciones").select("proceso_id").eq("id", conversacionId).maybeSingle();
       if (conv?.proceso_id) {
-        await validarCartasAutomaticas(conv.proceso_id as string).catch((e) => console.error("[seleccion] validación automática de cartas:", e));
+        await validarDocumentosAutomaticos(conv.proceso_id as string).catch((e) => console.error("[seleccion] validación automática de documentos:", e));
       }
     }
     return leidos;
@@ -121,7 +123,9 @@ async function leer(conversacionId: string): Promise<number> {
 
   const { data: conv } = await db.from("wa_conversaciones").select("proceso_id").eq("id", conversacionId).maybeSingle();
   const procesoId = (conv?.proceso_id as string | null) ?? null;
-  const { data: proc } = procesoId ? await db.from("procesos_contratacion").select("cedula, autorizacion_datos").eq("id", procesoId).maybeSingle() : { data: null };
+  const { data: proc } = procesoId
+    ? await db.from("procesos_contratacion").select("cedula, autorizacion_datos, nombre, fecha_nacimiento, edad, ciudad_residencia, celular, experiencia_meses").eq("id", procesoId).maybeSingle()
+    : { data: null };
   // NF3 (Ley 1581): sin la autorización del aspirante no se manda su hoja de vida al
   // modelo ni se guarda lo leído. Los archivos esperan; se leen cuando autorice (hasta 24 h).
   if (proc?.autorizacion_datos !== "si") return 0;
@@ -206,10 +210,29 @@ async function leer(conversacionId: string): Promise<number> {
   await registrarConsumo({ concepto: "lectura", proveedor: configDocumentos(config).proveedor, modelo: r.modelo, tokensEntrada: r.tokensEntrada, tokensSalida: r.tokensSalida, costoUsd: costo, conversacionId, procesoId });
   const parte = Math.round((costo / enLlamada.length) * 1_000_000) / 1_000_000;
   if (!r.docs) {
-    for (const m of enLlamada) await guardar(filaDe.get(m.id)!, { estado: "error", error: `Respuesta sin JSON: ${r.texto.slice(0, 200)}`, modelo: r.modelo, costo_usd: parte });
+    // El principio y el final de la respuesta, y los tokens: una respuesta cortada por largo se ve aquí.
+    const detalle = `Respuesta sin JSON (${r.tokensSalida ?? "?"} tokens de salida): ${r.texto.slice(0, 120)} … ${r.texto.slice(-120)}`;
+    for (const m of enLlamada) await guardar(filaDe.get(m.id)!, { estado: "error", error: detalle, modelo: r.modelo, costo_usd: parte });
     return 0;
   }
-  for (const d of r.docs) {
+  // ¿Contradice lo que ya sabemos? (27-nov-2026): contra el proceso y los documentos ya leídos
+  // (y los de esta misma tanda); las advertencias quedan como nota del campo para quien revisa.
+  const aspirante: DatosAspirante = {
+    nombre: (proc?.nombre as string | null) ?? null,
+    cedula: cedulaProceso,
+    fecha_nacimiento: (proc?.fecha_nacimiento as string | null) ?? null,
+    edad: (proc?.edad as number | null) ?? null,
+    ciudad_residencia: (proc?.ciudad_residencia as string | null) ?? null,
+    celular: (proc?.celular as string | null) ?? null,
+    experiencia_meses: (proc?.experiencia_meses as number | null) ?? null,
+  };
+  const { data: otras } = procesoId ? await db.from("seleccion_lecturas").select("clase, campos").eq("proceso_id", procesoId).eq("estado", "leido") : { data: [] };
+  const previas: LecturaPrevia[] = ((otras ?? []) as { clase: ClaseDocumento; campos: CampoLeido[] | null }[]).map((o) => ({ clase: o.clase, campos: o.campos ?? [] }));
+  for (const leido of r.docs) {
+    const revisado = leido.estado === "leido" ? conContradicciones(leido.clase as ClaseDocumento, leido.campos, aspirante, previas, hoy) : { campos: leido.campos, avisos: [] as string[] };
+    const campos = revisado.campos;
+    const d = { ...leido, campos };
+    if (d.estado === "leido") previas.push({ clase: d.clase as ClaseDocumento, campos });
     const grupo = d.archivos.length > 1 ? randomUUID() : null;
     for (const [k, i] of d.archivos.entries()) {
       const m = enLlamada[i];
@@ -222,6 +245,20 @@ async function leer(conversacionId: string): Promise<number> {
         grupo,
         modelo: r.modelo,
         costo_usd: parte,
+      });
+    }
+    // Contradice los datos del aspirante: lo revisa una persona (27-nov-2026, se avisa).
+    const claras = revisado.avisos.filter((a) => a.startsWith("⚠"));
+    const primera = d.archivos.length ? filaDe.get(enLlamada[d.archivos[0]]?.id) : undefined;
+    if (claras.length && procesoId && primera) {
+      const { notificar, enlaceProceso } = await import("../notificaciones-servidor");
+      const nombre = aspirante.nombre?.trim() || `Aspirante CC ${cedulaProceso ?? ""}`;
+      await notificar("documentos", {
+        clave: primera,
+        procesoId,
+        titulo: `${nombre}: ${NOMBRE_CLASE[d.clase as ClaseDocumento] ?? "documento"} no cuadra con sus datos`,
+        detalle: `${claras.join(" ")} Revíselo en Candidatos › ficha › Documentos leídos.`,
+        enlace: enlaceProceso(cedulaProceso, procesoId),
       });
     }
   }

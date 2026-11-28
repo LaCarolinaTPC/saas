@@ -180,7 +180,7 @@ export async function POST(req: NextRequest) {
       // Banco de Bogotá?, ¿cuántas rutas lleva?). Si era eso, ya se le respondió.
       const deExamen = await procesarRespuestaExamenes(conversacionId, mensajeId).catch((e) => (console.error("webhook whatsapp (exámenes):", e), false));
       if (deExamen) return;
-      // 24-nov-2026: el correo para la psicosensotécnica (lo escribe, o dice si está bien).
+      // 24-nov-2026: el correo para la psicotécnica (lo escribe, o dice si está bien).
       // Si el mensaje era eso, ya se le respondió y el asistente no contesta.
       const delCorreo = await procesarCorreoPsico(conversacionId, mensajeId).catch((e) => (console.error("webhook whatsapp (correo):", e), false));
       if (delCorreo) return;

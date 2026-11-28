@@ -84,7 +84,7 @@ try {
   revisar("«una sola»: Gestivo responde", (await escribe("una sola")) === true);
   p = await proceso();
   revisar("queda 1, pendiente de citar, y se le dice que el encargado lo citará", p.rutas_declaradas === 1 && p.reconocimiento_estado === "pendiente" && /le enviará la citación/.test(await ultimoSaliente()), await ultimoSaliente());
-  revisar("después de las rutas se le pide el correo para la psicosensotécnica", p.correo_estado === "pedido", { correo: p.correo_estado });
+  revisar("después de las rutas se le pide el correo para la psicotécnica", p.correo_estado === "pedido", { correo: p.correo_estado });
 
   console.log("\n2. El «sí» va a la última pregunta");
   await db.from("procesos_contratacion").update({ banco_preguntado_at: new Date(Date.now() - 60_000).toISOString(), banco_respondido_at: null, banco_cuenta: null, correo_estado: "por_confirmar", correo: "x@gestivo.test", correo_recordatorio_at: new Date().toISOString(), rutas_respondido_at: new Date().toISOString() }).eq("id", id);

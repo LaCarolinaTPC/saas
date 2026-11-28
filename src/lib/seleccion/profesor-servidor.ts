@@ -112,8 +112,8 @@ async function pendienteDeExamenes(procesoId: string, estado: string): Promise<"
  * prueba ni antes: el 27-nov-2026 quedó un examen a las 6:30 del mismo sábado
  * de la prueba de las 8:00.
  */
-async function primerDiaExamenes(procesoId: string): Promise<string> {
-  const h = hoy();
+async function primerDiaExamenes(procesoId: string, ahora?: Date): Promise<string> {
+  const h = ahora ? fechaBogota(ahora.toISOString()) : hoy();
   const { data } = await createAdminClient()
     .from("seleccion_citas")
     .select("fecha")
@@ -135,10 +135,10 @@ export interface ExamenesElegidos {
 }
 
 /** Revisa lo que eligió el profesor: no antes de ahora y un laboratorio activo que atienda ese día. */
-async function validarElegidos(e: ExamenesElegidos): Promise<string | { fecha: string; hora: string; laboratorioId: string; laboratorio: string }> {
+async function validarElegidos(e: ExamenesElegidos, ahora: Date = new Date()): Promise<string | { fecha: string; hora: string; laboratorioId: string; laboratorio: string }> {
   const fecha = String(e?.fecha ?? "");
   const hora = String(e?.hora ?? "").slice(0, 5);
-  const mal = validarFechaElegida({ fecha, hora }, new Date());
+  const mal = validarFechaElegida({ fecha, hora }, ahora);
   if (mal) return mal;
   const lab = await laboratorioPorId(typeof e?.laboratorioId === "string" ? e.laboratorioId : null);
   if (!lab || !lab.activo) return "Elige el laboratorio.";
@@ -186,7 +186,7 @@ async function pasarAExamenes(
   // Y la orden al laboratorio, si el envío es automático (23-nov-2026). Con la fecha del
   // profesor sale enseguida: puede ser para hoy y el correo del día no la llevaría.
   await enviarOrdenAlCitar(citaId, actor, { enseguida: !!elegidos });
-  // El correo para la prueba psicosensotécnica se pide después de la respuesta del banco
+  // El correo para la prueba psicotécnica se pide después de la respuesta del banco
   // (o, si no responde, a las 24 horas, en la revisión periódica): una pregunta a la vez.
   return { envio, texto: t, claveMensaje: "examenes_fase1", documentos: [] };
 }
@@ -282,12 +282,16 @@ export async function registrarClase(
  * prueba «aprobó» o la clase «listo». Aquí sí se cita al laboratorio, se le
  * envía el mensaje con la carta del banco y, con el envío automático, la orden.
  */
-export async function enviarAExamenes(procesoId: string, actor: ActorProceso, elegidos?: ExamenesElegidos | null): Promise<ResultadoProfesor> {
+/**
+ * `ahora`: el chat de prueba manda la hora de su reloj de prueba (27-nov-2026), para que la fecha
+ * propuesta y la validación cuenten desde el día que se está simulando.
+ */
+export async function enviarAExamenes(procesoId: string, actor: ActorProceso, elegidos?: ExamenesElegidos | null, ahora?: Date): Promise<ResultadoProfesor> {
   const p = await procesoAbierto(procesoId);
   if (typeof p === "string") return { ok: false, error: p };
   const pendiente = await pendienteDeExamenes(procesoId, p.estado);
   if (!pendiente) return { ok: false, error: "Este aspirante no tiene pendiente el paso a exámenes." };
-  const v = elegidos ? await validarElegidos(elegidos) : undefined;
+  const v = elegidos ? await validarElegidos(elegidos, ahora) : undefined;
   if (typeof v === "string") return { ok: false, error: v };
   return { ok: true, ...(await pasarAExamenes(procesoId, actor, pendiente === "escuela" ? "Terminó la escuela." : "Aprobó la prueba de manejo.", v)) };
 }
@@ -319,9 +323,9 @@ export interface PlanExamenes {
 }
 
 /** Lo que haría «Listo para exámenes», sin hacerlo: día, hora y laboratorio de la fase 1. */
-export async function planExamenes(procesoId: string): Promise<PlanExamenes> {
+export async function planExamenes(procesoId: string, ahoraSimulado?: Date): Promise<PlanExamenes> {
   const a = await leerAjustesAgenda();
-  const desde = await primerDiaExamenes(procesoId);
+  const desde = await primerDiaExamenes(procesoId, ahoraSimulado);
   const [plan, labs, delAjuste] = await Promise.all([
     planFase1(desde).catch(() => ({ fecha: desde, laboratorio: null, motivo: "" })),
     leerLaboratorios().catch(() => []),
@@ -329,7 +333,7 @@ export async function planExamenes(procesoId: string): Promise<PlanExamenes> {
   ]);
   const lab = await laboratorioQueLeToca(procesoId, plan.fecha).catch(() => null);
   const elegido = lab?.laboratorio ?? plan.laboratorio ?? null;
-  const ahora = new Date();
+  const ahora = ahoraSimulado ?? new Date();
   return {
     fecha: plan.fecha,
     hora: a.laboratorioHora,
@@ -340,7 +344,7 @@ export async function planExamenes(procesoId: string): Promise<PlanExamenes> {
       .filter((l) => l.activo)
       .map((l) => ({ id: l.id, nombre: l.nombre, direccion: l.direccion, dias: l.dias_atencion?.length ? l.dias_atencion : [1, 2, 3, 4, 5, 6], cerrado: l.fechas_sin_atencion ?? [] })),
     laboratorioFechaElegida: delAjuste?.id ?? elegido?.id ?? null,
-    ahora: { fecha: hoy(), hora: horaBogota(ahora) },
+    ahora: { fecha: fechaBogota(ahora.toISOString()), hora: horaBogota(ahora) },
   };
 }
 

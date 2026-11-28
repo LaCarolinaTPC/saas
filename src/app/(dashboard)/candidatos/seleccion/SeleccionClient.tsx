@@ -6,9 +6,10 @@
  * reglas con su valor sugerido.
  */
 import { useEffect, useState, useTransition } from "react";
+import { confirmar } from "@/components/ui/confirmar";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, BarChart3, Bot, Clock, Smartphone, FlaskConical, Loader2, MessageSquareText, Microscope, RefreshCw, RotateCcw, TriangleAlert, ShieldCheck } from "lucide-react";
+import { ArrowLeft, BarChart3, BellRing, Bot, Clock, Smartphone, FlaskConical, Loader2, MessageSquareText, Microscope, RefreshCw, RotateCcw, TriangleAlert, ShieldCheck } from "lucide-react";
 import { EJEMPLOS, RESPUESTAS_ASISTENTE, VARIABLES, renderizarConLineas, saltosDeLinea, type MensajeSeleccion } from "@/lib/seleccion/mensajes";
 import { BurbujaWhatsApp, FondoChat, PlantillaMeta, TextoWhatsApp } from "./PlantillaMeta";
 import type { AjusteSeleccion } from "@/lib/seleccion/ajustes";
@@ -19,6 +20,7 @@ import ReglasAntecedentes from "./ReglasAntecedentes";
 import BuscadorSeleccion from "./BuscadorSeleccion";
 import { anclaMensaje, type PestanaBuscable } from "@/lib/seleccion/buscador-seleccion";
 import Laboratorios from "./Laboratorios";
+import Notificaciones from "./Notificaciones";
 import PestanaIa, { type Ejecucion } from "./PestanaIa";
 import { SOLO_ADMIN, esPestana, type Pestana } from "./pestanas";
 import PestanaCanal, { type CanalActual } from "./PestanaCanal";
@@ -124,8 +126,8 @@ function TarjetaMensaje({ m, valores, puedeEditar }: { m: MensajeSeleccion; valo
           valores={valoresVista}
           puedeEnviar={puedeEditar && !cambiado}
           enviando={pendiente}
-          onEnviar={() => {
-            if (confirm(`¿Enviar a aprobación de Meta una versión nueva de «${m.plantilla_nombre}» con este texto?`)) {
+          onEnviar={async () => {
+            if (await confirmar(`¿Enviar a aprobación de Meta una versión nueva de «${m.plantilla_nombre}» con este texto?`)) {
               correr(() => enviarPlantillaAAprobacion(m.clave));
             }
           }}
@@ -273,6 +275,12 @@ export default function SeleccionClient({
           >
             <Microscope className="h-4 w-4" /> Laboratorios
           </button>
+          <button
+            onClick={() => setPestana("notificaciones")}
+            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm ${pestana === "notificaciones" ? "bg-primary text-white" : "text-text-secondary"}`}
+          >
+            <BellRing className="h-4 w-4" /> Notificaciones
+          </button>
           {ia && (
             <button
               onClick={() => setPestana("ia")}
@@ -340,6 +348,8 @@ export default function SeleccionClient({
         <ReglasAntecedentes ajustes={ajustes} puedeEditar={puedeEditar} />
       ) : pestana === "laboratorios" ? (
         <Laboratorios />
+      ) : pestana === "notificaciones" ? (
+        <Notificaciones />
       ) : pestana === "canal" && canal ? (
         <PestanaCanal actual={canal.actual} />
       ) : pestana === "ia" && ia ? (

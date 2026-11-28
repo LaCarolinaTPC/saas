@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { confirmar } from "@/components/ui/confirmar";
 import { useRouter } from "next/navigation";
 import { Loader2, Trash2, Tv } from "lucide-react";
 import { toast } from "sonner";
@@ -62,8 +63,8 @@ export default function FotosGaleria({
     });
   }
 
-  function quitar(path: string) {
-    if (!confirm("¿Quitar esta foto del reporte?")) return;
+  async function quitar(path: string) {
+    if (!await confirmar("¿Quitar esta foto del reporte?")) return;
     startTransition(async () => {
       try {
         await quitarFotoAccidente(accidenteId, path, campo);

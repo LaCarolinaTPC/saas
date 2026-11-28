@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { canAccess, getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { actorUsuario } from "@/lib/contratacion/servidor";
+import { actorUsuario, registrarEvento } from "@/lib/contratacion/servidor";
+import { deQuienEsElTexto } from "@/lib/seleccion/documento-de-quien";
 import { ADJUNTO_LIMITE_BYTES, ADJUNTO_MIMES, TIPOS_FIJOS, guardarAdjuntoSeleccion, itemsCarpeta, tipoDeItem } from "@/lib/seleccion/carpeta-servidor";
 
 export const runtime = "nodejs";
@@ -45,15 +46,32 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: `El archivo supera los ${Math.round(ADJUNTO_LIMITE_BYTES / 1024 / 1024)} MB.` }, { status: 413 });
   }
 
-  const { data: p, error } = await createAdminClient().from("procesos_contratacion").select("id").eq("id", procesoId).maybeSingle();
+  const { data: p, error } = await createAdminClient().from("procesos_contratacion").select("id, nombre, cedula").eq("id", procesoId).maybeSingle();
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   if (!p) return NextResponse.json({ ok: false, error: "El proceso no existe." }, { status: 404 });
 
+  const buffer = Buffer.from(await archivo.arrayBuffer());
+  // 27-nov-2026: ¿el PDF es del aspirante? Si trae otra cédula u otro nombre, se pide confirmar antes de guardarlo.
+  const confirmado = String(form.get("confirmar") ?? "") === "1";
+  let deOtro: string | null = null;
+  if (mime === "application/pdf") {
+    try {
+      const { extractText, getDocumentProxy } = await import("unpdf");
+      const { text } = await extractText(await getDocumentProxy(new Uint8Array(buffer)), { mergePages: true });
+      const r = deQuienEsElTexto(String(text), { nombre: (p.nombre as string | null) ?? null, cedula: (p.cedula as string | null) ?? null });
+      if (r.estado === "otro") deOtro = r.motivo;
+    } catch {
+      // Un PDF que no se deja leer se guarda igual: lo revisa una persona.
+    }
+  }
+  if (deOtro && !confirmado) {
+    return NextResponse.json({ ok: false, confirmar: true, error: `¿Es de otra persona? ${deOtro}` }, { status: 409 });
+  }
+
   try {
-    const id = await guardarAdjuntoSeleccion(
-      { procesoId, tipo, nombre: archivo.name || `archivo.${ADJUNTO_MIMES[mime]}`, mime, buffer: Buffer.from(await archivo.arrayBuffer()) },
-      actorUsuario(perms)
-    );
+    const actor = actorUsuario(perms);
+    const id = await guardarAdjuntoSeleccion({ procesoId, tipo, nombre: archivo.name || `archivo.${ADJUNTO_MIMES[mime]}`, mime, buffer }, actor);
+    if (deOtro) await registrarEvento(procesoId, { tipo: "carpeta", detalle: { archivo: archivo.name, tipo, subido_aunque_no_coincide: deOtro } }, actor);
     revalidatePath("/candidatos");
     return NextResponse.json({ ok: true, id });
   } catch (err) {

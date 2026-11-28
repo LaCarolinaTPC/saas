@@ -183,7 +183,8 @@ Reglas:
 - Fechas en AAAA-MM-DD; en la experiencia laboral, AAAA-MM (o «actual»). Si solo hay año, usa AAAA-01 y confianza media.
 - Varios archivos pueden ser un solo documento: las fotos de las páginas de una hoja de vida (muchas veces fotos con el celular, una por página, a veces en desorden o con una página repetida) o el frente y el reverso de la cédula. Júntalos en un documento con todos sus números de archivo y lee la experiencia y las referencias de todas las páginas, sin repetir lo que salga dos veces.
 - Si un archivo de Word trae imágenes pegadas (una foto de la cédula, de la licencia o de un certificado), son parte de ese mismo documento: úsalas para completar sus campos (por ejemplo, la cédula o la fecha de nacimiento de la hoja de vida).
-- Si un archivo no se puede leer (borroso, cortado, oscuro), ponlo con «legible»: false y el motivo.`;
+- Si un archivo no se puede leer (borroso, cortado, oscuro), ponlo con «legible»: false y el motivo.
+- La clase es el tipo de documento aunque esté a nombre de otra persona: una carta laboral, una cédula o una licencia de alguien distinto sigue siendo «carta_laboral», «cedula» o «licencia», con el nombre que trae. No la pongas como «otro»: se compara después con los datos del aspirante.`;
 
 export function instruccionLectura(nArchivos: number): string {
   return `Hay ${nArchivos} ${nArchivos === 1 ? "archivo" : "archivos"} (numerados desde 1). Clasifica cada uno y extrae los datos. Responde con este JSON:

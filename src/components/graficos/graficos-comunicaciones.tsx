@@ -97,7 +97,26 @@ export function BarrasConPorcentaje({
   const datos: FilaConPct[] = filas.map((f) => ({ ...f, pct: total ? pctTexto(f.n, total) : null }));
   const alto = Math.max(90, datos.length * 34 + 16);
   return (
-    <div style={{ height: alto }} className="w-full">
+    <div style={{ height: alto }} className="relative w-full">
+      {/* Los datos del gráfico en una tabla oculta: la usan las exportaciones de Indicadores y los lectores de pantalla. */}
+      <table className="sr-only" data-exportar="grafico">
+        <thead>
+          <tr>
+            <th>Concepto</th>
+            <th>{unidad.charAt(0).toUpperCase() + unidad.slice(1)}</th>
+            {total ? <th>%</th> : null}
+          </tr>
+        </thead>
+        <tbody>
+          {datos.map((f) => (
+            <tr key={f.clave}>
+              <td>{f.etiqueta}</td>
+              <td>{f.n}</td>
+              {total ? <td>{f.pct}</td> : null}
+            </tr>
+          ))}
+        </tbody>
+      </table>
       <ResponsiveContainer width="100%" height="100%">
         {/* Margen derecho para que la etiqueta de la barra más larga quepa en una línea. */}
         <BarChart data={datos} layout="vertical" margin={{ top: 4, right: 96, bottom: 4, left: 4 }} barCategoryGap={8}>
@@ -168,7 +187,23 @@ export function BarrasPorDia({
   const max = Math.max(...datos.map((d) => Number(d[clave]) || 0), 0);
   if (max === 0) return <p className="py-6 text-center text-sm text-gray-500">Sin {unidad} en este periodo.</p>;
   return (
-    <div style={{ height: alto }} className="w-full">
+    <div style={{ height: alto }} className="relative w-full">
+      <table className="sr-only" data-exportar="grafico">
+        <thead>
+          <tr>
+            <th>Periodo</th>
+            <th>{unidad.charAt(0).toUpperCase() + unidad.slice(1)}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {datos.map((d) => (
+            <tr key={String(d.etiqueta)}>
+              <td>{String(d.etiqueta)}</td>
+              <td>{Number(d[clave]) || 0}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={datos} margin={{ top: 18, right: 8, bottom: 0, left: -12 }} barCategoryGap="20%">
           <CartesianGrid vertical={false} stroke={REJILLA} strokeDasharray="2 4" />

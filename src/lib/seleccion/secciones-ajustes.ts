@@ -5,8 +5,17 @@
  * no estén aquí (van a «Otros ajustes»). Puro: lo usa la pantalla y se prueba.
  */
 import type { AjusteSeleccion } from "./ajustes";
+import { AJUSTE_DEFECTO_COPIA, AJUSTE_DEFECTO_CORREOS, NOTIFICACIONES } from "./notificaciones";
+
 import { DEFINICIONES_ALERTAS } from "./alertas-indicadores";
 import { SOLO_EN_ANTECEDENTES } from "./secciones-antecedentes";
+
+/** Los ajustes de la pestaña Notificaciones (no salen en Tiempos y reglas). */
+const AJUSTES_DE_NOTIFICACIONES: string[] = [
+  AJUSTE_DEFECTO_CORREOS,
+  AJUSTE_DEFECTO_COPIA,
+  ...Object.values(NOTIFICACIONES).flatMap((d) => [d.activo, d.correos, d.copia].filter((x): x is string => !!x)),
+];
 
 export interface PresentacionAjuste {
   etiqueta: string;
@@ -80,17 +89,13 @@ export const SECCIONES_AJUSTES: SeccionAjustes[] = [
         etiqueta: "Pausar Croma",
         ayuda: "Sí: no se consulta nada en Croma (por ejemplo, si está caído). El proceso sigue como si las verificaciones no fueran obligatorias, el asistente pide la licencia y todo queda para revisar a mano («Lo revisé a mano» en la ficha); nadie se cita solo. Al volver a «no», la revisión automática retoma lo pendiente.",
       },
+      rnmc_respaldo_portal: {
+        etiqueta: "Si Croma no responde el RNMC, consultarlo en el portal de la Policía",
+        ayuda: "Sí: si Croma falla o está en pausa, Gestivo consulta el RNMC en la página de la Policía (tarda cerca de un minuto) y sigue solo. La conducta de cada medida (artículo, relato de los hechos) se trae de Croma por el número de expediente y, si Croma no responde, del portal. Si la Policía cambia su página, esto deja de funcionar y queda «Lo revisé a mano».",
+      },
       runt_obligatorio: {
         etiqueta: "RUNT obligatorio",
         ayuda: "Para pasar a antecedentes. No: si Croma no responde el RUNT, el asistente pide la categoría y una foto de la licencia, y vale la que dice el aspirante (con la observación). Sí: hace falta el RUNT o que una persona verifique la licencia a mano.",
-      },
-      alerta_servicios_correos: {
-        etiqueta: "Avisar por correo si un servicio falla",
-        ayuda: "Separados por comas. Les llega un correo cuando Croma, la IA, WhatsApp o el correo empiezan a fallar, un recordatorio cada 6 horas si sigue igual y otro cuando vuelve a funcionar. Vacío: no se avisa. Desde el entorno de pruebas el correo dice que es de pruebas.",
-      },
-      alerta_servicios_copia: {
-        etiqueta: "Con copia a",
-        ayuda: "Separados por comas: reciben la misma alerta en copia, para verificar (por ejemplo, soporte). Vacío: sin copia.",
       },
       simit_obligatorio: { etiqueta: "SIMIT obligatorio", ayuda: "Para pasar a antecedentes." },
       croma_cache_dias: {
@@ -133,6 +138,11 @@ export const SECCIONES_AJUSTES: SeccionAjustes[] = [
     ajustes: {
       recordatorio_escuela_hora: { etiqueta: "Recordatorio diario de escuela" },
       laboratorio_hora: { etiqueta: "Hora en el laboratorio" },
+      recordatorio_examen_f2_activo: {
+        etiqueta: "Recordar la fase 2 de exámenes la víspera",
+        ayuda: "La tarde anterior a la cita le llega «Le recordamos que mañana… en completo ayuno». No se envía si la citación salió hace menos de 6 horas.",
+      },
+      recordatorio_examen_f2_hora: { etiqueta: "Hora del recordatorio de la fase 2", ayuda: "Desde esta hora, el día anterior a la cita, dentro del horario de los mensajes de WhatsApp." },
       laboratorio_nombre: { etiqueta: "Laboratorio (respaldo)", ayuda: "Solo se usa si no hay laboratorios configurados en la pestaña Laboratorios. Va en los mensajes de exámenes como {laboratorio}." },
       orden_laboratorio_automatica: {
         etiqueta: "Enviar la orden al laboratorio automáticamente",
@@ -153,8 +163,8 @@ export const SECCIONES_AJUSTES: SeccionAjustes[] = [
         sufijo: "rutas",
       },
       correo_psico_activo: {
-        etiqueta: "Pedir el correo para la prueba psicosensotécnica",
-        ayuda: "Al entrar a exámenes · fase 1 se le pide por WhatsApp, se le pregunta si está bien escrito y le llega un correo con un enlace para confirmarlo. Con el correo confirmado sale en Candidatos › «Psicosensotécnica: por inscribir».",
+        etiqueta: "Pedir el correo para la prueba psicotécnica",
+        ayuda: "Al entrar a exámenes · fase 1 se le pide por WhatsApp, se le pregunta si está bien escrito y le llega un correo con un enlace para confirmarlo. Con el correo confirmado sale en Candidatos › «Psicotécnica: por inscribir».",
       },
       correo_psico_horas: { etiqueta: "Recordar el correo cada", ayuda: "Horas sin escribirlo o sin confirmarlo antes de cada recordatorio (dentro del horario de los recordatorios de WhatsApp)." },
       correo_psico_recordatorios: { etiqueta: "Recordatorios del correo", ayuda: "Después, el chat queda para una persona.", sufijo: "veces" },
@@ -175,16 +185,8 @@ export const SECCIONES_AJUSTES: SeccionAjustes[] = [
         ayuda: "Exámenes de las dos fases aptos, rutas aprendidas, carpeta completa y visto bueno de la directora. No: se puede contratar sin revisarlas.",
       },
       contratar_exige_psicotecnica: {
-        etiqueta: "Exigir la prueba psicosensotécnica apta para contratar",
-        ayuda: "El resultado de la plataforma psicosensotécnica que Gestión Humana registra en «Día de contratación».",
-      },
-      listo_contratar_avisar: {
-        etiqueta: "Avisar por correo cuando alguien queda «Listo para contratar»",
-        ayuda: "Quien cumple todo para contratar menos el visto bueno pasa solo a la etapa «Listo para contratar» del tablero (y vuelve a la anterior si deja de cumplir). Sí: en ese momento sale un correo a Gestión Humana. También salen en el reporte diario.",
-      },
-      listo_contratar_correos: {
-        etiqueta: "Correos que reciben ese aviso",
-        ayuda: "Separados por comas. Vacío: los mismos del reporte diario de selección.",
+        etiqueta: "Exigir la prueba psicotécnica apta para contratar",
+        ayuda: "El resultado de la plataforma psicotécnica que Gestión Humana registra en «Día de contratación».",
       },
     },
   },
@@ -201,6 +203,10 @@ export const SECCIONES_AJUSTES: SeccionAjustes[] = [
       validar_cartas_auto: {
         etiqueta: "Validar sola la carta laboral que coincide",
         ayuda: "Si la carta es del aspirante, de una empresa de su hoja de vida, con las mismas fechas (±2 meses) y cargo de conducción, el empleo queda verificado sin esperar a que alguien la acepte. Lo que no coincide sigue esperando a una persona.",
+      },
+      validar_documentos_auto: {
+        etiqueta: "Validar solos los documentos de la carpeta que coinciden",
+        ayuda: "Sí: quedan «validados» en la carpeta, con el motivo, la hoja de vida con la cédula o el nombre del aspirante, la cédula con el número del proceso, la licencia a su nombre y ya verificada (RUNT o a mano), el certificado del Banco de Bogotá vigente a su nombre y la carta laboral que se validó sola. Lo que tenga dudas y las referencias los valida una persona. No: todo lo valida una persona.",
       },
       transcribir_audios: {
         etiqueta: "Transcribir los audios",
@@ -222,27 +228,6 @@ export const SECCIONES_AJUSTES: SeccionAjustes[] = [
     },
   },
   {
-    id: "reporte",
-    titulo: "Reporte diario por correo",
-    detalle: "Cada día a las 7:00 llega por correo lo de ayer y los últimos 30 días, con las mismas cifras de Candidatos › Indicadores (donde también se cambia esto y se puede enviar ya).",
-    ajustes: {
-      reporte_diario_activo: { etiqueta: "Enviar el reporte diario" },
-      reporte_diario_correos: { etiqueta: "Enviarlo a", ayuda: "Correos separados por comas (por ejemplo, Gestión Humana). Vacío: no se envía." },
-      reporte_diario_copia: { etiqueta: "Con copia a", ayuda: "Separados por comas. Vacío: sin copia." },
-    },
-  },
-  {
-    id: "alerta_antecedentes",
-    titulo: "Alerta de antecedentes por revisar",
-    detalle:
-      "Un correo por aspirante cuando necesita que una persona revise sus antecedentes: una fuente trae una anotación, una fuente no respondió y las reglas la mandan a revisión, un requisito va a revisión manual, o llega tarde un resultado con anotación después del aval (27-nov-2026).",
-    ajustes: {
-      antecedentes_alerta_activo: { etiqueta: "Enviar la alerta" },
-      antecedentes_alerta_correos: { etiqueta: "Enviarla a", ayuda: "Correos separados por comas. Vacío: los del reporte diario." },
-      antecedentes_alerta_copia: { etiqueta: "Con copia a", ayuda: "Separados por comas. Vacío: sin copia (o la del reporte diario, si la lista de arriba está vacía)." },
-    },
-  },
-  {
     id: "alertas",
     titulo: "Alertas del reporte diario",
     detalle:
@@ -260,8 +245,8 @@ export const SECCIONES_AJUSTES: SeccionAjustes[] = [
   },
   {
     id: "psicotecnica",
-    titulo: "Prueba psicosensotécnica (PsicoAlianza)",
-    detalle: "Para Candidatos › Psicosensotécnica. Si el informe no trae el concepto escrito (Ethikos lo trae como imagen), sale del porcentaje con estos cortes; una persona lo confirma.",
+    titulo: "Prueba psicotécnica (PsicoAlianza)",
+    detalle: "Para Candidatos › Psicotécnica. Si el informe no trae el concepto escrito (Ethikos lo trae como imagen), sale del porcentaje con estos cortes; una persona lo confirma.",
     ajustes: {
       psico_corte_no_recomendado: { etiqueta: "No recomendado hasta", ayuda: "Un porcentaje igual o menor es «no recomendado» (no apto).", sufijo: "%" },
       psico_corte_con_sugerencias: { etiqueta: "Recomendado con sugerencias hasta", ayuda: "Entre el corte anterior y este, «recomendado con sugerencias» (apto con observaciones); por encima, «recomendado».", sufijo: "%" },
@@ -321,6 +306,8 @@ export interface SeccionPresentada {
  * y sus ajustes quedan sin uso.
  */
 export const EN_OTRA_PANTALLA = new Set([
+  // 27-nov-2026: a quién llega cada aviso se configura en Selección › Notificaciones.
+  ...AJUSTES_DE_NOTIFICACIONES,
   "carta_banco_ruta", "carta_firmante", "carta_firmante_cargo", "laboratorio_reparto", "laboratorio_fecha_profesor", "lectura_modelo", "transcripcion_modelo",
   // 25-nov-2026: las reglas de antecedentes tienen su pestaña (Selección › Antecedentes).
   ...SOLO_EN_ANTECEDENTES,

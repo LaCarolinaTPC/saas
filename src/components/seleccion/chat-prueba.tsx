@@ -7,8 +7,9 @@
  * La simulación de silencio no usa IA.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { confirmar } from "@/components/ui/confirmar";
 import {
-  ArrowLeft, Bot, Clapperboard, CornerUpLeft, Download, FileText, Image as ImageIcon, Loader2, Mic, Paperclip, Play, Send, Smile, Timer,
+  ArrowLeft, Bot, Clapperboard, CornerUpLeft, Download, FileText, Image as ImageIcon, Loader2, Mail, Mic, Paperclip, Play, Send, Smile, Timer,
 } from "lucide-react";
 import type { AgenteFormulario } from "@/lib/comunicaciones/agente/formulario";
 import { CASOS, GRUPOS_CASOS, estimarLlamadas } from "@/lib/seleccion/evaluacion/casos";
@@ -19,6 +20,7 @@ import { ESCENARIO_BASE, resumenEscenario, type EscenarioCroma } from "@/lib/sel
 import { guardarChatRemoto, leerChatRemoto } from "./chats-prueba-remoto";
 import { pareceAvisoDeRevision, type FechaRechazada } from "@/lib/comunicaciones/agente/motor";
 import { combinarLecturas, fotosADescartar, resumenLectura, type LecturaCedula, type MotivoDescarte } from "@/lib/seleccion/lectura-cedula";
+import { claseDePie, lecturaSimulada } from "@/lib/seleccion/lectura/contradicciones";
 import {
   consultarCromaPrueba,
   consultarRuntPrueba,
@@ -28,6 +30,7 @@ import {
   leerCedulaPrueba,
   guardarFotoPrueba,
   descartarFotoPrueba,
+  documentoSimuladoPrueba,
   type ResultadoLecturaPrueba,
   type ResultadoDocumentoPrueba,
   panelPrueba,
@@ -41,6 +44,7 @@ import {
   agendaSimuladaPrueba,
   citacionAutomaticaPrueba,
   respuestaCitaPrueba,
+  reenviarAlertaAntecedentesPrueba,
   respuestaExamenesPrueba,
   simularCierreAutomaticoPrueba,
   type CandidatoDePrueba,
@@ -68,6 +72,12 @@ interface MensajeChat extends MensajeSimulado {
   imagen?: string;
   /** Cuándo se escribió (para la hora del globo). */
   at?: number;
+  /**
+   * La hora del reloj de prueba cuando se escribió (27-nov-2026), si el reloj estaba
+   * adelantado: el simulador del cron mide el silencio con ella. Con `at` (hora real)
+   * un mensaje recién escrito contaba como de hace un día y salían las reactivaciones.
+   */
+  atVirtual?: number;
   /** Botones de respuesta rápida de la plantilla (como los muestra WhatsApp). */
   botones?: string[];
   /** Documento que le llegó (carta del banco): se puede descargar para ver cómo queda. */
@@ -337,6 +347,9 @@ export function ChatPrueba({
   // Entrega 2: lo que Gestivo hizo con la respuesta a la cita y lo que haría el cron a la hora simulada.
   const [notaCita, setNotaCita] = useState<string | null>(null);
   const [agendaSimulada, setAgendaSimulada] = useState<string | null>(null);
+  // «Reenviar la alerta de antecedentes» (27-nov-2026): el resultado del último reenvío.
+  const [alertaReenvio, setAlertaReenvio] = useState<{ ok: boolean; texto: string } | null>(null);
+  const [reenviando, setReenviando] = useState(false);
   // Candidatos de prueba ya guardados: se pueden citar sin repetir la conversación.
   const [guardados, setGuardados] = useState<CandidatoDePrueba[]>([]);
   const [elegidoGuardado, setElegidoGuardado] = useState("");
@@ -612,7 +625,7 @@ export function ChatPrueba({
   const ultimoMensaje = chat[chat.length - 1];
   const nombreChat = procesoPrueba?.nombre ?? null;
   const ultimoEntranteAt = useMemo(() => {
-    for (let i = chat.length - 1; i >= 0; i--) if (chat[i].direccion === "entrante") return chat[i].at;
+    for (let i = chat.length - 1; i >= 0; i--) if (chat[i].direccion === "entrante") return chat[i].atVirtual ?? chat[i].at;
     return null;
   }, [chat]);
   const hojaVida = !!panel?.extraido?.hoja_vida;
@@ -651,7 +664,10 @@ export function ChatPrueba({
   });
   const caso = useMemo(() => CASOS.find((c) => c.id === casoId)!, [casoId]);
   const esperaRespuesta = chat.length > 0 && chat[chat.length - 1].direccion === "entrante";
-  const nuevo = (m: MensajeSimulado & { meta?: string }): MensajeChat => ({ ...m, id: ++idRef.current, at: Date.now() });
+  const nuevo = (m: MensajeSimulado & { meta?: string }): MensajeChat => {
+    const virtual = ahoraPruebaIso();
+    return { ...m, id: ++idRef.current, at: Date.now(), ...(virtual ? { atVirtual: new Date(virtual).getTime() } : {}) };
+  };
   const sinId = (c: MensajeChat[]): MensajeSimulado[] =>
     c.map(({ direccion, contenido, mediaTipo, lectura }) => ({ direccion, contenido, mediaTipo, ...(lectura ? { lectura } : {}) }));
 
@@ -871,8 +887,23 @@ export function ChatPrueba({
   function enviar(media: MensajeChat["mediaTipo"] = null, boton?: string) {
     const contenido = (boton ?? borrador).trim();
     if ((!contenido && !media) || probando || transferencia) return;
-    const conversacion = [...chat, nuevo({ direccion: "entrante", contenido, mediaTipo: media })];
+    // Documento simulado (27-nov-2026): «si se simula, se dice que está bien». El tipo sale del pie;
+    // el asistente lo recibe como bueno y, con el candidato guardado, queda recibido en su carpeta.
+    const claseSimulada = media === "document" ? claseDePie(contenido) : null;
+    const conversacion = [...chat, nuevo({ direccion: "entrante", contenido, mediaTipo: media, ...(claseSimulada ? { lectura: lecturaSimulada(claseSimulada) } : {}) })];
     setChat(conversacion);
+    if (claseSimulada) {
+      if (guardar && procesoPrueba) {
+        void documentoSimuladoPrueba(procesoPrueba.id, claseSimulada)
+          .then((r) => {
+            setNotaCita(r.nota);
+            setFichaVersion((n) => n + 1);
+          })
+          .catch(() => undefined);
+      } else {
+        setNotaCita(`${lecturaSimulada(claseSimulada)} Sin candidato guardado, no se marca en ninguna carpeta.`);
+      }
+    }
     if (boton === undefined) setBorrador("");
     setSilencio(null);
     // Como el webhook: con una cita en pie (prueba de manejo o salida de reconocimiento de ruta),
@@ -921,6 +952,8 @@ export function ChatPrueba({
     datos.set("tipo", "chat");
     datos.set("archivo", archivo);
     if (guardar && procesoPrueba) datos.set("procesoId", procesoPrueba.id);
+    // Sin candidato todavía, lo leído se compara con lo que dijo en el chat (27-nov-2026).
+    else if (panel?.extraido) datos.set("datosChat", JSON.stringify(panel.extraido));
     if (formulario) datos.set("formulario", JSON.stringify(formulario));
     // Por ruta y no por server action: no espera la fila de actions de los demás chats de prueba.
     const r = (await fetch("/api/seleccion/probar-lectura", { method: "POST", body: datos })
@@ -929,9 +962,12 @@ export function ChatPrueba({
     if (!r.ok) return setDocumento({ estado: "error", error: r.error });
     setDocumento({ estado: "ok", nombre: archivo.name, resultado: r });
     if (r.guardado) setFichaVersion((n) => n + 1);
-    const contenido = borrador.trim() || archivo.name;
+    // Como WhatsApp (27-nov-2026): el texto es solo lo que escribió con el archivo; sin texto, vacío (antes
+    // iba el nombre del archivo y el asistente lo leía como si la persona lo hubiera escrito).
+    const contenido = borrador.trim();
     setBorrador("");
-    const conversacion = [...chat, nuevo({ direccion: "entrante", contenido, mediaTipo: "document", lectura: r.resumen })];
+    // El nombre del archivo va en `meta` (solo se muestra en el globo; no se le manda a la IA).
+    const conversacion = [...chat, nuevo({ direccion: "entrante", contenido, mediaTipo: "document", lectura: r.resumen, meta: archivo.name })];
     setChat(conversacion);
     void responder(conversacion);
   }
@@ -1026,7 +1062,7 @@ export function ChatPrueba({
 
   async function reproducirCaso() {
     const n = estimarLlamadas(caso);
-    if (!confirm(`«${caso.titulo}» cuesta unas ${n} llamadas a la IA. ¿Reproducirlo?`)) return;
+    if (!await confirmar(`«${caso.titulo}» cuesta unas ${n} llamadas a la IA. ¿Reproducirlo?`)) return;
     reiniciar();
     setProbando(true);
     const r = await correrCasoPrueba(caso.id, { formulario, simit: caso.simit ?? 0, ahora: hora ? new Date(hora).toISOString() : null }).catch(
@@ -1115,6 +1151,7 @@ export function ChatPrueba({
                     Icono && (
                       <span className={`mb-0.5 flex items-center gap-1.5 text-xs font-medium ${saliente ? "text-white/80" : "text-text-secondary"}`}>
                         <Icono className="h-3.5 w-3.5" /> {medio.texto}
+                        {!saliente && m.meta ? <span className="max-w-[16rem] truncate font-normal"> · {m.meta}</span> : null}
                         {/* Un documento subido de verdad trae su lectura; los botones de abajo solo simulan el envío. */}
                         {m.lectura || m.descarga ? "" : " (simulado)"}
                       </span>
@@ -1183,6 +1220,16 @@ export function ChatPrueba({
                       ]
                         .filter(Boolean)
                         .join(" · ")}
+                {documento.estado === "ok" &&
+                  (documento.resultado.avisos?.length ? (
+                    documento.resultado.avisos.map((a) => (
+                      <span key={a} className={`mt-1 block rounded px-2 py-0.5 ${a.startsWith("⚠") ? "bg-amber-100 font-medium text-amber-900" : "bg-white/70 text-violet-900"}`}>
+                        {a}
+                      </span>
+                    ))
+                  ) : documento.resultado.estado === "leido" && !/No se comparó/.test(documento.resultado.nota ?? "") ? (
+                    <span className="mt-1 block text-violet-700">Revisado contra los datos del aspirante y sus otros documentos: no se contradice.</span>
+                  ) : null)}
               </span>
               {documento.estado !== "leyendo" && (
                 <button onClick={() => setDocumento(null)} className="shrink-0 cursor-pointer opacity-60 hover:opacity-100" aria-label="Cerrar el aviso del documento">
@@ -1382,8 +1429,8 @@ export function ChatPrueba({
             {procesoPrueba?.estado === "pendiente" && (
               <div className="flex flex-wrap items-center gap-2">
                 <button
-                  onClick={() => {
-                    if (!confirm("Se cierra el candidato de prueba como lo haría Gestivo solo: con la causa del requisito si la preselección está en rojo (30 minutos sin cambios), o como «Incomunicado» si no. Después escribe como aspirante para ver si se reabre. ¿Continuar?")) return;
+                  onClick={async () => {
+                    if (!await confirmar("Se cierra el candidato de prueba como lo haría Gestivo solo: con la causa del requisito si la preselección está en rojo (30 minutos sin cambios), o como «Incomunicado» si no. Después escribe como aspirante para ver si se reabre. ¿Continuar?")) return;
                     void simularCierreAutomaticoPrueba(procesoPrueba.id).then((r) => {
                       setNotaCita(r.ok ? `Gestivo: cierre automático simulado («${r.causa}»). Escribe como aspirante para ver si se reabre.` : (r.error ?? "No se pudo cerrar."));
                       avisarPrueba();
@@ -1411,6 +1458,26 @@ export function ChatPrueba({
                   <Timer className="h-3.5 w-3.5" /> ¿Qué haría con la cita a esa hora?
                 </button>
                 {agendaSimulada && <span className="text-xs text-text-secondary">{agendaSimulada}</span>}
+              </div>
+            )}
+            {procesoPrueba && (
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  disabled={reenviando}
+                  onClick={() => {
+                    setReenviando(true);
+                    setAlertaReenvio(null);
+                    void reenviarAlertaAntecedentesPrueba(procesoPrueba.id)
+                      .then(setAlertaReenvio)
+                      .catch((e: Error) => setAlertaReenvio({ ok: false, texto: e.message }))
+                      .finally(() => setReenviando(false));
+                  }}
+                  className={boton}
+                  title="Envía otra vez el correo «Antecedentes por revisar» a Gestión Humana, aunque ya se haya avisado, para comprobar que el correo sale. En desarrollo solo llega a los correos de prueba."
+                >
+                  {reenviando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Mail className="h-3.5 w-3.5" />} Reenviar la alerta de antecedentes
+                </button>
+                {alertaReenvio && <span className={`text-xs ${alertaReenvio.ok ? "text-emerald-700" : "text-red-700"}`}>{alertaReenvio.texto}</span>}
               </div>
             )}
             {silencio && (

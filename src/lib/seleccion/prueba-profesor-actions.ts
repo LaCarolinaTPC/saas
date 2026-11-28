@@ -337,17 +337,23 @@ export async function rutasDiaProfesorPrueba(procesoId: string, d: DatosRutasDia
   }
 }
 
-export async function planExamenesProfesorPrueba(procesoId: string): Promise<PlanExamenes> {
+/** `ahoraIso`: la hora del reloj de prueba (27-nov-2026), si se adelantó: la fecha cuenta desde ese día. */
+const fechaSimulada = (ahoraIso?: string | null) => {
+  const d = ahoraIso ? new Date(ahoraIso) : null;
+  return d && !Number.isNaN(d.getTime()) ? d : undefined;
+};
+
+export async function planExamenesProfesorPrueba(procesoId: string, ahoraIso?: string | null): Promise<PlanExamenes> {
   await exigirPrueba(false);
   await exigirProcesoDePrueba(procesoId);
-  return planExamenes(procesoId);
+  return planExamenes(procesoId, fechaSimulada(ahoraIso));
 }
 
-export async function examenesProfesorPrueba(procesoId: string, elegidos?: ExamenesElegidos | null): Promise<ResultadoProfesor> {
+export async function examenesProfesorPrueba(procesoId: string, elegidos?: ExamenesElegidos | null, ahoraIso?: string | null): Promise<ResultadoProfesor> {
   try {
     const actor = await exigirPrueba();
     await exigirProcesoDePrueba(procesoId);
-    return await enviarAExamenes(procesoId, actor, elegidos ?? null);
+    return await enviarAExamenes(procesoId, actor, elegidos ?? null, fechaSimulada(ahoraIso));
   } catch (e) {
     return mal(e);
   }
@@ -453,5 +459,121 @@ export async function simularCierreAutomaticoPrueba(procesoId: string): Promise<
     return { ok: true, causa };
   } catch (e) {
     return mal(e);
+  }
+}
+
+export interface ResultadoReenvioAlerta {
+  ok: boolean;
+  texto: string;
+}
+
+/**
+ * «Reenviar la alerta de antecedentes» (27-nov-2026): para comprobar que el
+ * correo a Gestión Humana sale, aunque ya se haya avisado. Usa la causa y las
+ * fuentes de la última alerta del candidato; si no hubo, las de su evaluación.
+ * Solo candidatos del chat de prueba; en desarrollo el correo solo sale a la
+ * lista de pruebas.
+ */
+export async function reenviarAlertaAntecedentesPrueba(procesoId: string): Promise<ResultadoReenvioAlerta> {
+  try {
+    await exigirPrueba();
+    await exigirProcesoDePrueba(procesoId);
+    const { alertarAntecedentesDetalle } = await import("./alerta-antecedentes-servidor");
+    type Causa = Parameters<typeof alertarAntecedentesDetalle>[1];
+    const { data: ultima } = await createAdminClient()
+      .from("procesos_contratacion_eventos")
+      .select("detalle")
+      .eq("proceso_id", procesoId)
+      .not("detalle->>alerta_antecedentes", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const previa = ultima?.detalle as { alerta_antecedentes?: Causa; fuentes?: string[] } | null;
+    let causa: Causa = previa?.alerta_antecedentes ?? "hallazgo";
+    let fuentes = previa?.fuentes ?? [];
+    if (!previa) {
+      const { evaluarAntecedentesProceso } = await import("./servidor");
+      const ev = await evaluarAntecedentesProceso(procesoId);
+      const hallazgos = (ev?.fuentes ?? []).filter((f) => f.estado === "hallazgo").map((f) => f.fuente);
+      const sinRespuesta = (ev?.fuentes ?? []).filter((f) => f.estado === "error").map((f) => f.fuente);
+      causa = hallazgos.length || !sinRespuesta.length ? "hallazgo" : "sin_respuesta";
+      fuentes = hallazgos.length ? hallazgos : sinRespuesta;
+    }
+    const r = await alertarAntecedentesDetalle(procesoId, causa, fuentes, { forzar: true });
+    const destino = [...(r.para ?? []), ...(r.copia ?? []).map((c) => `copia ${c}`)].join(", ");
+    const enDesarrollo = process.env.GESTIVO_ENTORNO === "desarrollo" ? " En desarrollo solo llega a los correos de la lista de pruebas (Tiempos y reglas › Entorno de pruebas)." : "";
+    switch (r.resultado) {
+      case "enviado":
+        return { ok: true, texto: `Alerta enviada a ${destino} («${r.asunto}»).${enDesarrollo}` };
+      case "apagado":
+        return { ok: false, texto: "La alerta de antecedentes está apagada (Selección › Indicadores › alerta de antecedentes)." };
+      case "sin_destinatarios":
+        return { ok: false, texto: "No hay destinatarios: ni en la alerta de antecedentes ni en el reporte diario (Selección › Indicadores)." };
+      default:
+        return { ok: false, texto: `No salió: ${r.error ?? "error desconocido"}${destino ? ` (iba a ${destino})` : ""}.` };
+    }
+  } catch (e) {
+    return { ok: false, texto: e instanceof Error ? e.message : "No se pudo reenviar." };
+  }
+}
+
+export interface PendienteChatPrueba {
+  procesoId: string;
+  at: string;
+  /** Mensaje que le salió al aspirante de prueba fuera del chat (webhook o cron reales). */
+  texto?: string;
+  clave?: string;
+  adjuntos?: string[];
+  /** Nota para quien prueba (lo que respondió el laboratorio por WhatsApp…). */
+  nota?: string;
+}
+
+/**
+ * Lo que pasó por fuera del chat de prueba con sus candidatos (27-nov-2026,
+ * pruebas más reales): el laboratorio respondió por el WhatsApp real (el aviso
+ * que leyó Gestivo y el examen que registró) y los mensajes que eso le sacó al
+ * aspirante de prueba. El chat lo pregunta cada poco mientras está abierto.
+ */
+export async function pendientesChatPrueba(procesoIds: string[], desdeIso: string): Promise<{ ahora: string; pendientes: PendienteChatPrueba[] } | { error: string }> {
+  try {
+    await exigirPrueba(false);
+    const ahora = new Date().toISOString();
+    const ids = [...new Set(procesoIds.filter(Boolean))].slice(0, 30);
+    if (!ids.length || !/^\d{4}-\d{2}-\d{2}T/.test(desdeIso)) return { ahora, pendientes: [] };
+    const db = createAdminClient();
+    const { data: propios } = await db.from("procesos_contratacion").select("id").in("id", ids).eq("origen", "chat_prueba");
+    const deprueba = (propios ?? []).map((p) => p.id as string);
+    if (!deprueba.length) return { ahora, pendientes: [] };
+    const [{ data: eventos }, { data: avisos }] = await Promise.all([
+      db
+        .from("procesos_contratacion_eventos")
+        .select("proceso_id, tipo, detalle, created_at, usuario_email")
+        .in("proceso_id", deprueba)
+        .gt("created_at", desdeIso)
+        .order("created_at"),
+      db
+        .from("seleccion_avisos_laboratorio")
+        .select("proceso_id, created_at, texto, fase, resultado_propuesto")
+        .in("proceso_id", deprueba)
+        .gt("created_at", desdeIso)
+        .order("created_at"),
+    ]);
+    const pendientes: PendienteChatPrueba[] = [];
+    for (const a of avisos ?? []) {
+      const resultado = a.resultado_propuesto ? ` · Gestivo leyó: ${String(a.resultado_propuesto).replace(/_/g, " ")}${a.fase ? ` (fase ${a.fase})` : ""}` : "";
+      pendientes.push({ procesoId: a.proceso_id as string, at: a.created_at as string, nota: `El laboratorio respondió por WhatsApp: «${String(a.texto ?? "(archivo)").slice(0, 300)}»${resultado}` });
+    }
+    for (const e of eventos ?? []) {
+      const d = (e.detalle ?? {}) as { mensaje_prueba?: { clave?: string; texto?: string; adjuntos?: string[] }; resultado?: string; fase?: number; observacion?: string };
+      if (d.mensaje_prueba) {
+        pendientes.push({ procesoId: e.proceso_id as string, at: e.created_at as string, texto: d.mensaje_prueba.texto ?? "", clave: d.mensaje_prueba.clave, adjuntos: d.mensaje_prueba.adjuntos ?? [] });
+      } else if (e.tipo === "examen_medico" && /laboratorio/i.test(String(e.usuario_email ?? ""))) {
+        pendientes.push({ procesoId: e.proceso_id as string, at: e.created_at as string, nota: `Gestivo registró el examen de la fase ${d.fase ?? "?"}: ${d.resultado ?? "?"} (por la respuesta del laboratorio)${d.observacion ? ` · ${d.observacion}` : ""}` });
+      }
+    }
+    pendientes.sort((a, b) => a.at.localeCompare(b.at));
+    return { ahora, pendientes };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "No se pudo leer." };
   }
 }

@@ -7,7 +7,7 @@ import { PsicoClient } from "./psico-client";
 
 export const dynamic = "force-dynamic";
 
-/** Prueba psicosensotécnica en PsicoAlianza (24-nov-2026): inscribir, esperar y subir resultados. */
+/** Prueba psicotécnica en PsicoAlianza (24-nov-2026): inscribir, esperar y subir resultados. */
 export default async function PsicoPage() {
   const perms = await getCurrentPermissions();
   if (!canAccess(perms, "candidatos")) redirect("/");
@@ -22,7 +22,7 @@ export default async function PsicoPage() {
           <Brain className="h-5 w-5 text-primary" />
         </div>
         <div className="min-w-0 flex-1 basis-60">
-          <h1 className="text-xl font-bold tracking-tight text-text-primary sm:text-2xl">Prueba psicosensotécnica</h1>
+          <h1 className="text-xl font-bold tracking-tight text-text-primary sm:text-2xl">Prueba psicotécnica</h1>
           <p className="mt-1 text-sm text-text-tertiary">
             Inscribir en PsicoAlianza a quienes confirmaron el correo, seguir a los que esperan y subir los resultados para que queden en su proceso.
           </p>

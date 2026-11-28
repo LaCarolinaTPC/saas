@@ -7,6 +7,7 @@
  * sí o sí. El profesor y la ficha eligen de esta lista.
  */
 import { useCallback, useEffect, useState, useTransition } from "react";
+import { confirmar } from "@/components/ui/confirmar";
 import { Check, Download, Pencil, Plus, Route, Star, Trash2, X } from "lucide-react";
 import { AvisoLinea, campo, type Aviso } from "./comunes";
 import { guardarRuta, pantallaRutas, quitarRuta, traerRutasDeGema, type PantallaRutas } from "./rutas-actions";
@@ -181,8 +182,8 @@ export default function RutasReconocimiento({ puedeEditar, rutasMinimas }: { pue
               editable={editable}
               ocupado={ocupado}
               onGuardar={guardar}
-              onQuitar={(x) => {
-                if (!confirm(`¿Quitar la ruta «${x.nombre}» de la lista? Quien ya la aprendió la sigue teniendo como aprendida.`)) return;
+              onQuitar={async (x) => {
+                if (!await confirmar(`¿Quitar la ruta «${x.nombre}» de la lista? Quien ya la aprendió la sigue teniendo como aprendida.`)) return;
                 start(async () => {
                   const r = await quitarRuta(x.id);
                   setAviso(r.ok ? { ok: true, texto: `Ruta «${x.nombre}» quitada.` } : { ok: false, texto: r.error });

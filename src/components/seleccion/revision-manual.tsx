@@ -44,7 +44,18 @@ function leerPdf(archivo: File): Promise<string> {
   });
 }
 
-export function RevisionManual({ procesoId, pendientes, onGuardado }: { procesoId: string; pendientes: FuentePendiente[]; onGuardado: () => void }) {
+export function RevisionManual({
+  procesoId,
+  pendientes,
+  onGuardado,
+  lecturas = 0,
+}: {
+  procesoId: string;
+  pendientes: FuentePendiente[];
+  onGuardado: () => void;
+  /** Cuántas veces la ficha ha leído las consultas: con la lectura siguiente al guardado se quita el «actualizando…». */
+  lecturas?: number;
+}) {
   const [abierta, setAbierta] = useState<FuenteRevision | null>(null);
   const [hallazgo, setHallazgo] = useState<boolean | null>(null);
   const [valor, setValor] = useState("0");
@@ -52,8 +63,11 @@ export function RevisionManual({ procesoId, pendientes, onGuardado }: { procesoI
   const [nota, setNota] = useState("");
   const [pdf, setPdf] = useState<{ base64: string; nombre: string } | null>(null);
   const [ocupado, setOcupado] = useState(false);
-  // Guardadas en esta pantalla mientras la ficha se vuelve a leer (puede tardar unos segundos).
-  const [guardadas, setGuardadas] = useState<FuenteRevision[]>([]);
+  // Guardadas en esta pantalla mientras la ficha se vuelve a leer (puede tardar unos segundos). Con la
+  // lectura siguiente se quita el aviso aunque la fuente siga en la lista (27-nov-2026: un RNMC guardado
+  // «Con hallazgo» volvía como hallazgo y se quedaba en «actualizando la ficha…» para siempre).
+  const [guardadas, setGuardadas] = useState<{ fuente: FuenteRevision; lectura: number }[]>([]);
+  const recienGuardada = (f: FuenteRevision) => guardadas.some((g) => g.fuente === f && g.lectura === lecturas);
   const [error, setError] = useState<string | null>(null);
   // El certificado leído por la IA (26-nov-2026): llena el formulario; la persona revisa y guarda.
   const [leyendo, setLeyendo] = useState(false);
@@ -152,10 +166,12 @@ export function RevisionManual({ procesoId, pendientes, onGuardado }: { procesoI
       nota,
       pdf,
       licencia: esRunt ? { categoria: licencia.categoria, vence: licencia.vence || null, restricciones: licencia.restricciones || null } : null,
+      // Lo que leyó la IA (27-nov-2026): las reglas cuentan las medidas y buscan las palabras en ese detalle.
+      lectura: lectura && pdf ? { veredicto: lectura.veredicto, registros: lectura.registros } : null,
     }).catch((e: Error) => ({ ok: false as const, error: e.message }));
     setOcupado(false);
     if (!r.ok) return setError(r.error ?? "No se pudo guardar.");
-    setGuardadas((g) => [...g, abierta]);
+    setGuardadas((g) => [...g.filter((x) => x.fuente !== abierta), { fuente: abierta, lectura: lecturas }]);
     setAbierta(null);
     onGuardado();
   }
@@ -170,7 +186,7 @@ export function RevisionManual({ procesoId, pendientes, onGuardado }: { procesoI
       </h4>
       <p className="mb-2 text-xs text-red-800">
         Si ya lo revisaste en el portal oficial, registra aquí lo que encontraste: la fuente queda respondida con tu revisión y no se vuelve a consultar en Croma. Lo que Croma no
-        respondió, Gestivo lo sigue reintentando solo.
+        respondió, Gestivo lo sigue reintentando solo hasta que alguien lo revise a mano (después hay un botón para reintentarlo en Croma).
       </p>
       <ul className="space-y-2">
         {pendientes.map((p) => (
@@ -187,7 +203,7 @@ export function RevisionManual({ procesoId, pendientes, onGuardado }: { procesoI
                 <a href={PORTAL[p.fuente]} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-[#4F46E5]">
                   Abrir el portal <ExternalLink className="h-3 w-3" />
                 </a>
-                {guardadas.includes(p.fuente) ? (
+                {recienGuardada(p.fuente) ? (
                   <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
                     <Loader2 className="h-3 w-3 animate-spin" /> Guardado · actualizando la ficha…
                   </span>
@@ -265,6 +281,38 @@ export function RevisionManual({ procesoId, pendientes, onGuardado }: { procesoI
                         .filter(Boolean)
                         .join(" · ")}
                     </p>
+                    {lectura.registros.length > 0 && (
+                      <div className="rounded bg-white/70 px-2 py-1">
+                        <p className="font-semibold">
+                          {p.fuente === "rnmc"
+                            ? `${lectura.registros.length} ${lectura.registros.length === 1 ? "medida correctiva" : "medidas correctivas"}`
+                            : `${lectura.registros.length} ${lectura.registros.length === 1 ? "anotación" : "anotaciones"}`}{" "}
+                          en el certificado:
+                        </p>
+                        <ul className="mt-0.5 list-disc space-y-0.5 pl-4">
+                          {lectura.registros.map((r, i) => (
+                            <li key={i}>
+                              {[
+                                r.comportamiento ?? r.descripcion,
+                                r.medida,
+                                r.valor != null ? `$${Number(r.valor).toLocaleString("es-CO")}` : null,
+                                r.fecha ? `del ${r.fecha}` : null,
+                                r.expediente ? `exp. ${r.expediente}` : null,
+                                r.estado,
+                              ]
+                                .filter((x) => x != null && x !== "")
+                                .join(" · ") || "Sin detalle"}
+                            </li>
+                          ))}
+                        </ul>
+                        <p className="mt-0.5 text-indigo-700">Al guardar, las reglas de Antecedentes usan este detalle (cuántas son y sus palabras).</p>
+                        {p.fuente === "rnmc" && expedientesPorConsultar(lectura.registros, hallazgo) > 0 && (
+                          <p className="mt-1 rounded bg-white px-2 py-1 font-medium text-indigo-800">
+                            Al guardar se {expedientesPorConsultar(lectura.registros, hallazgo) === 1 ? "consulta el expediente" : `consultan los ${expedientesPorConsultar(lectura.registros, hallazgo)} expedientes`} en Croma (o, si no responde, en la página de la Policía) para saber la conducta: puede tardar unos segundos.
+                          </p>
+                        )}
+                      </div>
+                    )}
                     {lectura.avisos.map((a) => (
                       <p key={a} className="rounded bg-amber-100 px-2 py-1 font-medium text-amber-900">
                         ⚠ {a}
@@ -278,7 +326,8 @@ export function RevisionManual({ procesoId, pendientes, onGuardado }: { procesoI
                     Cancelar
                   </button>
                   <button type="button" onClick={guardar} disabled={ocupado} aria-busy={ocupado} className="inline-flex items-center gap-1.5 rounded-lg bg-[#4F46E5] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">
-                    {ocupado && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Guardar la revisión
+                    {ocupado && <Loader2 className="h-3.5 w-3.5 animate-spin" />}{" "}
+                    {ocupado && p.fuente === "rnmc" && lectura && expedientesPorConsultar(lectura.registros, hallazgo) > 0 ? "Guardando y consultando los expedientes…" : "Guardar la revisión"}
                   </button>
                 </div>
               </div>
@@ -288,4 +337,15 @@ export function RevisionManual({ procesoId, pendientes, onGuardado }: { procesoI
       </ul>
     </section>
   );
+}
+
+/**
+ * Cuántos expedientes leídos del RNMC se van a consultar al guardar (27-nov-2026): los que traen
+ * número, no traen la conducta y no están cerrados, con «Con hallazgo» marcado; a lo sumo 5
+ * (lo mismo que hace el servidor, completarConductaRnmc).
+ */
+function expedientesPorConsultar(registros: LecturaCertificado["registros"], hallazgo: boolean | null): number {
+  if (hallazgo !== true) return 0;
+  const n = registros.filter((r) => String(r.expediente ?? "").trim() && !String(r.comportamiento ?? "").trim() && !/cerrad|cumplid|pagad/i.test(String(r.estado ?? ""))).length;
+  return Math.min(n, 5);
 }

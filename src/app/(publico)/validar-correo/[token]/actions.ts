@@ -1,7 +1,7 @@
 "use server";
 
 /**
- * Respuesta del aspirante en el enlace del correo (prueba psicosensotécnica).
+ * Respuesta del aspirante en el enlace del correo (prueba psicotécnica).
  * Pública por diseño: no hay cuenta; el token del enlace es la llave y
  * responderEnlace solo actúa sobre el proceso de ese token. Ninguna acción de
  * aquí puede llamar a getCurrentPermissions.

@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useMemo, useRef, useState, useTransition } from "react";
+import { confirmar, pedirTexto } from "@/components/ui/confirmar";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { ArrowRightLeft, CheckCircle2, ChevronDown, ChevronRight, Coins, FileSpreadsheet, Lock, LockOpen, Search, TriangleAlert, Undo2 } from "lucide-react";
@@ -944,8 +945,8 @@ function Traslados({
 }) {
   const [pendiente, start] = useTransition();
   if (novedades.length === 0) return null;
-  function anular(id: string) {
-    const motivo = window.prompt("Motivo de la anulación (se anulan el ajuste y el descuento del corte siguiente):");
+  async function anular(id: string) {
+    const motivo = await pedirTexto("Motivo de la anulación (se anulan el ajuste y el descuento del corte siguiente):");
     if (!motivo || motivo.trim().length < 5) return;
     start(async () => {
       const r = await anularNovedad({ id, motivo });
@@ -1005,8 +1006,8 @@ function CierreQuincena({
   const c = cruce.cierre;
   const q = cruce.periodo.quincena;
 
-  function cerrar() {
-    if (!window.confirm(`¿Cerrar la ${nombreCorte(q)}? Después no admite entregas ni descuentos, y se habilita la quincena siguiente.`)) return;
+  async function cerrar() {
+    if (!await confirmar(`¿Cerrar la ${nombreCorte(q)}? Después no admite entregas ni descuentos, y se habilita la quincena siguiente.`)) return;
     start(async () => {
       const r = await cerrarQuincena({ codPer: cruce.periodo.codigo });
       if (!r.ok) {
@@ -1019,8 +1020,8 @@ function CierreQuincena({
       onCambio();
     });
   }
-  function reabrir() {
-    const motivo = window.prompt("Motivo de la reapertura (queda en la auditoría):");
+  async function reabrir() {
+    const motivo = await pedirTexto("Motivo de la reapertura (queda en la auditoría):");
     if (!motivo || motivo.trim().length < 5) return;
     start(async () => {
       const r = await reabrirQuincena({ codPer: cruce.periodo.codigo, motivo });

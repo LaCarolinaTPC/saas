@@ -71,7 +71,7 @@ export const claveReprogramacion = (por: "aspirante" | "empresa", tipo: TipoCita
 /** Aviso cuando no llega, por tipo de cita. */
 const CLAVE_INASISTENCIA: Partial<Record<TipoCita, string>> = { prueba_manejo: "inasistencia", reconocimiento: "inasistencia_reconocimiento" };
 /** Recordatorio del día de la cita, por tipo. */
-export const CLAVE_RECORDATORIO: Partial<Record<TipoCita, string>> = { prueba_manejo: "recordatorio_cita", reconocimiento: "recordatorio_reconocimiento" };
+export const CLAVE_RECORDATORIO: Partial<Record<TipoCita, string>> = { prueba_manejo: "recordatorio_cita", reconocimiento: "recordatorio_reconocimiento", examen_f2: "recordatorio_examen_f2" };
 
 /** El mensaje de esa clave; sin la migración de «cita_movida_empresa», el de «cita_reprogramada». */
 async function mensajeDeCita(clave: string) {

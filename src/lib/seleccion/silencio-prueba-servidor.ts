@@ -5,7 +5,7 @@
  */
 import { leerConfigSeguimiento } from "@/lib/comunicaciones/seguimiento-ejecutar";
 import { leerAjustes, leerMensajes, valoresFijos } from "./servidor";
-import { primerNombre, renderizarConLineas, parametrosPlantilla } from "./mensajes";
+import { NOMBRE_DE_RESPALDO, primerNombre, renderizarConLineas, parametrosPlantilla } from "./mensajes";
 import { tiemposDesdeAjustes } from "./reactivacion";
 import { simularSilencio } from "./simulacion";
 
@@ -49,13 +49,23 @@ export async function pasosDeSilencio(p: {
       return { ...x, como: "marca", plantilla: null, estadoPlantilla: null, texto: null, nota: "El proceso se cierra con la causa «Incomunicado» (queda en el historial)." };
     }
     const m = mensajes.find((y) => y.clave === (x.accion === "aviso1" ? "reactivacion_1" : "reactivacion_2"))!;
-    const texto = renderizarConLineas(m.texto, valores);
+    let texto = renderizarConLineas(m.texto, valores);
+    // Variables del texto que quedan vacías (27-nov-2026): la observación lo dice, para que se vea al probar.
+    const vacias = [...new Set([...m.texto.matchAll(/\{([a-z_]+)\}/g)].map((g) => g[1]))].filter((k) => !String((valores as Record<string, unknown>)[k] ?? "").trim());
+    const falta = (como: "texto" | "plantilla" | "borrador") =>
+      vacias.length
+        ? ` Falta ${vacias.map((k) => `{${k}}`).join(", ")}: ${
+            como === "plantilla" && vacias.every((k) => k === "nombre")
+              ? `la plantilla sale con «${NOMBRE_DE_RESPALDO}» en su lugar (Meta no acepta variables vacías).`
+              : "esa parte se quita del mensaje («Hola, {nombre}.» queda «Hola.»). Revise que el chat tenga el dato."
+          }`
+        : "";
     // A las 24 h o más sin que el aspirante escriba, la ventana de WhatsApp ya está cerrada.
     const ventanaAbierta = x.horas < 23.75;
     if (m.modo === "revisar") {
-      return { ...x, como: "borrador", plantilla: m.plantilla_nombre, estadoPlantilla: m.plantilla_estado, texto, nota: "Queda sugerido en el chat de la bandeja para que una persona lo revise y lo envíe." };
+      return { ...x, como: "borrador", plantilla: m.plantilla_nombre, estadoPlantilla: m.plantilla_estado, texto, nota: `Queda sugerido en el chat de la bandeja para que una persona lo revise y lo envíe.${falta("borrador")}` };
     }
-    if (ventanaAbierta) return { ...x, como: "texto", plantilla: null, estadoPlantilla: null, texto, nota: "Sale como mensaje normal (la ventana de 24 h sigue abierta)." };
+    if (ventanaAbierta) return { ...x, como: "texto", plantilla: null, estadoPlantilla: null, texto, nota: `Sale como mensaje normal (la ventana de 24 h sigue abierta).${falta("texto")}` };
     const aprobada = m.plantilla_estado === "APPROVED";
     const params = parametrosPlantilla(m.plantilla_variables, valores);
     if (!aprobada) {
@@ -64,7 +74,9 @@ export async function pasosDeSilencio(p: {
     if (!params) {
       return { ...x, como: "no_sale", plantilla: m.plantilla_nombre, estadoPlantilla: m.plantilla_estado, texto, nota: "No sale: falta el nombre del aspirante para la plantilla." };
     }
-    return { ...x, como: "plantilla", plantilla: m.plantilla_nombre, estadoPlantilla: m.plantilla_estado, texto, nota: "Sale como plantilla aprobada de Meta." };
+    // Como plantilla, el nombre que falta va como «qué tal»: se muestra tal cual saldría.
+    if (vacias.includes("nombre")) texto = renderizarConLineas(m.texto, { ...valores, nombre: NOMBRE_DE_RESPALDO });
+    return { ...x, como: "plantilla", plantilla: m.plantilla_nombre, estadoPlantilla: m.plantilla_estado, texto, nota: `Sale como plantilla aprobada de Meta.${falta("plantilla")}` };
   });
   return { ok: true, pasos: salida, horario: `${seguimiento.config.horaDesde} a ${seguimiento.config.horaHasta}` };
 }

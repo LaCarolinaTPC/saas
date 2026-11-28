@@ -1,6 +1,7 @@
 "use client";
 
 import { usePermisos } from "@/components/permisos/permisos-provider";
+import { avisar, confirmar } from "@/components/ui/confirmar";
 import { useState, useTransition } from "react";
 import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 import { EPS_COLOMBIA, AFP_COLOMBIA, ARL_COLOMBIA, CAJAS_COMPENSACION_COLOMBIA } from "@/lib/colombia-entities";
@@ -294,13 +295,13 @@ export function EmpleadoDetailClient({
         });
         setShowEditModal(false);
       } catch (err) {
-        alert("Error al actualizar: " + (err instanceof Error ? err.message : String(err)));
+        void avisar("Error al actualizar: " + (err instanceof Error ? err.message : String(err)));
       }
     });
   }
 
-  function handleChangeStatus(newStatus: string, label: string) {
-    if (!confirm(`¿${label} a ${employee.full_name}?`)) return;
+  async function handleChangeStatus(newStatus: string, label: string) {
+    if (!await confirmar(`¿${label} a ${employee.full_name}?`)) return;
     startTransition(async () => {
       try {
         const updates: Record<string, unknown> = { status: newStatus };
@@ -309,14 +310,14 @@ export function EmpleadoDetailClient({
         }
         await updateEmployee(employee.id, updates);
       } catch (err) {
-        alert("Error: " + (err instanceof Error ? err.message : String(err)));
+        void avisar("Error: " + (err instanceof Error ? err.message : String(err)));
       }
     });
   }
 
   function handleAddEvent() {
     if (!eventForm.type || !eventForm.description || !eventForm.start_date) {
-      alert("Tipo, descripción y fecha inicio son requeridos");
+      void avisar("Tipo, descripción y fecha inicio son requeridos");
       return;
     }
     startTransition(async () => {
@@ -331,25 +332,25 @@ export function EmpleadoDetailClient({
         setShowEventModal(false);
         setEventForm({ type: "incapacidad", description: "", start_date: "", end_date: "", status: "aprobado" });
       } catch (err) {
-        alert("Error al crear novedad: " + (err instanceof Error ? err.message : String(err)));
+        void avisar("Error al crear novedad: " + (err instanceof Error ? err.message : String(err)));
       }
     });
   }
 
-  function handleDeleteEvent(id: string) {
-    if (!confirm("¿Eliminar esta novedad?")) return;
+  async function handleDeleteEvent(id: string) {
+    if (!await confirmar("¿Eliminar esta novedad?")) return;
     startTransition(async () => {
       try {
         await deleteEmployeeEvent(id);
       } catch (err) {
-        alert("Error al eliminar: " + (err instanceof Error ? err.message : String(err)));
+        void avisar("Error al eliminar: " + (err instanceof Error ? err.message : String(err)));
       }
     });
   }
 
   function handleAddDescargo() {
     if (!descargoForm.type || !descargoForm.description || !descargoForm.date) {
-      alert("Todos los campos son requeridos");
+      void avisar("Todos los campos son requeridos");
       return;
     }
     startTransition(async () => {
@@ -362,7 +363,7 @@ export function EmpleadoDetailClient({
         setShowDescargoModal(false);
         setDescargoForm({ type: "", description: "", date: "" });
       } catch (err) {
-        alert("Error al crear descargo: " + (err instanceof Error ? err.message : String(err)));
+        void avisar("Error al crear descargo: " + (err instanceof Error ? err.message : String(err)));
       }
     });
   }
@@ -377,18 +378,18 @@ export function EmpleadoDetailClient({
         await updateDisciplinaryStatus(id, newStatus, resolution);
         setOpenStatusMenu(null);
       } catch (err) {
-        alert("Error al actualizar estado: " + (err instanceof Error ? err.message : String(err)));
+        void avisar("Error al actualizar estado: " + (err instanceof Error ? err.message : String(err)));
       }
     });
   }
 
-  function handleDeleteDescargo(id: string) {
-    if (!confirm("¿Eliminar este descargo?")) return;
+  async function handleDeleteDescargo(id: string) {
+    if (!await confirmar("¿Eliminar este descargo?")) return;
     startTransition(async () => {
       try {
         await deleteDisciplinaryRecord(id);
       } catch (err) {
-        alert("Error al eliminar: " + (err instanceof Error ? err.message : String(err)));
+        void avisar("Error al eliminar: " + (err instanceof Error ? err.message : String(err)));
       }
     });
   }
@@ -400,7 +401,7 @@ export function EmpleadoDetailClient({
         await addNote("employee", employee.id, noteContent.trim());
         setNoteContent("");
       } catch (err) {
-        alert("Error al agregar nota: " + (err instanceof Error ? err.message : String(err)));
+        void avisar("Error al agregar nota: " + (err instanceof Error ? err.message : String(err)));
       }
     });
   }
@@ -956,7 +957,7 @@ export function EmpleadoDetailClient({
               Editar
             </button>
             <button
-              onClick={() => alert("Funcionalidad de subida proximamente")}
+              onClick={() => void avisar("Funcionalidad de subida proximamente")}
               className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#4F46E5] px-4 text-sm font-medium text-white hover:bg-[#4338CA]"
             >
               <Upload className="h-4 w-4" />

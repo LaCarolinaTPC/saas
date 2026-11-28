@@ -125,8 +125,13 @@ export async function correrCronPrueba(items: ItemCronPrueba[], ahora: Date): Pr
     : { data: [] };
 
   // El estado después de los pasos: a quien se acaba de cerrar ya no le toca la reactivación.
-  const { data: despues } = ids.length ? await db.from("procesos_contratacion").select("id, estado").in("id", ids) : { data: [] };
-  for (const p of despues ?? []) estado.set(p.id as string, p.estado as string);
+  const { data: despues } = ids.length ? await db.from("procesos_contratacion").select("id, estado, nombre").in("id", ids) : { data: [] };
+  // El nombre del candidato guardado, si el chat no lo trae (las reactivaciones dicen «Hola, {nombre}»).
+  const nombreGuardado = new Map<string, string>();
+  for (const p of despues ?? []) {
+    estado.set(p.id as string, p.estado as string);
+    if (p.nombre && p.nombre !== "POR CONFIRMAR") nombreGuardado.set(p.id as string, p.nombre as string);
+  }
 
   const chats: ChatCronPrueba[] = [];
   for (const it of items) {
@@ -142,7 +147,7 @@ export async function correrCronPrueba(items: ItemCronPrueba[], ahora: Date): Pr
     if (it.ultimoEsNuestro && it.ultimoEntranteAt && sigueAbierto) {
       const horas = (ahora.getTime() - it.ultimoEntranteAt) / 3_600_000;
       if (horas >= 1) {
-        const r = await pasosDeSilencio({ horas, ahora: ahora.toISOString(), hojaVida: it.hojaVida, buscaTrabajo: it.buscaTrabajo, nombre: it.nombre }).catch(() => null);
+        const r = await pasosDeSilencio({ horas, ahora: ahora.toISOString(), hojaVida: it.hojaVida, buscaTrabajo: it.buscaTrabajo, nombre: (it.nombre && it.nombre !== "POR CONFIRMAR" ? it.nombre : null) ?? (procesoId ? (nombreGuardado.get(procesoId) ?? null) : null) }).catch(() => null);
         if (r?.ok) {
           for (const paso of r.pasos) {
             silencio.push({ clave: `${paso.accion}:${it.ultimoEntranteAt}`, accion: paso.accion, texto: paso.texto, nota: paso.nota });

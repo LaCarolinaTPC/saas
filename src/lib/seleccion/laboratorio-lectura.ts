@@ -8,6 +8,7 @@
  * aspirante sugerido. Al confirmarlo se registra el examen (como si lo
  * hubiera escrito una persona) y el archivo, si lo hay, pasa a la carpeta.
  */
+import { noCoincideConAspirante } from "./documento-de-quien";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { ActorProceso } from "@/lib/contratacion/servidor";
 import { configDocumentos, getAgenteConClaves } from "@/lib/comunicaciones/agente/config";
@@ -198,10 +199,14 @@ export async function leerYGuardarAvisos(
   const asociados = base.map((l) => asociarProceso(l, procesos));
   const conFrase = base.map((l, i) => {
     const d = decidirResultado(texto, l, variasPersonas, frases, asociados[i] ? faseDeEstado(asociados[i]!.estado) : null, { soloArchivo: !texto && !!m.media_path });
-    return { l: { ...l, resultado: d.resultado }, porFrase: d.automatico };
-  });
-  const filas = conFrase.map(({ l, porFrase }, i) => {
+    // 27-nov-2026: lo leído (nombre o cédula) no cuadra con el aspirante al que se asoció: lo decide una persona.
     const p = asociados[i];
+    const distinto = p ? noCoincideConAspirante({ nombre: l.nombre, cedula: l.cedula }, { nombre: p.nombre, cedula: p.cedula }) : null;
+    return { l: { ...l, resultado: d.resultado }, porFrase: d.automatico && !distinto, distinto };
+  });
+  const filas = conFrase.map(({ l, porFrase, distinto }, i) => {
+    const p = asociados[i];
+    const aviso = distinto ? `¿Es de otra persona? ${distinto}` : null;
     return {
       wa_mensaje_id: m.id,
       proceso_id: p?.id ?? null,
@@ -212,7 +217,9 @@ export async function leerYGuardarAvisos(
       resultado_propuesto: l.resultado,
       media_path: (m.media_path as string | null) ?? null,
       // La observación del laboratorio va al final del texto, para no perderla.
-      ...(l.observacion ? { texto: `${texto}${texto ? "\n" : ""}Observación leída: ${l.observacion}`.slice(0, 2000) } : {}),
+      ...(l.observacion || aviso
+        ? { texto: [texto, l.observacion ? `Observación leída: ${l.observacion}` : null, aviso].filter(Boolean).join("\n").slice(0, 2000) }
+        : {}),
       ...(e.simulado ? { simulado: true } : {}),
       ...(e.laboratorioId ? { laboratorio_id: e.laboratorioId } : {}),
       ...(porFrase ? { por_frase: true } : {}),
@@ -253,6 +260,28 @@ export async function leerYGuardarAvisos(
     const r = await confirmarAviso(id, { procesoId: p.id, fase, resultado: l.resultado }, ACTOR_FRASE);
     if (r.ok) confirmados.push({ procesoId: p.id, fase, resultado: l.resultado, texto: r.texto });
     else console.warn("[seleccion] aviso por frase sin registrar:", r.error);
+  }
+  // Lo que no se confirmó solo queda para una persona: se avisa (27-nov-2026). Lo simulado no.
+  if (!e.simulado) {
+    const { notificar, enlaceProceso, urlApp } = await import("./notificaciones-servidor");
+    const yaConfirmados = new Set(confirmados.map((c) => c.procesoId));
+    const asociadosIds = asociados.filter(Boolean).map((p) => p!.id);
+    const { data: origenes } = asociadosIds.length ? await db.from("procesos_contratacion").select("id, origen").in("id", asociadosIds) : { data: [] };
+    const deprueba = new Set((origenes ?? []).filter((o) => o.origen === "chat_prueba").map((o) => o.id as string));
+    for (const [i, { l }] of conFrase.entries()) {
+      const id = ids[i];
+      const p = asociados[i];
+      if (!id || (p && yaConfirmados.has(p.id))) continue;
+      const quien = p?.nombre?.trim() || l.nombre || (l.cedula ? `CC ${l.cedula}` : "un aspirante sin reconocer");
+      await notificar("laboratorio", {
+        clave: id,
+        procesoId: p?.id ?? null,
+        prueba: p ? deprueba.has(p.id) : false,
+        titulo: `El laboratorio respondió por ${quien}`,
+        detalle: `${(texto || "(archivo)").slice(0, 300)}${l.resultado ? ` · Gestivo leyó: ${l.resultado.replace(/_/g, " ")}` : ""}. ${p ? "Confírmelo" : "Asígnelo al aspirante y confírmelo"} en Candidatos › Agenda › Avisos del laboratorio.`,
+        enlace: p ? enlaceProceso(p.cedula, p.id) : `${urlApp()}/candidatos`,
+      });
+    }
   }
   // 24-nov-2026: el archivo que manda el laboratorio con el resultado (Rescate suele mandar la
   // radiografía en otro mensaje) queda en la carpeta del aspirante. Subirlo no es obligatorio:
@@ -378,12 +407,14 @@ export interface AvisoLaboratorio {
   urlArchivo: string | null;
   /** Lo creó el simulador de Selección: no llegó por WhatsApp. */
   simulado: boolean;
+  /** Es de un candidato del chat de prueba (27-nov-2026): llegó por el WhatsApp real, pero no se toma en cuenta. */
+  prueba: boolean;
 }
 
 /** Avisos sin resolver, del más nuevo al más viejo. null si falta la migración. */
 export async function avisosPendientes(): Promise<{ avisos: AvisoLaboratorio[]; procesos: ProcesoEnExamenes[] } | null> {
   const db = createAdminClient();
-  const columnas = "id, created_at, texto, nombre_leido, cedula_leida, fase, resultado_propuesto, proceso_id, media_path, procesos_contratacion(nombre, candidate_id)";
+  const columnas = "id, created_at, texto, nombre_leido, cedula_leida, fase, resultado_propuesto, proceso_id, media_path, procesos_contratacion(nombre, candidate_id, origen)";
   const consulta = (cols: string) => db.from("seleccion_avisos_laboratorio").select(cols).eq("estado", "pendiente").order("created_at", { ascending: false }).limit(100);
   let { data, error } = await consulta(`${columnas}, simulado`);
   // Sin la migración 20261121194842 no existe «simulado».
@@ -399,7 +430,7 @@ export async function avisosPendientes(): Promise<{ avisos: AvisoLaboratorio[]; 
   return {
     procesos: await procesosEnExamenes(),
     avisos: filas.map((a) => {
-      const p = (Array.isArray(a.procesos_contratacion) ? a.procesos_contratacion[0] : a.procesos_contratacion) as { nombre?: string; candidate_id?: string | null } | null;
+      const p = (Array.isArray(a.procesos_contratacion) ? a.procesos_contratacion[0] : a.procesos_contratacion) as { nombre?: string; candidate_id?: string | null; origen?: string | null } | null;
       return {
         id: a.id as string,
         createdAt: a.created_at as string,
@@ -414,6 +445,7 @@ export async function avisosPendientes(): Promise<{ avisos: AvisoLaboratorio[]; 
         tieneArchivo: !!a.media_path,
         urlArchivo: a.media_path ? (urls.get(a.media_path as string) ?? null) : null,
         simulado: (a as { simulado?: boolean }).simulado === true,
+        prueba: p?.origen === "chat_prueba",
       };
     }),
   };

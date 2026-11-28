@@ -8,7 +8,8 @@ import { fechaBogota } from "@/lib/tesoreria/recobros";
 import { siguienteDiaHabil } from "./agenda";
 import { avisarProceso, crearCitaSimple, leerAjustesAgenda, type EnvioAgenda } from "./agenda-servidor";
 import { enviarOrdenAlCitar, fechaFase2 } from "./laboratorios-servidor";
-import { CAUSA_EXAMENES, efectoExamen, type ExamenGuardado, type FaseExamen, type ResultadoExamen } from "./examenes";
+import { CAUSA_DESISTIMIENTO, CAUSA_EXAMENES, efectoExamen, type ExamenGuardado, type FaseExamen, type ResultadoExamen } from "./examenes";
+
 import { revisarListoContratar } from "./listo-contratar-revisar";
 
 export interface ExamenVista extends ExamenGuardado {
@@ -59,11 +60,11 @@ export interface ResultadoRegistroExamen {
  */
 export async function registrarExamen(
   procesoId: string,
-  d: { fase: FaseExamen; resultado: ResultadoExamen; observacion?: string | null },
+  d: { fase: FaseExamen; resultado: ResultadoExamen; observacion?: string | null; causa?: string | null },
   actor: ActorProceso
 ): Promise<ResultadoRegistroExamen> {
   const db = createAdminClient();
-  const { data: p } = await db.from("procesos_contratacion").select("estado, reingreso").eq("id", procesoId).maybeSingle();
+  const { data: p } = await db.from("procesos_contratacion").select("estado, reingreso, nombre, cedula, origen").eq("id", procesoId).maybeSingle();
   if (!p) return { ok: false, error: "El proceso no existe." };
   const previos = await examenesDeProceso(procesoId);
   if (previos == null) return { ok: false, error: "Falta aplicar la migración de la entrega 3 de selección." };
@@ -72,14 +73,35 @@ export async function registrarExamen(
   const observacion = String(d.observacion ?? "").trim().slice(0, 1000) || null;
   if (d.resultado === "no_apto" && !observacion) return { ok: false, error: "Escriba qué dice el laboratorio (motivo del no apto)." };
   if (d.resultado === "aplazado" && !observacion) return { ok: false, error: "Escriba por qué quedó aplazado (lo que dice el laboratorio)." };
+  // 27-nov-2026: por qué desistió o no fue apto (de la lista o escrita), para las estadísticas de exámenes.
+  const causa = String(d.causa ?? "").trim().slice(0, 200) || null;
+  if (d.resultado === "desistio" && !causa) return { ok: false, error: "Elija o escriba por qué desistió (o «Sin explicación»)." };
 
   const hoy = fechaBogota(new Date().toISOString());
-  const { error } = await db.from("seleccion_examenes").upsert(
-    { proceso_id: procesoId, fase: d.fase, fecha: hoy, resultado: d.resultado, observacion, confirmado_por: actor.userEmail, confirmado_at: new Date().toISOString() },
-    { onConflict: "proceso_id,fase" }
-  );
-  if (error) return { ok: false, error: `No se pudo guardar el examen (${error.message}).` };
-  await registrarEvento(procesoId, { tipo: "examen_medico", detalle: { fase: d.fase, resultado: d.resultado, observacion } }, actor);
+  const fila = { proceso_id: procesoId, fase: d.fase, fecha: hoy, resultado: d.resultado, observacion, confirmado_por: actor.userEmail, confirmado_at: new Date().toISOString() };
+  let { error } = await db.from("seleccion_examenes").upsert({ ...fila, causa: d.resultado === "apto" ? null : causa }, { onConflict: "proceso_id,fase" });
+  // Sin la migración 20261128035646 no existe la columna «causa» ni el resultado «desistio».
+  if (error && /causa/.test(error.message) && d.resultado !== "desistio") ({ error } = await db.from("seleccion_examenes").upsert(fila, { onConflict: "proceso_id,fase" }));
+  if (error) return { ok: false, error: /resultado_check|causa/.test(error.message) ? "Falta aplicar la migración 20261128035646 para registrar «Desistió»." : `No se pudo guardar el examen (${error.message}).` };
+  await registrarEvento(procesoId, { tipo: "examen_medico", detalle: { fase: d.fase, resultado: d.resultado, observacion, ...(causa ? { causa } : {}) } }, actor);
+  if (efecto.cerrarDesistimiento) {
+    const motivo = `Desistió en los exámenes, fase ${d.fase}: ${causa}${observacion ? `. ${observacion}` : ""}`;
+    await cambiarEstadoProceso(procesoId, "cierre", { actor, causa: CAUSA_DESISTIMIENTO, detalle: { motivo, fase: d.fase, causa } });
+    return { ok: true };
+  }
+  // No apto o aplazado: una persona decide si sigue (27-nov-2026: se avisa para que lo haga).
+  if (d.resultado === "no_apto" || d.resultado === "aplazado") {
+    const { notificar, enlaceProceso } = await import("./notificaciones-servidor");
+    const nombre = String(p.nombre ?? "").trim() || `Aspirante CC ${p.cedula ?? ""}`;
+    await notificar("examenes", {
+      clave: `${procesoId}:f${d.fase}:${d.resultado}:${hoy}`,
+      procesoId,
+      prueba: p.origen === "chat_prueba",
+      titulo: `${nombre}: exámenes fase ${d.fase} ${d.resultado === "no_apto" ? "no apto" : "aplazado"}`,
+      detalle: `${observacion ?? ""} Decida si sigue o no (Candidatos › ficha › Exámenes).`.trim(),
+      enlace: enlaceProceso(p.cedula as string | null, procesoId),
+    });
+  }
 
   let envio: EnvioAgenda | undefined;
   let texto: string | undefined;

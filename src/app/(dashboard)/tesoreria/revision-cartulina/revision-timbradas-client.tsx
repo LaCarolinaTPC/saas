@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import { confirmar } from "@/components/ui/confirmar";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -127,8 +128,8 @@ export function RevisionTimbradasClient({
     [revision, marcas, cierres, fecha],
   );
 
-  function cerrarDia() {
-    if (!window.confirm(`¿Cerrar la revisión del ${fecha}? Queda registrado con tu usuario y la hora.`)) return;
+  async function cerrarDia() {
+    if (!await confirmar(`¿Cerrar la revisión del ${fecha}? Queda registrado con tu usuario y la hora.`)) return;
     startCerrar(async () => {
       const r = await cerrarDiaRevision(fecha);
       if (r.success && r.cierre) { const c = r.cierre; setCierres((prev) => [c, ...prev]); toast.success("Día cerrado."); }
@@ -180,7 +181,7 @@ export function RevisionTimbradasClient({
   async function alternarCheck(f: FilaRevision) {
     if (!puedeMarcar || enCurso.has(f.numero)) return;
     const previa = marcas.get(f.numero);
-    if (previa && (previa.resultado || previa.nota) && !window.confirm("Este viaje tiene resultado o nota de revisión. ¿Quitar la marca de revisado?")) return;
+    if (previa && (previa.resultado || previa.nota) && !await confirmar("Este viaje tiene resultado o nota de revisión. ¿Quitar la marca de revisado?")) return;
     setEnCurso((s) => new Set(s).add(f.numero));
     try {
       if (previa) {
@@ -198,11 +199,11 @@ export function RevisionTimbradasClient({
   }
 
   /** Marca de una vez los viajes que la tabla muestra (con sus filtros) y aún no tienen check. */
-  function marcarTodos(lista: FilaRevision[]) {
+  async function marcarTodos(lista: FilaRevision[]) {
     if (!puedeMarcar || marcandoTodos) return;
     const sinMarca = lista.filter((f) => !marcas.has(f.numero));
     if (!sinMarca.length) return;
-    if (!window.confirm(`¿Marcar como revisados los ${sinMarca.length} viaje(s) que muestra la tabla? Queda registrado con tu usuario y la hora.`)) return;
+    if (!await confirmar(`¿Marcar como revisados los ${sinMarca.length} viaje(s) que muestra la tabla? Queda registrado con tu usuario y la hora.`)) return;
     startMarcarTodos(async () => {
       const r = await marcarViajesRevisados(
         fecha,

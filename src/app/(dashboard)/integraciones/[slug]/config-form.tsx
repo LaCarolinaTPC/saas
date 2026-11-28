@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { confirmar } from "@/components/ui/confirmar";
 import { Save, Trash2, Copy, Check, Zap, X, ChevronDown, ArrowRight } from "lucide-react";
 import { updateWebhookConfig, deleteWebhookConfig } from "@/lib/actions";
 import { useRouter } from "next/navigation";
@@ -88,8 +89,8 @@ export function WebhookConfigForm({ config }: { config: WebhookConfig }) {
     });
   }
 
-  function handleDelete() {
-    if (!confirm(`¿Eliminar la integración "${config.name}"?`)) return;
+  async function handleDelete() {
+    if (!await confirmar(`¿Eliminar la integración "${config.name}"?`)) return;
     startTransition(async () => {
       await deleteWebhookConfig(config.id);
       router.push("/integraciones");

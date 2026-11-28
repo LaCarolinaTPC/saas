@@ -59,7 +59,7 @@ export interface DatosContratar {
   carpeta: readonly { item: string; estado: EstadoCarpeta }[];
   /** Visto bueno de la directora. */
   aprobada: boolean;
-  /** Con `contratar_exige_psicotecnica`: el último concepto de la prueba psicosensotécnica. */
+  /** Con `contratar_exige_psicotecnica`: el último concepto de la prueba psicotécnica. */
   exigePsicotecnica: boolean;
   psicotecnica: "apto" | "no_apto" | null;
   /** De dónde salió (entrega 4): «Apto (IPS …, 2026-11-20)». */
@@ -118,7 +118,7 @@ export function condicionesContratar(d: DatosContratar): { ok: boolean; condicio
     ...(d.exigePsicotecnica
       ? [{
           id: "psicotecnica" as const,
-          nombre: "Prueba psicosensotécnica apta",
+          nombre: "Prueba psicotécnica apta",
           cumple: d.psicotecnica === "apto",
           detalle: d.psicotecnicaDetalle ?? (d.psicotecnica === "apto" ? "Apto" : d.psicotecnica === "no_apto" ? "No apto" : "Sin resultado registrado"),
         }]

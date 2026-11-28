@@ -14,8 +14,10 @@
  */
 import { createAdminClient } from "@/lib/supabase/admin";
 import { registrarEvento, type ActorProceso } from "@/lib/contratacion/servidor";
-import { citaVigente, hhmm, type Cita } from "./agenda";
-import { cancelarReconocimientos, citarReconocimientoEn, leerAjustesAgenda, marcarLlegada, marcarNoAsistio, type ResultadoAgenda } from "./agenda-servidor";
+import { citaVigente, hhmm, proximaFechaReconocimiento, type Cita } from "./agenda";
+import { fechaBogota } from "@/lib/tesoreria/recobros";
+import { sumarDias } from "@/lib/tesoreria/calendario-pago";
+import { cancelarReconocimientos, citarReconocimientoEn, leerAjustesAgenda, leerDisponibilidad, marcarLlegada, marcarNoAsistio, type ResultadoAgenda } from "./agenda-servidor";
 import { registrarReconocimiento, registrarReconocimientos, rutasParaReconocimiento, type ResultadoProfesor } from "./profesor-servidor";
 import { avanceRutas } from "./rutas";
 import { rutasObligatorias } from "./rutas-servidor";
@@ -63,6 +65,8 @@ export interface PantallaReconocimiento {
   rutas: string[];
   obligatorias: string[];
   minimas: number;
+  /** Fecha y hora que se proponen para citar (27-nov-2026): el siguiente día hábil en que el profesor puede, a la hora del ajuste. */
+  sugerida: { fecha: string; hora: string };
 }
 
 /** El estado que se muestra: el guardado o, sin él, lo que se deduce. */
@@ -74,7 +78,14 @@ export function estadoEfectivo(guardado: string | null, salidas: number, conCita
 /** Los aspirantes que pueden estar en reconocimiento, con su avance. */
 export async function pantallaReconocimiento(opciones: { incluirPrueba?: boolean } = {}): Promise<PantallaReconocimiento> {
   const db = createAdminClient();
-  const [a, obligatorias, rutas] = await Promise.all([leerAjustesAgenda(), rutasObligatorias().catch(() => [] as string[]), rutasParaReconocimiento()]);
+  const hoy = fechaBogota(new Date().toISOString());
+  const [a, obligatorias, rutas, excepciones] = await Promise.all([
+    leerAjustesAgenda(),
+    rutasObligatorias().catch(() => [] as string[]),
+    rutasParaReconocimiento(),
+    leerDisponibilidad(hoy, sumarDias(hoy, 70)).catch(() => []),
+  ]);
+  const sugerida = { fecha: proximaFechaReconocimiento(hoy, excepciones), hora: a.reconocimientoHora };
   const base = "id, nombre, cedula, celular, estado, origen, reingreso, rutas_declaradas, rutas_respondido_at";
   const completa = await db
     .from("procesos_contratacion")
@@ -127,7 +138,7 @@ export async function pantallaReconocimiento(opciones: { incluirPrueba?: boolean
       examen: porRevisar.has(id) ? { fase: porRevisar.get(id)!.fase, resultado: porRevisar.get(id)!.resultado } : null,
     };
   });
-  return { disponible, aspirantes, rutas, obligatorias, minimas: avanceRutas([], a.rutasMinimas, obligatorias).necesarias };
+  return { disponible, aspirantes, rutas, obligatorias, minimas: avanceRutas([], a.rutasMinimas, obligatorias).necesarias, sugerida };
 }
 
 type Resultado = { ok: true; texto?: string; envio?: string } | { ok: false; error: string };
@@ -152,6 +163,27 @@ export async function citarReconocimiento(procesoId: string, cuando: { fecha: st
   const r = await citarReconocimientoEn(procesoId, cuando, actor);
   if (r.ok) await createAdminClient().from("procesos_contratacion").update({ reconocimiento_estado: "en_curso" }).eq("id", procesoId).or("reconocimiento_estado.is.null,reconocimiento_estado.in.(pendiente,por_verificar)");
   return r;
+}
+
+/**
+ * Cita a varios a la vez el mismo día y hora (27-nov-2026, para salir con todos
+ * juntos). Uno por uno, para que cada aviso de WhatsApp salga con su resultado;
+ * el que no se pueda citar se cuenta con su motivo y los demás siguen.
+ */
+export async function citarVariosReconocimiento(
+  procesoIds: string[],
+  cuando: { fecha: string; hora: string },
+  actor: ActorProceso
+): Promise<{ citados: number; fallidos: { procesoId: string; error: string }[] }> {
+  const ids = [...new Set(procesoIds.map(String))].slice(0, 100);
+  const fallidos: { procesoId: string; error: string }[] = [];
+  let citados = 0;
+  for (const id of ids) {
+    const r = await citarReconocimiento(id, cuando, actor).catch((e: Error) => ({ ok: false as const, error: e.message }));
+    if (r.ok) citados++;
+    else fallidos.push({ procesoId: id, error: r.error ?? "No se pudo citar." });
+  }
+  return { citados, fallidos };
 }
 
 export async function llegadaReconocimiento(citaId: string, llego: boolean, actor: ActorProceso): Promise<ResultadoAgenda> {

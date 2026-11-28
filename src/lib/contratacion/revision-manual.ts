@@ -17,6 +17,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { registrarEvento, type ActorProceso } from "@/lib/contratacion/servidor";
 import { marcarListoParaCitar, marcarRevisionAntecedentes, reevaluarPreseleccion } from "@/lib/seleccion/servidor";
 import { categoriasDeLicencia } from "@/lib/seleccion/preseleccion";
+import { limpiarRegistros, type RegistroCertificado } from "@/lib/verificacion/lectura-certificado";
+import { completarConductaRnmc } from "@/lib/verificacion/rnmc-portal";
 
 export const FUENTES_REVISION = ["policia", "procuraduria", "contraloria", "rnmc", "simit", "runt"] as const;
 export type FuenteRevision = (typeof FUENTES_REVISION)[number];
@@ -28,6 +30,46 @@ export interface DatosRevisionManual {
   pdf?: { base64: string; nombre?: string | null } | null;
   /** RUNT (24-nov-2026): la licencia revisada en el portal o en la foto que mandó el aspirante. */
   licencia?: { categoria: string; vence?: string | null; restricciones?: string | null } | null;
+  /**
+   * Lo que la IA leyó del certificado (27-nov-2026): el veredicto y cada anotación.
+   * Se guarda donde las reglas lo buscan, para contar las medidas del RNMC, buscar
+   * las palabras de cada fuente y aplicar las tolerancias de la Contraloría.
+   */
+  lectura?: { veredicto?: string | null; registros?: unknown } | null;
+}
+
+/** Medidas que el certificado da por cumplidas: no son «pendientes por cumplir». */
+const CUMPLIDA = /cumplid|pagad|archivad|terminad|cerrad|revocad/i;
+
+/**
+ * El detalle leído, con las claves que entienden las reglas (`accionDeHallazgo`,
+ * `textoParaPalabras`). Puro. Sin hallazgo, el RNMC queda sin medidas.
+ */
+export function detalleParaReglas(fuente: FuenteRevision, hallazgo: boolean, l: DatosRevisionManual["lectura"]): Record<string, unknown> {
+  if (!l) return {};
+  const registros: RegistroCertificado[] = limpiarRegistros(l.registros);
+  const status = typeof l.veredicto === "string" && l.veredicto.trim() ? l.veredicto.trim().slice(0, 300) : undefined;
+  const conStatus = status ? { status } : {};
+  switch (fuente) {
+    case "rnmc": {
+      if (!hallazgo) return { ...conStatus, pending_measures: [] };
+      const pendientes = registros.filter((r) => !CUMPLIDA.test(String(r.estado ?? "")));
+      // Si todas dicen «cumplida» pero la persona marcó hallazgo, cuentan todas (lo decide quien revisa).
+      const medidas = pendientes.length ? pendientes : registros;
+      return medidas.length ? { ...conStatus, pending_measures: medidas } : conStatus;
+    }
+    case "contraloria":
+      return {
+        ...conStatus,
+        ...(hallazgo && registros.length ? { records: registros.map((r) => ({ ...r, amount: r.valor ?? null, ruling_date: r.fecha ?? null })) } : {}),
+      };
+    case "policia":
+    case "procuraduria":
+    case "simit":
+      return { ...conStatus, ...(hallazgo && registros.length ? { records: registros } : {}) };
+    default:
+      return {};
+  }
 }
 
 /** Corre después de responder (after de Next); fuera de una petición (baterías), enseguida. */
@@ -79,7 +121,10 @@ export async function revisarFuenteManual(
     }
 
     // Con la forma que entiende la evaluación de antecedentes (hallazgoDe).
-    const base = { manual: true, nota, revisado_por: actor.userEmail ?? null };
+    let detalle = detalleParaReglas(fuente, fuente === "simit" ? (valor ?? 0) > 0 : d.hallazgo, d.lectura);
+    // RNMC con expediente y sin la conducta (el PDF solo trae la tabla): se busca en el portal (27-nov-2026).
+    if (fuente === "rnmc" && d.hallazgo) detalle = await completarConductaRnmc(detalle);
+    const base = { manual: true, nota, revisado_por: actor.userEmail ?? null, ...detalle, ...(d.lectura ? { leido_por_ia: true } : {}) };
     const { data: fx } = await admin.from("procesos_contratacion").select("cedula_fecha_expedicion").eq("id", procesoId).maybeSingle();
     const resultado =
       fuente === "policia"

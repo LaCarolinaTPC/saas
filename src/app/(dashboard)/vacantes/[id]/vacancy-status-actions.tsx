@@ -1,6 +1,7 @@
 "use client";
 
 import { usePermisos } from "@/components/permisos/permisos-provider";
+import { confirmar } from "@/components/ui/confirmar";
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { updateVacancyStatus, deleteVacancy } from "@/lib/actions";
@@ -26,8 +27,8 @@ function VacancyStatusActionsSinGuardia({
     });
   }
 
-  function handleDelete() {
-    if (!confirm("¿Estás seguro de que deseas eliminar esta vacante? Esta acción no se puede deshacer.")) return;
+  async function handleDelete() {
+    if (!await confirmar("¿Estás seguro de que deseas eliminar esta vacante? Esta acción no se puede deshacer.")) return;
     startTransition(async () => {
       await deleteVacancy(vacancyId);
       router.push("/vacantes");

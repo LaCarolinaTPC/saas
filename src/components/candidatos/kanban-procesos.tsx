@@ -19,6 +19,7 @@ import { updateProcesoEstado } from "@/lib/contratacion/actions";
 import { movimientoAlSoltar, type EtapaConPaso } from "@/lib/seleccion/mover-tablero";
 import { ProcesoFormDialog, type VacanteOption } from "@/components/contratacion/procesos-client";
 import { SemaforoPuntos } from "@/components/seleccion/semaforo";
+import type { PuntoTablero } from "@/lib/contratacion/semaforo-tablero";
 import { timeAgoBogota } from "@/lib/utils";
 import { leerFicha } from "@/lib/lectura-ficha";
 
@@ -50,7 +51,7 @@ export function KanbanProcesos({ procesos, vacancies }: { procesos: ProcesoContr
   }, []);
   // Arrastrada hacia adelante: la ficha se abre con lo que pide esa etapa (24-nov-2026).
   const [destino, setDestino] = useState<EtapaConPaso | null>(null);
-  const [cierre, setCierre] = useState<{ proceso: ProcesoContratacion; causa: string } | null>(null);
+  const [cierre, setCierre] = useState<{ proceso: ProcesoContratacion; causa: string; observaciones?: string } | null>(null);
 
   // Cada relectura del servidor trae el estado real: reemplaza lo local
   // (estado derivado de las props, sin efecto).
@@ -115,10 +116,10 @@ export function KanbanProcesos({ procesos, vacancies }: { procesos: ProcesoContr
 
   async function confirmarCierre() {
     if (!cierre?.causa.trim()) return;
-    const { proceso, causa } = cierre;
+    const { proceso, causa, observaciones } = cierre;
     setCierre(null);
     mover(proceso.id, proceso.estado, "cierre", 0);
-    const r = await updateProcesoEstado(proceso.id, "cierre", causa.trim()).catch((e: unknown) => ({
+    const r = await updateProcesoEstado(proceso.id, "cierre", causa.trim(), observaciones?.trim() || null).catch((e: unknown) => ({
       ok: false as const,
       error: e instanceof Error ? e.message : "No se pudo cerrar el proceso.",
     }));
@@ -167,7 +168,7 @@ export function KanbanProcesos({ procesos, vacancies }: { procesos: ProcesoContr
                               onKeyDown={(e) => {
                                 if (e.key === "Enter") setAbierto(p);
                               }}
-                              className={`w-full cursor-pointer rounded-lg border border-[#E2E8F0] bg-white p-3 text-left shadow-sm transition-shadow hover:shadow focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4F46E5]/40 ${snap.isDragging ? "shadow-lg ring-2 ring-[#4F46E5]/30" : ""} ${abriendo === p.id ? "cursor-wait opacity-60" : ""}`}
+                              className={`w-full cursor-pointer rounded-lg border bg-white p-3 ${necesitaRevision(p) ? "border-red-400 ring-1 ring-red-300" : "border-[#E2E8F0]"} text-left shadow-sm transition-shadow hover:shadow focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4F46E5]/40 ${snap.isDragging ? "shadow-lg ring-2 ring-[#4F46E5]/30" : ""} ${abriendo === p.id ? "cursor-wait opacity-60" : ""}`}
                               aria-busy={abriendo === p.id}
                             >
                               <div className="flex items-start justify-between gap-2">
@@ -180,9 +181,10 @@ export function KanbanProcesos({ procesos, vacancies }: { procesos: ProcesoContr
                               </div>
                               {p.vacancies?.title && <div className="mt-0.5 truncate text-xs font-medium text-[#4F46E5]">{p.vacancies.title}</div>}
                               <div className="mt-2 flex items-center justify-between gap-2">
-                                {p.estado === "pendiente" ? <SemaforoPuntos resultado={p.preseleccion} /> : <span />}
+                                {p.puntos?.length ? <span /> : p.estado === "pendiente" ? <SemaforoPuntos resultado={p.preseleccion} /> : <span />}
                                 <span className="text-[11px] text-gray-400">{timeAgoBogota(p.updated_at)}</span>
                               </div>
+                              {p.puntos?.length ? <PuntosEtapa puntos={p.puntos} /> : null}
                               {p.revision_examen && p.estado !== "cierre" && (
                                 <div
                                   className={`mt-1.5 truncate rounded px-1.5 py-0.5 text-[11px] font-medium ${p.revision_examen.resultado === "no_apto" ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-800"}`}
@@ -241,7 +243,7 @@ export function KanbanProcesos({ procesos, vacancies }: { procesos: ProcesoContr
 
       {cierre && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setCierre(null)}>
-          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <div className="mb-4 flex items-center justify-between">
               <h3 className="text-lg font-semibold text-gray-900">Cerrar proceso</h3>
               <button onClick={() => setCierre(null)} className="text-gray-400 hover:text-gray-600" aria-label="Cancelar">
@@ -264,6 +266,19 @@ export function KanbanProcesos({ procesos, vacancies }: { procesos: ProcesoContr
                 <option key={c} value={c} />
               ))}
             </datalist>
+            <label className="mt-3 block text-sm text-gray-600" htmlFor="observaciones-cierre-tablero">
+              Observaciones <span className="text-xs text-gray-400">(opcional)</span>
+            </label>
+            <textarea
+              id="observaciones-cierre-tablero"
+              rows={4}
+              maxLength={1500}
+              value={cierre.observaciones ?? ""}
+              onChange={(e) => setCierre({ ...cierre, observaciones: e.target.value })}
+              placeholder="Qué pasó, con quién se habló, lo que haya que saber si vuelve…"
+              className="mt-1 w-full resize-y rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm outline-none focus:border-[#4F46E5]"
+            />
+            <p className="mt-1 text-[11px] text-gray-400">Quedan en el historial y en la observación del proceso.</p>
             <div className="mt-5 flex justify-end gap-2">
               <button onClick={() => setCierre(null)} className="rounded-lg border border-[#E2E8F0] px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
                 Cancelar
@@ -280,5 +295,31 @@ export function KanbanProcesos({ procesos, vacancies }: { procesos: ProcesoContr
         </div>
       )}
     </>
+  );
+}
+
+const COLOR_PUNTO: Record<PuntoTablero["color"], string> = { verde: "bg-emerald-500", ambar: "bg-amber-400", rojo: "bg-red-500", gris: "bg-gray-300" };
+
+/** ¿La tarjeta necesita una revisión manual? Se destaca con borde rojo (27-nov-2026). */
+function necesitaRevision(p: ProcesoContratacion): boolean {
+  if (p.estado === "cierre" || p.estado === "contratado") return false;
+  return !!p.puntos?.some((x) => x.revisar) || !!p.revision_examen || !!p.cedula_no_coincide;
+}
+
+/**
+ * Los puntos de la etapa, uno por línea con su detalle en letra pequeña (27-nov-2026): se lee de
+ * un vistazo qué cumple y qué falta, sin abrir la ficha.
+ */
+function PuntosEtapa({ puntos }: { puntos: PuntoTablero[] }) {
+  return (
+    <ul className="mt-1.5 space-y-0.5">
+      {puntos.map((x) => (
+        <li key={x.etiqueta} className="flex items-start gap-1.5 text-[10px] leading-tight" title={`${x.etiqueta}: ${x.detalle}`}>
+          <span className={`mt-[3px] h-1.5 w-1.5 shrink-0 rounded-full ${COLOR_PUNTO[x.color]}`} />
+          <span className="shrink-0 font-semibold text-gray-700">{x.etiqueta}</span>
+          <span className={`min-w-0 truncate ${x.color === "rojo" ? "text-red-600" : x.color === "ambar" ? "text-amber-700" : x.color === "verde" ? "text-gray-500" : "text-gray-400"}`}>{x.detalle}</span>
+        </li>
+      ))}
+    </ul>
   );
 }

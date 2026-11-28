@@ -209,7 +209,7 @@ export function PasoTablero({
           {paso === "listo_contratar" && (
             <>
               <p className="text-gray-700">
-                A «Listo para contratar» no se lleva a mano: Gestivo lo pasa solo cuando cumple todo para contratar menos el visto bueno (antecedentes, exámenes, reconocimiento de ruta, carpeta y prueba psicosensotécnica). Revise qué le falta en «Condiciones para contratar», en el Resumen.
+                A «Listo para contratar» no se lleva a mano: Gestivo lo pasa solo cuando cumple todo para contratar menos el visto bueno (antecedentes, exámenes, reconocimiento de ruta, carpeta y prueba psicotécnica). Revise qué le falta en «Condiciones para contratar», en el Resumen.
               </p>
               <div className="flex flex-wrap gap-2">
                 <button type="button" className={boton} onClick={() => onVerPestana("resumen")}>

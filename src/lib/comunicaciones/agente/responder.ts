@@ -471,7 +471,7 @@ export async function responderConAgente(
     // 24-nov-2026: con el proceso terminado (cerrado por una persona, por cualquier causa) no se le
     // pide nada más: ni el correo, ni la licencia, ni la respuesta del banco o de las rutas.
     const sigue = enSeleccion && !cerradoAntecedentes;
-    // 24-nov-2026: se le pidió el correo para la psicosensotécnica (lo que lo escribe lo atiende el webhook).
+    // 24-nov-2026: se le pidió el correo para la psicotécnica (lo que lo escribe lo atiende el webhook).
     const correoPsico = sigue ? await correoParaAsistente(conversacionId).catch(() => null) : null;
     // 24-nov-2026: el RUNT no respondió (Croma caído o en pausa): se le pide la licencia.
     const pedirLicencia = sigue ? await pedirLicenciaDeConversacion(conversacionId).catch(() => false) : false;

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState, useTransition } from "react";
+import { confirmar } from "@/components/ui/confirmar";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { AlertTriangle, Check, Loader2, Plus, Trash2, X } from "lucide-react";
@@ -193,8 +194,8 @@ export function CamarasClient({
     });
   }
 
-  function eliminar(id: string) {
-    if (!confirm("¿Eliminar esta revisión? Deja de contar en el historial y los indicadores.")) return;
+  async function eliminar(id: string) {
+    if (!await confirmar("¿Eliminar esta revisión? Deja de contar en el historial y los indicadores.")) return;
     startTransition(async () => {
       const r = await eliminarRevision(id);
       if (!r.success) { toast.error(r.error ?? "No se pudo eliminar."); return; }

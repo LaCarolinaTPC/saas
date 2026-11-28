@@ -1,5 +1,5 @@
 /**
- * Prueba psicosensotécnica en PsicoAlianza (24-nov-2026). PURO.
+ * Prueba psicotécnica en PsicoAlianza (24-nov-2026). PURO.
  *
  * - La plantilla de carga masiva de la plataforma: hoja «Evaluados» con
  *   «Documento» y «Email», una fila por aspirante con el correo confirmado.
@@ -199,6 +199,57 @@ export interface InformePrueba {
   /** «Sin contestar» mayor que cero o el informe dice que no respondió todo. */
   incompleta: boolean;
   alertas: string[];
+  /** El concepto del informe, antes de la sugerencia de Gestivo. */
+  resultadoInforme?: ResultadoPsicoExterna | null;
+  /** Riesgos para conducir que llevan a sugerir «con sugerencias» aunque el informe diga «Recomendado». */
+  riesgosConducir?: string[];
+}
+
+// Riesgos para el cargo de conductor (27-nov-2026, pedido: «que los lea y sugiera si son aptos o no»).
+// El informe puede decir «Recomendado» y aun así traer señales que pesan al volante.
+const TEMA_CRITICO = /alcohol|sustancias? psicoactivas|\bspa\b|droga|violen|agresi/i;
+const VALORES_ETHIKOS = /(abstinencia del uso de spa y alcohol|no violencia|conducta no fraudulenta|honestidad|normas|tendencia a la no corrupci[oó]n|veracidad|tratamiento de la informaci[oó]n)\s+(\d{1,3})[.,]\d\b/gi;
+const CRITICOS_ETHIKOS = /abstinencia|violencia/i;
+const RIESGOS_TEN_DISC = /(estabilidad emocional|control de impulsos|rumor)\s+ajuste\s*:\s*\(\s*(\d{1,3}(?:[.,]\d+)?)\s*%\s*\)/gi;
+const capital = (s: string) => (s.charAt(0).toUpperCase() + s.slice(1).toLowerCase()).replace(/\bspa\b/g, "SPA");
+/** Frases de la sección de riesgos, sin cortar en «Sr.» o «Sra.». */
+const frases = (t: string) => t.split(/(?<!\b(?:Sr|Sra|Dr|Dra|Ud)\.)(?<=\.)\s+/);
+
+/**
+ * Lo que el informe dice que hay que revisar, y cuáles de esas cosas pesan para
+ * conducir (alcohol o sustancias, violencia, impulsos, poca sinceridad). PURO.
+ *  - Ethikos: los «Riesgos del evaluado frente al cargo» y los valores en
+ *    «tendencia a mejorar» (70 o menos) o «inesperada» (40 o menos).
+ *  - Ten DISC: estabilidad emocional, control de impulsos o rumor con ajuste
+ *    por debajo del 75 %.
+ */
+export function riesgosDelInforme(plano: string, prueba: string): { alertas: string[]; criticos: string[] } {
+  const alertas: string[] = [];
+  const criticos: string[] = [];
+  const seccion = /riesgo potencial\.?\s*(.+?)\s*especificaciones a considerar/i.exec(plano)?.[1] ?? "";
+  for (const frase of frases(seccion).map((f) => f.replace(/^[>›»\s]+/, "").trim()).filter((f) => f.length > 20)) {
+    alertas.push(`${prueba} · riesgo: ${frase}`);
+    const tema = TEMA_CRITICO.exec(frase)?.[0].toLowerCase();
+    if (tema) criticos.push(`riesgo señalado sobre ${/spa|sustancia|droga/.test(tema) ? "sustancias" : /agresi/.test(tema) ? "agresividad" : /violen/.test(tema) ? "violencia" : "alcohol"}`);
+  }
+  const vistos = new Set<string>();
+  for (const m of plano.matchAll(VALORES_ETHIKOS)) {
+    const nombre = capital(m[1]);
+    const valor = Number(m[2]);
+    if (vistos.has(nombre) || valor > 70) continue;
+    vistos.add(nombre);
+    const nivel = valor <= 40 ? "tendencia inesperada" : "tendencia a mejorar";
+    alertas.push(`${prueba}: ${nombre} ${valor} (${nivel}).`);
+    if (CRITICOS_ETHIKOS.test(nombre)) criticos.push(`${nombre} ${valor}`);
+  }
+  for (const m of plano.matchAll(RIESGOS_TEN_DISC)) {
+    const ajuste = Number(m[2].replace(",", "."));
+    if (ajuste >= 75) continue;
+    const nombre = capital(m[1]);
+    alertas.push(`${prueba}: ${nombre} con ajuste de ${ajuste.toLocaleString("es-CO")} %.`);
+    if (!/rumor/i.test(nombre)) criticos.push(`${nombre} ${ajuste.toLocaleString("es-CO")} %`);
+  }
+  return { alertas, criticos };
 }
 
 const LEYENDA_ESCALA = /no\s+recomendad[oa]\s+recomendad[oa]\s+con\s+sugerencias\s+recomendad[oa]/gi;
@@ -248,12 +299,26 @@ export function leerInformePsicoAlianza(
       alertas.push(`${prueba}: no la terminó (${faltan}${total ? ` de ${total}` : ""} preguntas sin contestar).`);
     }
   } else if (incompleta) alertas.push(`${prueba}: el informe dice que no respondió todas las preguntas.`);
+  // El nombre del archivo trae una cédula y el PDF otra: alguno está mal (27-nov-2026).
+  const delArchivo = soloDigitos(/_(\d{5,11})_/.exec(archivo)?.[1]);
+  const delPdf = soloDigitos(n(/identificaci[oó]n\s*:\s*([\d.\s]{5,16})/i));
+  if (delArchivo && delPdf && delArchivo !== delPdf) alertas.push(`${prueba}: el nombre del archivo dice la cédula ${delArchivo} y el informe ${delPdf}; se toma la del informe.`);
+  const riesgos = riesgosDelInforme(plano, prueba);
   const sim = /escala de simulaci[oó]n.{0,160}?\b(alta|media|baja)\s+(\d{1,3})\b/i.exec(plano);
-  if (sim && /alta/i.test(sim[1])) alertas.push(`${prueba}: simulación alta (${sim[2]}), la respondió con poca sinceridad; interpretar con precaución.`);
+  if (sim && /alta/i.test(sim[1])) {
+    alertas.push(`${prueba}: simulación alta (${sim[2]}), la respondió con poca sinceridad; interpretar con precaución.`);
+    riesgos.criticos.push(`simulación alta (${sim[2]})`);
+  }
   const sinc = /sinceridad en las respuestas.{0,200}?\b(bajo|medio|alto)\s+(\d{1,3})\b/i.exec(plano);
-  if (sinc && /bajo/i.test(sinc[1])) alertas.push(`${prueba}: nivel de sinceridad bajo (${sinc[2]}); los resultados no son concluyentes.`);
+  if (sinc && /bajo/i.test(sinc[1])) {
+    alertas.push(`${prueba}: nivel de sinceridad bajo (${sinc[2]}); los resultados no son concluyentes.`);
+    riesgos.criticos.push(`sinceridad baja (${sinc[2]})`);
+  }
+  alertas.push(...riesgos.alertas);
 
   return {
+    resultadoInforme: resultado,
+    riesgosConducir: riesgos.criticos,
     prueba,
     cedula: cedula && cedula.length >= 5 ? cedula : null,
     nombre: n(/nombre\s*:\s*(.+?)\s+identificaci[oó]n/i)?.trim() ?? null,
@@ -282,9 +347,16 @@ export function combinarPruebas(pruebas: readonly InformePrueba[]): {
   incompleta: boolean;
   alertas: string[];
 } {
-  const resultado = pruebas.some((x) => !x.resultado)
+  const delInforme = pruebas.some((x) => !x.resultado)
     ? null
     : pruebas.reduce<ResultadoPsicoExterna | null>((peor, x) => (!peor || PESO[x.resultado!] > PESO[peor] ? x.resultado : peor), null);
+  // «Recomendado» con riesgos para conducir: se sugiere «con sugerencias» (sigue contando como apto) y se dice por qué.
+  const riesgos = pruebas.flatMap((x) => (x.riesgosConducir ?? []).map((r) => `${x.prueba}: ${r}`));
+  const resultado = delInforme === "apto" && riesgos.length ? "apto_con_observaciones" : delInforme;
+  const sugerencia =
+    resultado !== delInforme
+      ? [`Sugerencia de Gestivo: «${ETIQUETA_CONCEPTO.apto_con_observaciones}» aunque el informe diga «${ETIQUETA_CONCEPTO.apto}», por riesgos para conducir: ${riesgos.join(" · ")}. Revíselo en la entrevista; puede cambiarlo antes de guardar.`]
+      : [];
   const fechas = pruebas.map((x) => x.fecha).filter((f): f is string => !!f).sort();
   const pcts = pruebas.map((x) => x.porcentaje).filter((v): v is number => v != null);
   const detalle = pruebas
@@ -297,7 +369,7 @@ export function combinarPruebas(pruebas: readonly InformePrueba[]): {
     detalle,
     deducido: pruebas.some((x) => x.deducido),
     incompleta: pruebas.some((x) => x.incompleta),
-    alertas: pruebas.flatMap((x) => x.alertas),
+    alertas: [...sugerencia, ...pruebas.flatMap((x) => x.alertas)],
   };
 }
 

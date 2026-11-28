@@ -53,7 +53,7 @@ test("el nombre que devuelve la fuente no es el del aspirante", () => {
   // Sin nombre en el proceso o sin nombre en la fuente: no hay con qué comparar.
   assert.equal(evaluarAntecedentes(otro, { reglas: { ...REGLAS_POR_DEFECTO, nombreNoCoincide: "revision" } }).veredicto, "limpio");
   // Un hallazgo que se toleraría, con otro nombre, va a revisión.
-  const rnmc = [...LIMPIAS.slice(0, 3), ok("rnmc", { found: true, full_name: "CARLOS RUIZ", has_pending_measures: true, pending_measures: [{ medida: "x" }] })];
+  const rnmc = [...LIMPIAS.slice(0, 3), ok("rnmc", { found: true, full_name: "CARLOS RUIZ", has_pending_measures: true, pending_measures: [{ comportamiento: "x" }] })];
   assert.equal(evaluarAntecedentes(rnmc, { reglas: REGLAS_POR_DEFECTO, nombre }).veredicto, "tolerable");
   assert.equal(evaluarAntecedentes(rnmc, { reglas: { ...REGLAS_POR_DEFECTO, nombreNoCoincide: "revision" }, nombre }).veredicto, "revision");
 });
@@ -172,4 +172,18 @@ test("palabras por fuente: Policía, Procuraduría y Contraloría (25-nov-2026)"
   assert.deepEqual(reglasDeAjustes([{ clave: "ant_policia_palabras_revision", valor: [" captura ", ""] }]).policiaPalabras, ["captura"]);
   // Sin repetidas en ninguna lista.
   for (const f of Object.keys(PALABRAS_SUGERIDAS) as (keyof typeof PALABRAS_SUGERIDAS)[]) assert.equal(new Set(PALABRAS_SUGERIDAS[f]).size, PALABRAS_SUGERIDAS[f].length, f);
+});
+
+test("Procuraduría (27-nov-2026): las palabras se buscan también dentro de las tablas de cada sección", () => {
+  const conTabla = {
+    found: true,
+    has_records: true,
+    status: "El ciudadano presenta antecedentes",
+    records: [{ category: "Antecedentes disciplinarios", siri: "123", tables: [{ heading: "Sanciones", columns: ["Sanción", "Término"], rows: [["DESTITUCIÓN E INHABILIDAD GENERAL", "10 años"]] }] }],
+  };
+  const reglas: ReglasAntecedentes = { ...REGLAS_POR_DEFECTO, procuraduria: "tolera", procuraduriaPalabras: ["destitución"] };
+  const ev = evaluarAntecedentes([...LIMPIAS.filter((c) => c.fuente !== "procuraduria"), ok("procuraduria", conTabla)], { reglas });
+  const f = ev.fuentes.find((x) => x.fuente === "procuraduria");
+  assert.equal(f?.accion, "revision");
+  assert.match(f?.motivo ?? "", /destitución/);
 });

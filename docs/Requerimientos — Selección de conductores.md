@@ -14,7 +14,7 @@ Gestivo debe llevar al aspirante a conductor desde su primer mensaje de WhatsApp
 
 ## Proceso real de selección
 
-El aspirante debe pasar cuatro filtros eliminatorios y la revisión de antecedentes antes de ser citado. Después, la prueba de manejo decide si va a exámenes médicos o primero a escuela. Se contrata el mismo día en que se cumple todo: fase 2 de exámenes apta, al menos 2 rutas aprendidas, carpeta completa, pruebas psicosensotécnicas aptas y la aprobación de la directora de Recursos Humanos.
+El aspirante debe pasar cuatro filtros eliminatorios y la revisión de antecedentes antes de ser citado. Después, la prueba de manejo decide si va a exámenes médicos o primero a escuela. Se contrata el mismo día en que se cumple todo: fase 2 de exámenes apta, al menos 2 rutas aprendidas, carpeta completa, pruebas psicotécnicas aptas y la aprobación de la directora de Recursos Humanos.
 
 &#91;embedded content: flujo de selección · de WhatsApp a contratación\]
 
@@ -59,9 +59,9 @@ La carpeta se arma desde la prueba de manejo, pero cierra junto con la fase 2 y 
    - certificados de antecedentes, impresos.
 10. **Día de contratación.** Se contrata ese mismo día si la fase 2 es apta, sabe 2 rutas y la carpeta está completa, con la aprobación de la directora de Recursos Humanos.
     - Firma los documentos y presenta la entrevista.
-    - Presenta las pruebas psicosensotécnicas, si no las presentó antes; son obligatorias para contratar y las interpreta el psicólogo de la empresa. Las pruebas de conducción (escribir la ruta, señalar las partes del motor) las toma el profesor de manejo.
+    - Presenta las pruebas psicotécnicas, si no las presentó antes; son obligatorias para contratar y las interpreta el psicólogo de la empresa. Las pruebas de conducción (escribir la ruta, señalar las partes del motor) las toma el profesor de manejo.
     - Recibe la instrucción sobre el manejo de los tiempos y la inducción.
-    - Las pruebas psicosensotécnicas se hacían con un software, pero se dejó por costo y ahora las hace la empresa.
+    - Las pruebas psicotécnicas se hacían con un software, pero se dejó por costo y ahora las hace la empresa.
 
 ## Brechas frente a Gestivo
 
@@ -78,7 +78,7 @@ La brecha más grande está en el orden de los estados del proceso. Gestivo sigu
 | Exámenes médicos | Fecha de citación de F1 y F2 | Resultado por fase, radiografía adjunta, aviso de paso a F2 y recepción de los avisos del laboratorio |
 | Reconocimiento de ruta | Solo un estado | Rutas aprendidas y la regla del mínimo de 2 |
 | Carpeta | Documentos genéricos, sin checklist | Checklist con referencias y cartas validadas; bloquear «Contratado» si falta algo |
-| Día de contratación | Nada | Pruebas psicosensotécnicas, entrevista e inducción registradas |
+| Día de contratación | Nada | Pruebas psicotécnicas, entrevista e inducción registradas |
 | Reactivación | Seguimiento automático a las 2 horas de silencio, solo dentro de la ventana de 24 horas (`src/lib/comunicaciones/seguimiento.ts`) | Secuencia para aspirantes fríos con plantillas aprobadas, fuera de la ventana |
 | Trazabilidad | El Kanban no actualiza el proceso; no se registra quién cambió cada estado | Historial de cambios con usuario y fecha; Kanban sincronizado |
 
@@ -111,8 +111,8 @@ Son 27 requerimientos, agrupados en 11 áreas. Cada uno tiene su criterio de ace
 | M3 | Resultados del laboratorio por WhatsApp | El laboratorio envía el aviso y la radiografía a un número de WhatsApp conectado a Gestivo. Gestivo reconoce ese contacto como laboratorio (el asistente de IA no le responde), asocia cada mensaje y PDF al aspirante por nombre o cédula y propone el resultado de la fase 1 para que GH lo confirme | 2 |
 | G1 | Reconocimiento de ruta | Se registran las rutas aprendidas; la ficha muestra cuántas lleva frente al mínimo de 2 | 2 |
 | H1 | Checklist de la carpeta | Ítems: hoja de vida, cartas laborales validadas, referencias validadas (con quién se habló y cuándo) y certificados de antecedentes | 2 |
-| H2 | Condiciones para contratar | El paso a «Contratado» exige fase 2 apta, 2 rutas (salvo en reingresos), la carpeta completa, las pruebas psicosensotécnicas aptas y la aprobación de la directora de Recursos Humanos, registrada en Gestivo con fecha; si falta algo, se dice qué | 2 |
-| I1 | Pruebas psicosensotécnicas | Son obligatorias para contratar. Se aplican con la opción elegida (ver la sección de opciones) y las interpreta el psicólogo de la empresa, con agenda, resultado (apto o no apto) y PDF guardados en la ficha; quedan registradas la entrevista y la inducción | 3 |
+| H2 | Condiciones para contratar | El paso a «Contratado» exige fase 2 apta, 2 rutas (salvo en reingresos), la carpeta completa, las pruebas psicotécnicas aptas y la aprobación de la directora de Recursos Humanos, registrada en Gestivo con fecha; si falta algo, se dice qué | 2 |
+| I1 | Pruebas psicotécnicas | Son obligatorias para contratar. Se aplican con la opción elegida (ver la sección de opciones) y las interpreta el psicólogo de la empresa, con agenda, resultado (apto o no apto) y PDF guardados en la ficha; quedan registradas la entrevista y la inducción | 3 |
 | J1 | Reactivación de aspirantes fríos | Secuencia de 2 o 3 plantillas a los que dejaron de responder sin enviar la hoja de vida; después se escala a llamada | 1 |
 | K1 | Indicadores del embudo | Aspirantes por etapa, conversión entre etapas, tiempo entre etapas y causas de cierre, por semana y por canal | 3 |
 
@@ -259,7 +259,7 @@ Hay tres caminos para automatizarla:
 
 **Recomendación de transición:** construir el checklist manual asistido en la fase 2. Funciona con cualquiera de las otras dos opciones y deja guardados el resultado y el PDF desde ya. En paralelo, pedir cotización a 2 o 3 proveedores colombianos de verificación (por ejemplo Truora, TusDatos o Verifik; precios sin verificar) para decidir la fase 4 con el costo real por aspirante.
 
-## Opciones para las pruebas psicosensotécnicas
+## Opciones para las pruebas psicotécnicas
 
 Las pruebas son obligatorias para contratar y la empresa tiene psicólogo, así que la opción de menor costo es la 5: un tamizaje dentro de Gestivo que el psicólogo de la empresa interpreta. Si el psicólogo necesita una prueba estandarizada, la alternativa es cotizar con la IPS de los exámenes médicos (opción 1), que no añade desplazamientos para el aspirante. Hoy estas pruebas las hace la empresa sin herramienta, porque el software anterior se dejó por costo. Las pruebas de conducción no entran aquí: siguen con el profesor (E1).
 
@@ -302,7 +302,7 @@ Estas respuestas hacen falta antes de construir la fase que las usa.
 | ¿Dirección de la cita y sábados? | La sede de La Carolina; los sábados se cita en la mañana; entre semana se puede citar en la mañana si el profesor no puede en la tarde | Proceso, paso 5; D1; mensajes y tiempos |
 | ¿Cuánto tiempo se guardan los datos de quien no fue contratado? | No se borran | NF3 |
 | (Nuevo) ¿Se guardan los aspirantes que no cumplen? | Sí: en Candidatos se guardan todos, cumplan o no | B3 |
-| ¿Psicólogo y obligatoriedad de las pruebas psicosensotécnicas? | La empresa tiene psicólogo y las pruebas son obligatorias para contratar. El costo del software anterior no se recuerda y no es relevante | Opciones de pruebas psicosensotécnicas; H2; I1 |
+| ¿Psicólogo y obligatoriedad de las pruebas psicotécnicas? | La empresa tiene psicólogo y las pruebas son obligatorias para contratar. El costo del software anterior no se recuerda y no es relevante | Opciones de pruebas psicotécnicas; H2; I1 |
 | ¿Quién aprueba la contratación final? | La directora de Recursos Humanos | Proceso, actores y paso 10; H2 |
 | ¿Quién es el profesor de manejo? | Se define en Gestivo, no en el documento | E1; NF5 |
 | ¿El laboratorio puede avisar fuera del grupo de WhatsApp? | Sí: se le puede pedir que envíe los resultados a un número de WhatsApp | Proceso, paso 7; M3; NF2 |

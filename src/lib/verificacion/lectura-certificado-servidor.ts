@@ -16,6 +16,7 @@ export async function leerCertificado(d: {
   base64: string;
   nombre?: string | null;
   cedulaProceso: string | null;
+  nombreProceso?: string | null;
   procesoId: string;
   hoy: string;
 }): Promise<{ ok: true; lectura: LecturaCertificado } | { ok: false; error: string }> {
@@ -38,7 +39,7 @@ export async function leerCertificado(d: {
       costoUsd: r.costoUsd ?? undefined,
       procesoId: d.procesoId,
     });
-    const lectura = interpretarCertificado(r.texto, d.fuente, d.cedulaProceso, d.hoy);
+    const lectura = interpretarCertificado(r.texto, d.fuente, d.cedulaProceso, d.hoy, d.nombreProceso ?? null);
     if (!lectura) return { ok: false, error: "La IA no devolvió una lectura que se pueda usar: llene la revisión a mano." };
     return { ok: true, lectura };
   } catch (e) {

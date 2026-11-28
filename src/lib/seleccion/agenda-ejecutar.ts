@@ -8,7 +8,8 @@
  *  - 11:00 quien no ha confirmado queda para llamar (chat marcado para una persona);
  *  - hora + tolerancia sin llegada: «No asistió» y el aviso como borrador (reversible);
  *  Lo mismo con las salidas de reconocimiento de ruta (21-nov-2026), con sus mensajes;
- *  - 7:30  recordatorio de escuela a quien siga en escuela (una vez por día).
+ *  - 7:30  recordatorio de escuela a quien siga en escuela (una vez por día);
+ *  - 18:00 (ajuste) recordatorio de la fase 2 de exámenes a los citados de mañana: va en ayunas (27-nov-2026).
  *
  * Nunca toca candidatos del chat de prueba. Si el profesor marcó que hoy no
  * puede (o cambió la hora) y la cita no se ha reprogramado, no se le recuerda
@@ -19,7 +20,8 @@ import { ACTOR_SISTEMA, registrarEvento } from "@/lib/contratacion/servidor";
 import { enHorario, horaBogota } from "@/lib/comunicaciones/seguimiento";
 import { leerConfigSeguimiento } from "@/lib/comunicaciones/seguimiento-ejecutar";
 import { fechaBogota } from "@/lib/tesoreria/recobros";
-import { TIPOS_CON_SEGUIMIENTO, accionAgenda, citasAfectadas, hhmm, horaDelDia, interpretarRespuestaCita, citaVigente, type Cita } from "./agenda";
+import { sumarDias } from "@/lib/tesoreria/calendario-pago";
+import { TIPOS_CON_SEGUIMIENTO, tocaRecordatorioExamenF2, accionAgenda, citasAfectadas, hhmm, horaDelDia, interpretarRespuestaCita, citaVigente, type Cita } from "./agenda";
 import {
   CLAVE_RECORDATORIO,
   avisarProceso,
@@ -34,6 +36,8 @@ import {
 
 export interface ResultadoAgendaCron {
   recordatorios: number;
+  /** Recordatorios de la víspera de la fase 2 de exámenes. */
+  recordatoriosExamen?: number;
   alertas: number;
   inasistencias: number;
   escuela: number;
@@ -122,6 +126,36 @@ export async function ejecutarAgenda(ahora: Date = new Date(), opciones: { soloP
     r.alertas++;
   }
 
+  // Fase 2 de exámenes: la víspera, desde la hora del ajuste (va en ayunas). Dentro del horario de WhatsApp.
+  if (enHora && a.recordatorioExamenF2Activo && horaBogota(ahora) >= a.recordatorioExamenF2Hora) {
+    r.recordatoriosExamen = 0;
+    let consultaF2 = db
+      .from("seleccion_citas")
+      .select("*, procesos_contratacion!inner(id, nombre, celular, origen, estado)")
+      .eq("tipo", "examen_f2")
+      .eq("fecha", sumarDias(hoy, 1))
+      .is("recordatorio_at", null)
+      .in("estado", ["programada", "confirmada", "pide_otra_fecha"]);
+    if (solo) consultaF2 = consultaF2.in("proceso_id", solo.length ? solo : ["00000000-0000-0000-0000-000000000000"]);
+    const { data: f2 } = await consultaF2;
+    for (const c of (f2 ?? []) as FilaCita[]) {
+      const p = uno(c.procesos_contratacion) as { id: string; origen?: string | null; estado?: string } | null;
+      if (!p || (!solo && p.origen === "chat_prueba") || p.estado !== "en_examenes_fase2") continue;
+      if (!tocaRecordatorioExamenF2(c, ahora, a)) continue;
+      const { data: tomada } = await db.from("seleccion_citas").update({ recordatorio_at: ahora.toISOString() }).eq("id", c.id).is("recordatorio_at", null).select("id");
+      if (!tomada?.length) continue;
+      const { envio } = await avisarProceso(p.id, "recordatorio_examen_f2", { fecha: c.fecha, hora: c.hora });
+      // Sin plantilla aprobada, sin el laboratorio o sin la migración del mensaje: se suelta para reintentar
+      // en la siguiente corrida, sin llenar el historial con cada intento.
+      if (envio === "sin_plantilla" || envio === "falta_dato" || envio === "sin_catalogo") {
+        await db.from("seleccion_citas").update({ recordatorio_at: null }).eq("id", c.id);
+        continue;
+      }
+      await registrarEvento(p.id, { tipo: "cita", detalle: { accion: "recordatorio", tipo: c.tipo, fecha: c.fecha, hora: hhmm(c.hora), envio } }, ACTOR_SISTEMA);
+      r.recordatoriosExamen++;
+    }
+  }
+
   // Escuela: una vez por día, desde la hora configurada y antes de la clase, si hoy hay profesor.
   const horaClase = horaDelDia(hoy, a, excepciones);
   const ya = horaBogota(ahora);
@@ -174,7 +208,9 @@ export async function procesarRespuestaCita(conversacionId: string, mensajeId: s
   const { data: conv } = await db.from("wa_conversaciones").select("proceso_id, agente_pausado").eq("id", conversacionId).maybeSingle();
   const procesoId = (conv?.proceso_id as string | null) ?? null;
   if (!procesoId) return null;
-  const citas = (await citasDeProceso(procesoId)).filter((c) => TIPOS_CON_SEGUIMIENTO.includes(c.tipo));
+  // 27-nov-2026: también la fase 2 de exámenes (responde al recordatorio de la víspera): solo se confirma o
+  // queda para una persona; no tiene alerta de «no confirmó» ni «No asistió» (el resultado lo da el laboratorio).
+  const citas = (await citasDeProceso(procesoId)).filter((c) => TIPOS_CON_SEGUIMIENTO.includes(c.tipo) || c.tipo === "examen_f2");
   // La que sigue en pie más próxima (las citas vienen de la más reciente a la más vieja).
   const cita = citas.filter((c) => citaVigente(c)).sort((x, y) => `${x.fecha} ${x.hora}`.localeCompare(`${y.fecha} ${y.hora}`))[0];
   if (!cita) {
@@ -193,7 +229,8 @@ export async function procesarRespuestaCita(conversacionId: string, mensajeId: s
     if (cita.estado !== "pide_otra_fecha") await pedirOtraFecha(cita.id, ACTOR_SISTEMA);
     // El asistente le pregunta por qué, intenta que vaya y, si no, le ofrece el
     // siguiente día hábil. Solo si está pausado en este chat queda para una persona.
-    if (conv?.agente_pausado) await db.from("wa_conversaciones").update({ requiere_humano: true }).eq("id", conversacionId);
+    // La del laboratorio (fase 2) la mueve siempre una persona.
+    if (conv?.agente_pausado || cita.tipo === "examen_f2") await db.from("wa_conversaciones").update({ requiere_humano: true }).eq("id", conversacionId);
   } else if (r === "no_interesa") {
     // El cierre por desistimiento lo decide una persona.
     await db.from("wa_conversaciones").update({ requiere_humano: true }).eq("id", conversacionId);

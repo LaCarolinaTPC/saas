@@ -104,7 +104,7 @@ function Saliente({ m, onResponder, ocupado, frases }: { m: MensajeHiloLaborator
       {onResponder && esperando.length > 0 && (
         <div className="mt-2 space-y-1 rounded-md bg-white/70 p-1.5">
           <p className="text-[10px] font-medium text-slate-500">
-            Responder como el laboratorio (con la frase acordada: se registra solo)
+            Responder como el laboratorio (con la frase acordada: la fase 1 se registra sola; la fase 2 la confirma una persona)
           </p>
           {esperando.map((a) => (
             <div key={`${a.procesoId}-${a.fase}`} className="flex flex-wrap items-center gap-1">

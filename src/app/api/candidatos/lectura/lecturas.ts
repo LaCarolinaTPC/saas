@@ -11,6 +11,8 @@ import { datosDiaContratacion, datosExperiencia, documentosLeidos } from "@/app/
 import { citasYProfesorDeProceso } from "@/app/(dashboard)/candidatos/agenda-actions";
 import { botonesPlantillasPrueba, fichaPrueba } from "@/lib/seleccion/prueba-actions";
 import { candidatosDePrueba } from "@/lib/seleccion/prueba-profesor-actions";
+import { novedadesHoy } from "@/app/(dashboard)/candidatos/seleccion/notificaciones-actions";
+import { tableroDelMes } from "@/app/(dashboard)/candidatos/tablero-actions";
 
 export const LECTURAS_FICHA = {
   antecedentesDelProceso,
@@ -25,6 +27,10 @@ export const LECTURAS_FICHA = {
   fichaPrueba,
   candidatosDePrueba,
   botonesPlantillasPrueba,
+  // Novedades del día (revisiones manuales) arriba de Candidatos (27-nov-2026).
+  novedadesHoy,
+  // El tablero de otro mes (27-nov-2026).
+  tableroDelMes,
 };
 
 export type LecturasFicha = typeof LECTURAS_FICHA;

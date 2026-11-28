@@ -19,6 +19,8 @@ import { createProceso, updateProceso, updateProcesoEstado, deleteProceso, expor
 import { toast } from "sonner";
 import { usePermisos } from "@/components/permisos/permisos-provider";
 import { PanelSeleccion } from "@/components/seleccion/panel-seleccion";
+import { confirmacionBorrado, pideParaBorrar } from "@/lib/contratacion/borrado";
+import { NovedadesDelDia } from "@/components/seleccion/novedades-del-dia";
 import { movimientoAlSoltar, type EtapaConPaso } from "@/lib/seleccion/mover-tablero";
 import { SemaforoPuntos } from "@/components/seleccion/semaforo";
 import { requiereLentes } from "@/lib/seleccion/preseleccion";
@@ -258,6 +260,8 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
       </div>
 
       <div className="px-6 py-6">
+        {/* 27-nov-2026: las revisiones manuales del día (lo que se avisó por correo) y si ya se hicieron. */}
+        <NovedadesDelDia />
         {/* Stats */}
         <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Stat label="Postulaciones" value={stats.total} />
@@ -284,7 +288,7 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
             <option value={FILTRO_REINGRESOS}>Reingresos por revisar</option>
             <option value={FILTRO_ANTECEDENTES}>Antecedentes por revisar</option>
             <option value={FILTRO_APADRINADOS}>Apadrinados sin padrino</option>
-            <option value={FILTRO_PSICO_INSCRIBIR}>Psicosensotécnica: por inscribir</option>
+            <option value={FILTRO_PSICO_INSCRIBIR}>Psicotécnica: por inscribir</option>
             {PROCESO_ESTADOS.map((e) => (
               <option key={e.value} value={e.value}>{e.label}</option>
             ))}
@@ -655,16 +659,9 @@ function EstadoSelect({ proceso, onCierre, onAvanzar }: { proceso: ProcesoContra
   );
 }
 
+// 27-nov-2026: sin «Eliminar» en la lista (un clic bastaba para borrar uno real por error):
+// se elimina desde la ficha, escribiendo la cédula del candidato.
 function RowActions({ proceso, onEdit, puedePadrino }: { proceso: ProcesoContratacion; onEdit: () => void; puedePadrino?: boolean }) {
-  const [isPending, startTransition] = useTransition();
-
-  function handleDelete() {
-    if (!confirm(`¿Eliminar el proceso de "${proceso.nombre}"? Esta acción no se puede deshacer.`)) return;
-    startTransition(async () => {
-      await deleteProceso(proceso.id);
-    });
-  }
-
   return (
     <div className="inline-flex gap-1">
       {puedePadrino && (
@@ -682,14 +679,6 @@ function RowActions({ proceso, onEdit, puedePadrino }: { proceso: ProcesoContrat
         title="Editar"
       >
         <Pencil className="h-4 w-4" />
-      </button>
-      <button
-        onClick={handleDelete}
-        disabled={isPending}
-        className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
-        title="Eliminar"
-      >
-        <Trash2 className="h-4 w-4" />
       </button>
     </div>
   );
@@ -730,6 +719,10 @@ export function ProcesoFormDialog({
 }) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  // Eliminar (27-nov-2026): solo aquí, con la cédula escrita.
+  const [borrando, setBorrando] = useState(false);
+  const [confirmacion, setConfirmacion] = useState("");
+  const [eliminando, setEliminando] = useState(false);
   const [form, setForm] = useState<ProcesoInput>(() => ({
     fecha_creacion: proceso?.fecha_creacion ?? todayBogota(),
     nombre: proceso?.nombre ?? inicial?.nombre ?? "",
@@ -1147,7 +1140,49 @@ export function ProcesoFormDialog({
 
         {error && <p className="mx-5 mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
 
-        <div className="flex justify-end gap-2 border-t border-[#F1F5F9] px-5 py-3">
+        {proceso && puedeEditar && borrando && (
+          <div className="mx-5 mt-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            <p className="font-medium">¿Eliminar el proceso de {proceso.nombre || "este candidato"}?</p>
+            <p className="mt-1 text-xs">
+              Se borra con su historial, citas, consultas y documentos. No se puede deshacer. Para confirmar, escriba su {pideParaBorrar(proceso).que}
+              {pideParaBorrar(proceso).que === "cédula" ? ` (${pideParaBorrar(proceso).valor})` : ""}.
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <input
+                value={confirmacion}
+                onChange={(e) => setConfirmacion(e.target.value)}
+                placeholder={pideParaBorrar(proceso).que === "cédula" ? "Cédula" : "Nombre completo"}
+                className="h-9 w-56 rounded-lg border border-red-300 bg-white px-3 text-sm outline-none focus:border-red-500"
+                autoFocus
+              />
+              <Button
+                type="button"
+                disabled={eliminando || !confirmacionBorrado(proceso, confirmacion)}
+                onClick={async () => {
+                  setEliminando(true);
+                  const r = await deleteProceso(proceso.id, confirmacion).catch((e: Error) => ({ ok: false, error: e.message }));
+                  setEliminando(false);
+                  if (!r.ok) return setError(r.error ?? "No se pudo eliminar.");
+                  toast.success(`Proceso de ${proceso.nombre || "el candidato"} eliminado.`);
+                  onClose();
+                }}
+                className="bg-red-600 text-white hover:bg-red-700 disabled:opacity-40"
+              >
+                {eliminando ? "Eliminando…" : "Eliminar definitivamente"}
+              </Button>
+              <Button type="button" variant="outline" onClick={() => { setBorrando(false); setConfirmacion(""); }} disabled={eliminando}>
+                No eliminar
+              </Button>
+            </div>
+          </div>
+        )}
+
+        <div className="flex items-center justify-end gap-2 border-t border-[#F1F5F9] px-5 py-3">
+          {proceso && puedeEditar && !borrando && (
+            <button type="button" onClick={() => setBorrando(true)} className="mr-auto inline-flex h-9 items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 text-sm font-medium text-red-600 hover:bg-red-50">
+              <Trash2 className="h-3.5 w-3.5" /> Eliminar proceso
+            </button>
+          )}
           <Button type="button" variant="outline" onClick={onClose} disabled={isPending}>
             Cancelar
           </Button>

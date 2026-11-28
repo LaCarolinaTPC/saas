@@ -1,4 +1,4 @@
-// Correo para la prueba psicosensotécnica (24-nov-2026), de punta a punta:
+// Correo para la prueba psicotécnica (24-nov-2026), de punta a punta:
 // pedirlo, que lo escriba, que diga si está bien, el enlace (sí y no), escribirlo
 // a mano y marcar la inscripción. Sin IA. WhatsApp sale simulado en desarrollo.
 // El correo con el enlace sí sale en desarrollo (salirEnDesarrollo): por eso
@@ -80,7 +80,7 @@ try {
   const pedido = await pedirCorreoPsico(id, actor);
   revisar("se le pide por WhatsApp (simulado)", pedido.ok && pedido.envio === "enviado", pedido);
   revisar("queda «pedido» con la cuenta de recordatorios en 0", (await estado()).correo_estado === "pedido" && (await estado()).correo_recordatorios === 0);
-  revisar("el mensaje dice para qué es", /psicosensot/i.test(await ultimoSaliente()), await ultimoSaliente());
+  revisar("el mensaje dice para qué es", /psicot/i.test(await ultimoSaliente()), await ultimoSaliente());
 
   console.log("\n2. Lo que responde");
   revisar("un mensaje que no es del correo lo deja al asistente", (await escribe("¿y eso para qué es?")) === false);

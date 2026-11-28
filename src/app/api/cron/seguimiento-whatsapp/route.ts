@@ -25,6 +25,7 @@ import { leerDocumentosPendientesCron, pedirReenvioIlegibles } from "@/lib/selec
 import { transcribirAudiosPendientesCron } from "@/lib/seleccion/audios";
 import { sincronizarListosPendientes } from "@/lib/seleccion/listo-contratar-servidor";
 import { enviarOrdenesDelDia } from "@/lib/seleccion/laboratorios-servidor";
+import { notificarChatsHumano } from "@/lib/seleccion/notificaciones-servidor";
 
 export const runtime = "nodejs";
 // Reintenta verificaciones lentas de Croma (el RNMC puede tardar cerca de un minuto).
@@ -92,7 +93,7 @@ export async function GET(request: NextRequest) {
     const ordenes = await intentar(() => enviarOrdenesDelDia());
     // Entrega 3: recordatorio de los documentos que le faltan de la carpeta.
     const documentos = await intentar(() => ejecutarDocumentosPendientes());
-    // 24-nov-2026: pedir y recordar el correo para la prueba psicosensotécnica.
+    // 24-nov-2026: pedir y recordar el correo para la prueba psicotécnica.
     // 24-nov-2026: el aviso del reconocimiento de ruta a quien no respondió lo del banco en 24 h.
     const reconocimiento = await intentar(() => avisosReconocimientoPendientes());
     const correos = await intentar(() => ejecutarCorreosPsico());
@@ -104,11 +105,13 @@ export async function GET(request: NextRequest) {
     const lecturas = sinGasto ? porTope : await intentar(() => leerDocumentosPendientesCron());
     // 25-nov-2026: «Listo para contratar» al día, por si cambió algo que no pasa por una acción (ajustes, reglas).
     const listos = await intentar(() => sincronizarListosPendientes());
+    // 27-nov-2026: un correo con los chats que el asistente pasó a una persona (los nuevos desde la última vuelta).
+    const chatsHumano = await intentar(() => notificarChatsHumano());
     // R6: a quien mandó un archivo ilegible y el asistente no alcanzó a pedírselo de nuevo.
     const reenvios = await intentar(() => pedirReenvioIlegibles());
     // R4: audios de chats que el asistente no atiende (pausados o tomados por una persona): la bandeja los muestra transcritos.
     const audios = sinGasto ? porTope : await intentar(() => transcribirAudiosPendientesCron());
-    return NextResponse.json({ ok: true, ...r, seleccion: { plantillas, reactivacion, simit, simitRelanzado, runt, policia, rnmc, antecedentes, lanzados, cierres, agenda, ordenes, documentos, reconocimiento, correos, certificado, alertas, lecturas, reenvios, audios, listos } });
+    return NextResponse.json({ ok: true, ...r, seleccion: { plantillas, reactivacion, simit, simitRelanzado, runt, policia, rnmc, antecedentes, lanzados, cierres, agenda, ordenes, documentos, reconocimiento, correos, certificado, alertas, lecturas, reenvios, audios, listos, chatsHumano } });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[cron seguimiento-whatsapp]", e);

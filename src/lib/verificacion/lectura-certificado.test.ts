@@ -51,3 +51,10 @@ test("certificado: la instrucción nombra la fuente y qué es hallazgo", () => {
   assert.match(instruccionCertificado("rnmc"), /Medidas Correctivas/);
   assert.match(instruccionCertificado("simit"), /total en pesos/);
 });
+
+test("certificado: el nombre también se compara (27-nov-2026)", () => {
+  const ajeno = interpretarCertificado('{"es_esa_fuente": true, "cedula": "123", "nombre": "PEDRO RUIZ DIAZ", "hallazgo": false, "detalle": "x"}', "policia", "123", HOY, "ANA MARIA PEREZ")!;
+  assert.ok(ajeno.avisos.some((a) => /a nombre de «PEDRO RUIZ DIAZ», no de «ANA MARIA PEREZ»/.test(a)), JSON.stringify(ajeno.avisos));
+  const suyo = interpretarCertificado('{"es_esa_fuente": true, "cedula": "123", "nombre": "Ana Pérez", "hallazgo": false, "detalle": "x"}', "policia", "123", HOY, "ANA MARIA PEREZ")!;
+  assert.ok(!suyo.avisos.some((a) => /a nombre de/.test(a)));
+});

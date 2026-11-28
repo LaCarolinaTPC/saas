@@ -924,3 +924,57 @@ export function proveedorSimit(op: OpcionesProveedor = {}): ProveedorVerificacio
     consultarTrabajoSimit: (id) => consultarTrabajoCroma(croma, id),
   };
 }
+
+
+interface RnmcCaseCroma {
+  found?: boolean;
+  case_number?: string | null;
+  status?: string | null;
+  locality?: string | null;
+  article?: string | null;
+  numeral?: string | null;
+  literal?: string | null;
+  facts?: string | null;
+  defense?: string | null;
+  measures?: { measure?: string | null; authority?: string | null; referred_to?: string | null; status?: string | null }[] | null;
+}
+
+/** El detalle de un expediente de Croma con la forma del portal (puro, para probarlo). null si no lo encontró. */
+export function interpretarExpedienteCroma(data: RnmcCaseCroma | null | undefined) {
+  if (!data || data.found === false || !data.case_number) return null;
+  const t = (v: string | null | undefined) => {
+    const x = String(v ?? "").replace(/\s+/g, " ").trim();
+    return x && !/^no aplica$/i.test(x) ? x.slice(0, 600) : null;
+  };
+  return {
+    expediente: data.case_number,
+    articulo: t(data.article),
+    numeral: t(data.numeral),
+    literal: t(data.literal),
+    localidad: t(data.locality),
+    relato: t(data.facts),
+    descargos: t(data.defense),
+    medidas: (data.measures ?? []).filter((m) => t(m.measure)).map((m) => ({ medida: t(m.measure)!, atribucion: t(m.authority), remitido: t(m.referred_to), estado: t(m.status) })),
+  };
+}
+
+/**
+ * El detalle de un expediente del RNMC en Croma (27-nov-2026, endpoint nuevo
+ * que Croma agregó a pedido nuestro): artículo, numeral, relato de los hechos,
+ * descargos y las medidas con su estado. Cada consulta cuenta como una
+ * solicitud aparte. Nunca lanza.
+ */
+export async function detalleExpedienteCroma(caseNumber: string): Promise<{ ok: true; detalle: NonNullable<ReturnType<typeof interpretarExpedienteCroma>> } | { ok: false; error: string; noExiste?: boolean }> {
+  const croma = configCroma();
+  if (!croma) return { ok: false, error: "Croma no está configurado." };
+  const numero = String(caseNumber ?? "").trim();
+  if (!/^[A-Za-z0-9]+(-[A-Za-z0-9]+)*$/.test(numero) || numero.length < 6) return { ok: false, error: "Número de expediente no válido." };
+  try {
+    const { status, json } = await llamarCroma(croma, { metodo: "POST", ruta: "/co/policia-rnmc/case/v1", cuerpo: { case_number: numero }, esperaSegundos: 55, timeoutMs: 70_000 });
+    if (status !== 200) return { ok: false, error: errorCroma(status, json).error ?? `Croma respondió ${status}.` };
+    const d = interpretarExpedienteCroma((json?.data ?? null) as RnmcCaseCroma | null);
+    return d ? { ok: true, detalle: d } : { ok: false, error: "Croma no encontró ese expediente.", noExiste: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}

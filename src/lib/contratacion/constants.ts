@@ -69,7 +69,7 @@ export const ESTADOS_REVISION_REINGRESO = ["pendiente", "antecedentes"] as const
 export const FILTRO_ANTECEDENTES = "antecedentes_por_revisar";
 
 /**
- * Filtro «Psicosensotécnica: por inscribir» (24-nov-2026): confirmaron su
+ * Filtro «Psicotécnica: por inscribir» (24-nov-2026): confirmaron su
  * correo y Gestión Humana todavía no los inscribe en la plataforma.
  */
 export const FILTRO_PSICO_INSCRIBIR = "psico_por_inscribir";
@@ -206,6 +206,8 @@ export interface ProcesoContratacion {
   cedula_no_coincide?: boolean;
   /** Solo en el tablero: examen no apto por revisar (o aplazado), para marcar la tarjeta (24-nov-2026). */
   revision_examen?: { fase: 1 | 2; resultado: "no_apto" | "aplazado"; observacion: string | null } | null;
+  /** Tablero (27-nov-2026): el semáforo de lo que necesita su etapa (lib/contratacion/semaforo-tablero). */
+  puntos?: { etiqueta: string; color: "verde" | "ambar" | "rojo" | "gris"; detalle: string; revisar?: boolean }[];
   licencia_verificada_runt?: boolean;
   /** Licencia según el RUNT (Croma); con ella la verificación ya no es manual (migración 20261114180402). */
   licencia_runt?: {

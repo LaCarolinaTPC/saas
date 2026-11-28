@@ -75,10 +75,10 @@ export async function datosEntrega3(procesoId: string): Promise<DatosEntrega3> {
   };
 }
 
-export async function registrarExamenFicha(procesoId: string, fase: FaseExamen, resultado: ResultadoExamen, observacion: string): Promise<Resultado & { proponeCierre?: boolean }> {
+export async function registrarExamenFicha(procesoId: string, fase: FaseExamen, resultado: ResultadoExamen, observacion: string, causa?: string | null): Promise<Resultado & { proponeCierre?: boolean }> {
   try {
     const perms = await exigirEdicion();
-    const r = await registrarExamen(procesoId, { fase: Number(fase) as FaseExamen, resultado, observacion }, actorUsuario(perms));
+    const r = await registrarExamen(procesoId, { fase: Number(fase) as FaseExamen, resultado, observacion, causa }, actorUsuario(perms));
     refrescar();
     return r;
   } catch (e) {

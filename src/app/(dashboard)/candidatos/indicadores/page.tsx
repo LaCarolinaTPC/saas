@@ -17,6 +17,7 @@ import { evaluarAlertas, umbralesAlertas } from "@/lib/seleccion/alertas-indicad
 import { leerAjustes, valorAjuste } from "@/lib/seleccion/servidor";
 import { BarrasConPorcentaje, BarrasPorDia, type FilaBarra } from "@/components/graficos/graficos-comunicaciones";
 import { PestanasIndicadores, periodoDeLaUrl } from "./pestanas-indicadores";
+import { HerramientasIndicadores } from "@/components/indicadores/herramientas-indicadores";
 
 export const dynamic = "force-dynamic";
 
@@ -76,12 +77,13 @@ export default async function IndicadoresSeleccionPage({ searchParams }: { searc
       </div>
 
       <PestanasIndicadores actual="seleccion" periodo={periodoDeLaUrl(sp)} />
+      <HerramientasIndicadores titulo="Indicadores de selección" contexto={`Del ${fechaLarga(periodo.rango.desde)} al ${fechaLarga(periodo.rango.hasta)}, sin los del chat de prueba`} />
 
       <Filtros dias={periodo.dias} rango={periodo.rango} costo={urlCosto} />
 
       {periodo.aviso && <Aviso>{periodo.aviso}</Aviso>}
 
-      <div className="space-y-6">
+      <div id="indicadores-contenido" className="space-y-6">
         <Suspense fallback={<Cargando titulos={["Alertas"]} />}>
           <GrupoAlertas selP={selP} chatP={chatP} respP={respP} />
         </Suspense>
@@ -192,6 +194,7 @@ async function GrupoDetalle({ selP, chatP }: { selP: SelP; chatP: ChatP }) {
     <>
       <Tiempos ind={ind} />
       <Cierres ind={ind} />
+      <PorDiaYSemana ind={ind} chat={chat} />
       <SemanaYCanal ind={ind} />
       <Antecedentes ind={ind} />
       {chat && <Asistente c={chat} />}
@@ -264,7 +267,7 @@ function Seccion({ encabezado, ayuda, children }: { encabezado: string; ayuda?: 
 
 function Cifra({ etiqueta, valor, nota }: { etiqueta: string; valor: string | null; nota?: string }) {
   return (
-    <div className="rounded-xl border border-[#F1F5F9] bg-[#F8FAFC] p-4">
+    <div className="rounded-xl border border-[#F1F5F9] bg-[#F8FAFC] p-4" data-cifra={etiqueta} data-valor={valor ?? ""} data-nota={nota ?? ""}>
       <p className="text-[12px] font-medium text-[#64748B]">{etiqueta}</p>
       <p className="mt-1.5 text-[24px] font-bold leading-none text-[#0F172A]">{valor ?? "—"}</p>
       {nota && <p className="mt-1.5 text-[11px] leading-snug text-[#64748B]">{nota}</p>}
@@ -641,6 +644,86 @@ function Cierres({ ind }: P) {
       ) : (
         <BarrasConPorcentaje filas={filas} total={ind.cerrados} unidad="procesos" anchoEtiqueta={260} />
       )}
+    </Seccion>
+  );
+}
+
+/**
+ * Pedido de GH (27-nov-2026): por día, los chats nuevos, los aspirantes nuevos y cuántos no
+ * cumplieron el perfil (con las causas); por semana, cuántos de los que se postularon se citaron y
+ * cuántos se presentaron a la prueba de manejo.
+ */
+function PorDiaYSemana({ ind, chat }: P & { chat: Indicadores | null }) {
+  const chatsDelDia = new Map((chat?.volumen.porDia ?? []).map((d) => [d.fecha, d.conversaciones]));
+  // `?? []`: un cálculo guardado en la caché de antes del 27-nov-2026 no trae el por día.
+  const dias = [...(ind.porDia ?? [])].reverse();
+  const celda = "px-2 py-1.5 text-right tabular-nums";
+  return (
+    <Seccion
+      encabezado="Por día y resumen semanal"
+      ayuda="«No cumplieron el perfil»: de los aspirantes de ese día, los cerrados por una causa de la preselección (edad, zona, licencia, SIMIT o autorización). Por semana se cuentan los que se postularon esa semana: si después se cerraron, igual cuentan como citados o presentados."
+    >
+      <div>
+        <Subtitulo>Por día</Subtitulo>
+        <div className="max-h-[420px] overflow-auto rounded-xl border border-[#F1F5F9]">
+          <table className="w-full text-sm">
+            <thead className="sticky top-0 bg-[#F8FAFC] text-xs text-text-tertiary">
+              <tr>
+                <th className="px-2 py-1.5 text-left font-medium">Día</th>
+                <th className="px-2 py-1.5 text-right font-medium">Chats nuevos</th>
+                <th className="px-2 py-1.5 text-right font-medium">Aspirantes nuevos</th>
+                <th className="px-2 py-1.5 text-right font-medium">No cumplieron el perfil</th>
+                <th className="px-2 py-1.5 text-left font-medium">Por qué</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#F1F5F9]">
+              {dias.map((d) => (
+                <tr key={d.fecha}>
+                  <td className="px-2 py-1.5 text-text-secondary">{d.etiqueta}</td>
+                  <td className={celda}>{chat ? fmt(chatsDelDia.get(d.fecha) ?? 0) : "—"}</td>
+                  <td className={celda}>{fmt(d.aspirantes)}</td>
+                  <td className={`${celda} ${d.noCumplieron ? "font-medium text-red-700" : "text-text-tertiary"}`}>
+                    {fmt(d.noCumplieron)}
+                    {d.aspirantes ? <span className="ml-1 text-[11px] font-normal text-text-tertiary">({pctTxt((d.noCumplieron / d.aspirantes) * 100)})</span> : null}
+                  </td>
+                  <td className="px-2 py-1.5 text-xs text-text-tertiary">{d.causas.map((c) => `${c.etiqueta}: ${fmt(c.n)}`).join(" · ") || "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div>
+        <Subtitulo>Resumen semanal: se postularon, se citaron y se presentaron a la prueba de manejo</Subtitulo>
+        <div className="overflow-auto rounded-xl border border-[#F1F5F9]">
+          <table className="w-full text-sm">
+            <thead className="bg-[#F8FAFC] text-xs text-text-tertiary">
+              <tr>
+                <th className="px-2 py-1.5 text-left font-medium">Semana</th>
+                <th className="px-2 py-1.5 text-right font-medium">Se postularon</th>
+                <th className="px-2 py-1.5 text-right font-medium">Se citaron</th>
+                <th className="px-2 py-1.5 text-right font-medium">Se presentaron a la prueba</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#F1F5F9]">
+              {[...ind.porSemana].reverse().map((s) => (
+                <tr key={s.fecha}>
+                  <td className="px-2 py-1.5 text-text-secondary">{s.etiqueta}</td>
+                  <td className={celda}>{fmt(s.aspirantes)}</td>
+                  <td className={celda}>
+                    {fmt(s.citados ?? 0)}
+                    {s.aspirantes ? <span className="ml-1 text-[11px] text-text-tertiary">({pctTxt(((s.citados ?? 0) / s.aspirantes) * 100)})</span> : null}
+                  </td>
+                  <td className={celda}>
+                    {fmt(s.presentaron ?? 0)}
+                    {s.citados ? <span className="ml-1 text-[11px] text-text-tertiary">({pctTxt(((s.presentaron ?? 0) / s.citados) * 100)} de los citados)</span> : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </Seccion>
   );
 }

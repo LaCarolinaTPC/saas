@@ -95,7 +95,7 @@ test("horas del día de la cita en orden: recordatorio < alerta < cita (N5, 25-n
   assert.equal(conflictoDeHoras("recordatorio_cita_hora", "09:00", () => null), null);
 });
 
-test("cortes de la psicosensotécnica en orden", () => {
+test("cortes de la psicotécnica en orden", () => {
   const todos = [{ clave: "psico_corte_no_recomendado", valor: 50 }, { clave: "psico_corte_con_sugerencias", valor: 75 }];
   assert.equal(validarAjuste(a("psico_corte_no_recomendado", "porcentaje"), "80", todos).ok, false);
   assert.equal(validarAjuste(a("psico_corte_no_recomendado", "porcentaje"), "60", todos).ok, true);

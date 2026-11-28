@@ -39,7 +39,7 @@ export async function proxy(request: NextRequest) {
     // Política de tratamiento de datos: la enlaza la autorización que el
     // asistente de WhatsApp pide a los aspirantes, que no tienen cuenta.
     pathname === "/politica-de-datos" ||
-    // Enlace del correo para confirmar la dirección (prueba psicosensotécnica):
+    // Enlace del correo para confirmar la dirección (prueba psicotécnica):
     // el token es la llave; sus acciones solo responden por ese token.
     pathname.startsWith("/validar-correo/") ||
     // Portal de afiliados: sesión propia firmada por el servidor, sin Supabase

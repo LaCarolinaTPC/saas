@@ -164,7 +164,7 @@ async function atenderRespuestaExamenes(procesoId: string, texto: string, respon
       await enviarCartaDelBanco(p.id);
     }
     // Después del banco, el aviso del reconocimiento de ruta (con la pregunta de cuántas
-    // conoce); si ya se le hizo, el correo para la prueba psicosensotécnica.
+    // conoce); si ya se le hizo, el correo para la prueba psicotécnica.
     if (!p.rutas_preguntado_at) await avisarReconocimiento(p.id);
     else await pedirCorreoDespues(p.id, p.correo_estado);
     return true;
@@ -192,7 +192,7 @@ async function atenderRespuestaExamenes(procesoId: string, texto: string, respon
     ),
     clave
   );
-  // Después de las rutas, el correo para la prueba psicosensotécnica (si falta).
+  // Después de las rutas, el correo para la prueba psicotécnica (si falta).
   await pedirCorreoDespues(p.id, p.correo_estado);
   return true;
 }

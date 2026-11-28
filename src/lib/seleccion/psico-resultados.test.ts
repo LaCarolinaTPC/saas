@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { combinarPruebas, interpretarConcepto, interpretarEstadoPrueba, leerFecha, leerFilasResultados, leerInformePdf, leerInformePsicoAlianza, leerPuntaje } from "./psico-resultados";
 
-test("psicosensotécnica: el concepto en palabras (24-nov-2026)", () => {
+test("psicotécnica: el concepto en palabras (24-nov-2026)", () => {
   assert.equal(interpretarConcepto("APTO"), "apto");
   assert.equal(interpretarConcepto("Recomendado"), "apto");
   assert.equal(interpretarConcepto("Cumple con el perfil"), "apto");
@@ -17,7 +17,7 @@ test("psicosensotécnica: el concepto en palabras (24-nov-2026)", () => {
   assert.equal(interpretarConcepto(""), null);
 });
 
-test("psicosensotécnica: fechas y puntajes", () => {
+test("psicotécnica: fechas y puntajes", () => {
   assert.equal(leerFecha("24/11/2026"), "2026-11-24");
   assert.equal(leerFecha("2026-11-24"), "2026-11-24");
   assert.equal(leerFecha("Fecha: 3-1-2026"), "2026-01-03");
@@ -28,7 +28,7 @@ test("psicosensotécnica: fechas y puntajes", () => {
   assert.equal(leerPuntaje("abc"), null);
 });
 
-test("psicosensotécnica: hoja de resultados con cabecera", () => {
+test("psicotécnica: hoja de resultados con cabecera", () => {
   const filas = leerFilasResultados([
     ["Reporte de evaluados"],
     [],
@@ -48,7 +48,7 @@ test("psicosensotécnica: hoja de resultados con cabecera", () => {
   assert.equal(leerFilasResultados([["Documento", "Email"], ["123456", "a@b.co"]]), null);
 });
 
-test("psicosensotécnica: informe PDF", () => {
+test("psicotécnica: informe PDF", () => {
   const texto = `INFORME DE EVALUACIÓN PSICOSENSOMÉTRICA
   Nombre: JUAN PÉREZ   Documento de identidad: C.C. 1.234.567
   Fecha de aplicación: 20/11/2026
@@ -123,4 +123,36 @@ test("PsicoAlianza: no la presentó o no la terminó (Excel)", () => {
   assert.equal(interpretarEstadoPrueba("Apto"), null);
   const filas = leerFilasResultados([["Documento", "Resultado"], ["123456", "No presentó"], ["654321", "Incompleta"], ["111222", "Apto"]]);
   assert.deepEqual(filas!.map((f) => [f.estadoPrueba ?? null, f.resultado]), [["no_presento", null], ["incompleta", null], [null, "apto"]]);
+});
+
+test("psicotécnica: riesgos para conducir → se sugiere «con sugerencias» (27-nov-2026)", () => {
+  const ethikos = [
+    "Datos del Candidato Nombre: Persona De Prueba Identificación: 900000001 Fecha: 24-06-2025 09:59:26",
+    "RESULTADO FINAL RESULTADO OBTENIDO 82%",
+    "Tratamiento de la Información 81.0 Veracidad 81.0 Conducta No Fraudulenta 66.0 Abstinencia del uso de SPA y Alcohol 70.0 No Violencia 70.0",
+    "Riesgos del Evaluado frente al Cargo Permite identificar aspectos puntuales que requieren ser revisados, teniendo en cuenta respuestas específicas del candidato(a) que podrían convertirse en un riesgo potencial.",
+    "El(la) Sr. (Sra.) Prueba considera que el consumo moderado de alcohol en horario laboral no necesariamente conduce a errores en el trabajo.",
+    "Esta persona prefiere no ser tan sincera cuando está en medio de un conflicto para evitar que la situación empeore.",
+    "Especificaciones a considerar frente al Cargo …",
+    "TOTAL DE PREGUNTAS 72 CONTESTADAS SIN CONTESTAR 72 0",
+  ].join("\n");
+  const e = leerInformePsicoAlianza(ethikos, "Ethikos - Riesgos_900000001_Persona_1.pdf");
+  assert.equal(e.resultado, "apto");
+  assert.ok(e.alertas.some((a) => /riesgo: El\(la\) Sr\. \(Sra\.\) Prueba considera/.test(a)), "la frase no se corta en «Sr.»");
+  assert.ok(e.alertas.some((a) => /Conducta no fraudulenta 66 \(tendencia a mejorar\)/.test(a)));
+  assert.ok(e.alertas.some((a) => /Abstinencia del uso de SPA y alcohol 70/.test(a)));
+  assert.ok(!e.alertas.some((a) => /Veracidad/.test(a)), "81 no es riesgo");
+  assert.deepEqual(e.riesgosConducir, ["riesgo señalado sobre alcohol", "Abstinencia del uso de SPA y alcohol 70", "No violencia 70"]);
+
+  const disc = "Identificación: 900000001 AJUSTE DEL CANDIDATO AL PERFIL: 0% 100% 81.43% 0% a 50% 51% a 75% 76% a 100% No Recomendado Recomendado con sugerencias Recomendado Control de Impulsos Ajuste:(95.7%) Rumor Ajuste:(60%) ESCALA DE SIMULACIÓN Una alta simulación indica que la prueba fue respondida con un escaso nivel de sinceridad. Baja 20";
+  const d = leerInformePsicoAlianza(disc, "Ten DISC_900000001_Persona_2.pdf");
+  assert.equal(d.resultado, "apto");
+  assert.ok(d.alertas.some((a) => /Rumor con ajuste de 60 %/.test(a)));
+  assert.deepEqual(d.riesgosConducir, [], "el rumor no pesa para conducir y la simulación es baja");
+
+  const c = combinarPruebas([e, d]);
+  assert.equal(c.resultado, "apto_con_observaciones");
+  assert.match(c.alertas[0], /^Sugerencia de Gestivo: «Recomendado con sugerencias».*alcohol/);
+  assert.match(c.detalle, /Ethikos - Riesgos: Recomendado \(82 %\)/, "el detalle guarda lo que dice el informe");
+  assert.equal(combinarPruebas([d]).resultado, "apto", "sin riesgos para conducir queda como dice el informe");
 });

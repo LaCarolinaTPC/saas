@@ -6,6 +6,7 @@
  * reenvío por WhatsApp (Salud Ocupacional, 21-nov-2026).
  */
 import { useEffect, useState, useTransition } from "react";
+import { confirmar } from "@/components/ui/confirmar";
 import { Download, MessageCircle } from "lucide-react";
 import {
   asignarLaboratorioAccion, documentosAspiranteAccion, enviarDocumentosAccion, laboratorioDelProcesoAccion, type DocumentoDescarga,
@@ -84,8 +85,8 @@ export function LaboratorioFicha({ procesoId, puedeEditar }: { procesoId: string
           <button
             className={boton}
             disabled={ocupado}
-            onClick={() =>
-              confirm("¿Enviarle al aspirante la carta del banco por WhatsApp? (La orden de exámenes va solo al laboratorio.)") &&
+            onClick={async () =>
+              await confirmar("¿Enviarle al aspirante la carta del banco por WhatsApp? (La orden de exámenes va solo al laboratorio.)") &&
               enTransicion(async () => {
                 const r = await enviarDocumentosAccion(procesoId, false);
                 setAviso(r.ok ? { ok: r.resultado === "enviado" || r.resultado === "prueba", texto: `${RESULTADO[r.resultado] ?? r.resultado} ${r.avisos.join(" ")}`.trim() } : { ok: false, texto: r.error });

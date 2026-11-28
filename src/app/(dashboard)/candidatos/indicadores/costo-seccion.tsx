@@ -37,7 +37,7 @@ function enlaceCon(valores: Valores): string {
 
 function Cifra({ etiqueta, valor, nota }: { etiqueta: string; valor: string | null; nota?: string }) {
   return (
-    <div className="rounded-xl border border-[#F1F5F9] bg-[#F8FAFC] p-4">
+    <div className="rounded-xl border border-[#F1F5F9] bg-[#F8FAFC] p-4" data-cifra={etiqueta} data-valor={valor ?? ""} data-nota={nota ?? ""}>
       <p className="text-[12px] font-medium text-[#64748B]">{etiqueta}</p>
       <p className="mt-1.5 text-[24px] font-bold leading-none text-[#0F172A]">{valor ?? "—"}</p>
       {nota && <p className="mt-1.5 text-[11px] leading-snug text-[#64748B]">{nota}</p>}

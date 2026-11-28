@@ -120,9 +120,10 @@ export async function enviarBotones(telefono: string, texto: string, botones: st
 
 async function postMensaje(payload: Record<string, unknown>): Promise<EnvioResultado> {
   if (whatsappSimulado()) {
-    // Los números de la lista de prueba (Tiempos y reglas › Entorno de pruebas) sí reciben (24-nov-2026).
-    const { whatsappDePruebaPermitido } = await import("@/lib/entorno-pruebas");
-    if (!(await whatsappDePruebaPermitido(String(payload.to ?? "")))) {
+    // Los números de la lista de prueba (Tiempos y reglas › Entorno de pruebas) sí reciben (24-nov-2026),
+    // y lo que se envía por un candidato del chat de prueba también (27-nov-2026: pruebas más reales).
+    const { whatsappDePruebaPermitido, envioRealDePrueba } = await import("@/lib/entorno-pruebas");
+    if (!envioRealDePrueba() && !(await whatsappDePruebaPermitido(String(payload.to ?? "")))) {
       console.info(`[whatsapp] desarrollo: no sale (simulado) · ${String(payload.type ?? "mensaje")} a ${String(payload.to ?? "?")}`);
       return { ok: true, wamid: `${PREFIJO_WAMID_SIMULADO}${randomUUID()}` };
     }

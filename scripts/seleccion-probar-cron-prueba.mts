@@ -168,12 +168,16 @@ try {
   // ── 5 ─────────────────────────────────────────────────────────────────────
   titulo("5. Silencio de un aspirante que todavía no es candidato");
   const ultimo = Date.now() - 60 * 60_000;
+  // El reloj virtual, 31 h después y dentro del horario de los mensajes (7:00–20:00 en Bogotá):
+  // corrida cerca de la medianoche, «+31 h» caía a las 6 a. m. y no salía nada, como debe ser.
+  let ahora5 = ultimo + 31 * 3_600_000;
+  while ((new Date(ahora5).getUTCHours() + 19) % 24 < 9 || (new Date(ahora5).getUTCHours() + 19) % 24 > 18) ahora5 += 3_600_000;
   // Sin la hoja de vida (con ella ya terminó lo que se le pedía y no hay reactivación).
-  const r5 = await correrCronPrueba([item(5, null, { ultimoEntranteAt: ultimo, ultimoEsNuestro: true, hojaVida: false })], new Date(Date.now() + 30 * 3_600_000));
+  const r5 = await correrCronPrueba([item(5, null, { ultimoEntranteAt: ultimo, ultimoEsNuestro: true, hojaVida: false })], new Date(ahora5));
   const pasos5 = r5.chats[0]?.silencio ?? [];
   revisar(`a las +31 h van los avisos de reactivación (${pasos5.map((s) => s.accion).join(", ")})`, pasos5.some((s) => s.accion === "aviso1"), pasos5);
   revisar("con una clave para no repetirlos", pasos5.every((s) => s.clave.endsWith(`:${ultimo}`)));
-  const r5b = await correrCronPrueba([item(5, null, { ultimoEntranteAt: ultimo, ultimoEsNuestro: false })], new Date(Date.now() + 30 * 3_600_000));
+  const r5b = await correrCronPrueba([item(5, null, { ultimoEntranteAt: ultimo, ultimoEsNuestro: false })], new Date(ahora5));
   revisar("si el último mensaje es del aspirante, no hay silencio", !r5b.chats[0]?.silencio.length);
 
   // ── 6 ─────────────────────────────────────────────────────────────────────

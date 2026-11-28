@@ -8,6 +8,7 @@
  * nada de verdad.
  */
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
+import { confirmar } from "@/components/ui/confirmar";
 import Link from "next/link";
 import { Download, FileText, Mail, MessageCircle, Plus, Send, TriangleAlert, Upload } from "lucide-react";
 import { DIAS_CORTOS, DIAS_SEMANA, type Laboratorio, type ModoReparto } from "@/lib/seleccion/laboratorios";
@@ -175,7 +176,8 @@ function TarjetaLaboratorio({ lab, marcas, smtp, puedeEditar, onCambio, reparto,
         <p className="text-[11px] text-text-tertiary">
           La frase que el laboratorio escribe para cada resultado (acordada con él; la IA reconoce también sus variantes). Si la respuesta la trae y se reconoce al aspirante por
           la cédula o el nombre, el resultado se registra solo y pasa a la fase 2. En la fase 1, cualquier otro resultado cuenta como no apto, salvo que diga «aplazado». Lo
-          que no es un resultado (un saludo, «pendiente») queda en «Avisos del laboratorio» para confirmarlo.
+          que no es un resultado (un saludo, «pendiente») queda en «Avisos del laboratorio» para confirmarlo. Los resultados de la fase 2 son médicos: nunca se registran solos, siempre
+          los confirma una persona.
         </p>
         <div className="mt-1.5 grid gap-2 sm:grid-cols-3">
           <label className="text-xs text-text-secondary">
@@ -373,7 +375,7 @@ function OrdenDelDia({ labs, puedeEnviar }: { labs: Laboratorio[]; puedeEnviar: 
         {puedeEnviar && (
           <>
             <button className={boton} disabled={ocupado || !labId} onClick={() => enviar(true)}>Simular envío</button>
-            <button className={botonPrimario} disabled={ocupado || !labId} onClick={() => confirm("¿Enviar la orden al laboratorio? Los candidatos de prueba no se envían.") && enviar(false)}>
+            <button className={botonPrimario} disabled={ocupado || !labId} onClick={async () => await confirmar("¿Enviar la orden al laboratorio? Los candidatos de prueba no se envían.") && enviar(false)}>
               <Send className="h-4 w-4" /> Enviar
             </button>
           </>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
+import { confirmar } from "@/components/ui/confirmar";
 import { toast } from "sonner";
 import { FileUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -151,7 +152,7 @@ export function CargueGestor({
     }
     const resumen = [...porCorte].map(([k, a]) => `  ${k}: ${a.n} viajes · ${cop.format(a.v)}`).join("\n");
     if (
-      !window.confirm(
+      !await confirmar(
         `Reporte del gestor: ${filas.length} viajes, ${conValor.length} con cobro.\n${resumen}\n` +
           (filas.length - conValor.length ? `${filas.length - conValor.length} en $0 (justificados) no se cargan.\n` : "") +
           "\nReemplaza lo cargado antes desde el reporte en esas fechas. ¿Cargar?"

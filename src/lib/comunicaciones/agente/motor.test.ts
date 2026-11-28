@@ -33,7 +33,7 @@ test("historial: descarta salientes antes del primer entrante (el modelo exige e
 
 test("historial: los medios se describen porque el modelo no los ve", () => {
   const turnos = construirHistorial([m("entrante", "", "audio"), m("entrante", "mi hoja de vida", "document")]);
-  assert.equal(turnos[0].content, "[Envió un audio]\n[Envió un documento] mi hoja de vida");
+  assert.equal(turnos[0].content, "[Envió un audio]\n[Envió un documento] Junto con el archivo escribió: «mi hoja de vida»");
 });
 
 test("historial: el audio transcrito llega con lo que dijo (entrega 4)", () => {

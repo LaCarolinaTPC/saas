@@ -96,6 +96,9 @@ async function correosDePrueba(): Promise<string> {
 export async function enviarCorreo(c: CorreoSaliente): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   if (!correoConfigurado()) return { ok: false, error: "El correo de salida no está configurado (SMTP_HOST, SMTP_USER, SMTP_PASS y SMTP_FROM)." };
   if (!c.para.length) return { ok: false, error: "El correo no tiene destinatarios." };
+  // Por un candidato del chat de prueba sale de verdad, también en desarrollo (27-nov-2026).
+  const { envioRealDePrueba } = await import("@/lib/entorno-pruebas");
+  if (envioRealDePrueba()) c = { ...c, salirEnDesarrollo: true };
   const dev = destinoEnDesarrollo(c, {
     entorno: process.env.GESTIVO_ENTORNO,
     desvio: process.env.CORREO_DESVIO_DESARROLLO,
@@ -120,8 +123,27 @@ export async function enviarCorreo(c: CorreoSaliente): Promise<{ ok: true; id: s
       html: c.html,
       attachments: (c.adjuntos ?? []).map((a) => ({ filename: a.nombre, content: a.contenido, contentType: a.mime })),
     });
+    await anotarEnvio("enviado", c, null);
     return { ok: true, id: String(info.messageId ?? "") };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    const error = e instanceof Error ? e.message : String(e);
+    await anotarEnvio("fallido", c, error);
+    return { ok: false, error };
+  }
+}
+
+/**
+ * Bitácora de envíos (27-nov-2026, tabla `correo_envios`): la barra de estado
+ * cuenta todos los correos, no solo las órdenes a laboratorios. Sin la migración
+ * (20261127215621) no anota nada. Nunca lanza.
+ */
+async function anotarEnvio(resultado: "enviado" | "fallido", c: CorreoSaliente, error: string | null): Promise<void> {
+  try {
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    await createAdminClient()
+      .from("correo_envios")
+      .insert({ resultado, asunto: c.asunto.slice(0, 200), destinatarios: c.para.length + (c.copia?.length ?? 0), error: error?.slice(0, 300) ?? null });
+  } catch {
+    // Sin la tabla o sin base: el envío no depende de la bitácora.
   }
 }

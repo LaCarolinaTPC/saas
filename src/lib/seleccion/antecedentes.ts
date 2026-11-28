@@ -79,6 +79,12 @@ export interface ReglasAntecedentes {
   /** RNMC: palabras que identifican medidas que nunca se toleran (van a revisión). */
   rnmcPalabras: string[];
   /**
+   * RNMC: palabras de conductas que se toleran aunque traigan una de la lista de
+   * revisión (27-nov-2026; p. ej. «tapabocas»: casi todas son Art. 35 num. 2,
+   * desacatar una orden de policía). Esa medida solo cuenta para el máximo.
+   */
+  rnmcPalabrasToleradas?: string[];
+  /**
    * Si la fuente no responde. Sin el dato manda lo de antes (`opcionales` de
    * `evaluarAntecedentes`: los ajustes «… es obligatoria»).
    */
@@ -154,6 +160,28 @@ export const PALABRAS_SUGERIDAS: Record<FuenteAntecedentes, readonly string[]> =
 };
 export const PALABRAS_RNMC_SUGERIDAS: readonly string[] = PALABRAS_SUGERIDAS.rnmc;
 
+/**
+ * Conductas del RNMC que se sugiere tolerar (27-nov-2026): las de la pandemia, que
+ * la Policía registró como Art. 35 num. 2 (desacatar una orden de policía) y que
+ * por eso traen «autoridades» o «impedir». Las siembra la migración 20261127232742.
+ */
+export const PALABRAS_RNMC_TOLERADAS_SUGERIDAS: readonly string[] = ["tapabocas", "tapaboca", "mascarilla", "covid", "coronavirus", "cuarentena", "aislamiento preventivo", "aislamiento obligatorio", "toque de queda", "pico y cédula", "pico y cedula", "bioseguridad", "distanciamiento", "ley seca", "simulacro"];
+
+/**
+ * Los campos de una medida del RNMC donde está la conducta (para las palabras). No el
+ * título del artículo (genérico: todo el Art. 35 dice «autoridades»), ni los descargos
+ * (lo que dijo la persona), ni la tabla (Infractor, Municipio…: «Armando» traía «arma»).
+ */
+const CAMPOS_CONDUCTA = ["comportamiento", "numeral", "literal", "relato hechos", "relato", "descripcion", "medida", "medidas correctivas"];
+function conductaDe(m: Record<string, unknown>): string {
+  return sinTildes(
+    Object.entries(m)
+      .filter(([k]) => CAMPOS_CONDUCTA.includes(sinTildes(k)))
+      .map(([, v]) => String(v ?? ""))
+      .join(" ")
+  );
+}
+
 /** Ajuste de cada regla. La clave de la izquierda es el campo de `ReglasAntecedentes`. */
 export const AJUSTE_DE_REGLA: Record<keyof ReglasAntecedentes, string> = {
   policia: "ant_policia_accion",
@@ -164,6 +192,7 @@ export const AJUSTE_DE_REGLA: Record<keyof ReglasAntecedentes, string> = {
   rnmcMaxToleradas: "ant_rnmc_max_toleradas",
   rnmcExceso: "ant_rnmc_accion_exceso",
   rnmcPalabras: "ant_rnmc_palabras_revision",
+  rnmcPalabrasToleradas: "ant_rnmc_palabras_toleradas",
   policiaSinRespuesta: "ant_policia_sin_respuesta",
   procuraduriaSinRespuesta: "ant_procuraduria_sin_respuesta",
   contraloriaSinRespuesta: "ant_contraloria_sin_respuesta",
@@ -198,7 +227,7 @@ export function reglasDeAjustes(ajustes: readonly { clave: string; valor: unknow
     if (v) extra[CAMPO_SIN_RESPUESTA[f]] = v;
   }
   if (nombre === "pasa" || nombre === "revision") extra.nombreNoCoincide = nombre;
-  for (const campo of Object.values(CAMPO_PALABRAS)) {
+  for (const campo of [...Object.values(CAMPO_PALABRAS), "rnmcPalabrasToleradas" as const]) {
     const v = valor(campo);
     if (Array.isArray(v)) extra[campo] = v.map((x) => String(x).trim()).filter(Boolean);
   }
@@ -277,11 +306,33 @@ export function hallazgoDe(fuente: FuenteAntecedentes, resultado: unknown, opcio
  */
 function textoParaPalabras(resultado: unknown): string {
   const r = (resultado && typeof resultado === "object" ? resultado : {}) as Record<string, unknown>;
-  const registros = Array.isArray(r.records) ? (r.records as unknown[]).map((x) => (x && typeof x === "object" ? Object.values(x as object).join(" ") : String(x ?? ""))).join(" ") : "";
+  const registros = Array.isArray(r.records) ? textoPlano(r.records) : "";
   return sinTildes(`${typeof r.status === "string" ? r.status : ""} ${registros}`).trim();
 }
 
+/**
+ * Todo el texto de un valor, también lo anidado (27-nov-2026): la Procuraduría trae cada sección con
+ * tablas (encabezado, columnas y filas) y antes quedaban como «[object Object]»: una «destitución»
+ * dentro de la tabla de sanciones no se encontraba.
+ */
+function textoPlano(v: unknown, prof = 0): string {
+  if (v == null || prof > 6) return "";
+  if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return String(v);
+  if (Array.isArray(v)) return v.map((x) => textoPlano(x, prof + 1)).join(" ");
+  if (typeof v === "object") return Object.values(v as object).map((x) => textoPlano(x, prof + 1)).join(" ");
+  return "";
+}
+
 const sinTildes = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+
+/**
+ * ¿La medida del RNMC dice qué hizo la persona? (27-nov-2026). La tabla de Croma no
+ * (Expediente, Formato, Fecha, Estado…); el detalle del portal sí (Artículo, Relato
+ * Hechos), y la lectura de un certificado lo trae en «comportamiento» o «descripcion».
+ */
+export function tieneConducta(m: Record<string, unknown>): boolean {
+  return Object.entries(m).some(([k, v]) => ["comportamiento", "articulo", "relato hechos", "relato", "descripcion", "numeral"].includes(sinTildes(k)) && String(v ?? "").trim() !== "");
+}
 const pesos = (n: number) => `$${Math.round(n).toLocaleString("es-CO")}`;
 
 /**
@@ -319,16 +370,41 @@ export function accionDeHallazgo(
       return { accion: reglas.contraloria, motivo: `Es responsable fiscal${fallos.length ? ` (${fallos.length} ${fallos.length === 1 ? "fallo" : "fallos"})` : ""}.` };
     }
     case "rnmc": {
-      const medidas = lista(r.pending_measures);
-      const textos = medidas.map((m) => sinTildes(Object.values(m).join(" ")));
-      const palabra = reglas.rnmcPalabras.find((p) => textos.some((t) => t.includes(sinTildes(p))));
+      // Croma trae cada medida con las columnas del registro (visto el 27-nov-2026 con Pedro Luis:
+      // Expediente, Formato, Fecha, Municipio, Apelación, Estado…), sin la conducta. Una medida
+      // «Cerrado» ya se cumplió: el registro la sigue mostrando un año, pero no está pendiente.
+      const estadoDe = (m: Record<string, unknown>) => String(Object.entries(m).find(([k]) => k.toLowerCase() === "estado")?.[1] ?? "");
+      const todas = lista(r.pending_measures);
+      const medidas = todas.filter((m) => !/cerrad|cumplid|pagad|archivad/i.test(estadoDe(m)));
+      if (todas.length && !medidas.length) {
+        return { accion: "tolera", motivo: `Solo tiene ${todas.length === 1 ? "una medida correctiva cerrada (cumplida)" : `${todas.length} medidas correctivas cerradas (cumplidas)`}: no hay pendientes.` };
+      }
+      // Sin la conducta no se puede decidir: va a revisión (abajo). Con ella, las palabras.
+      const toleradas = (reglas.rnmcPalabrasToleradas ?? []).map((p) => p.trim()).filter(Boolean);
+      const toleradaPor = (m: Record<string, unknown>) => toleradas.find((p) => conductaDe(m).includes(sinTildes(p))) ?? null;
+      const conConducta = medidas.filter((m) => tieneConducta(m));
+      const palabra = reglas.rnmcPalabras.find((p) => p.trim() && conConducta.some((m) => !toleradaPor(m) && conductaDe(m).includes(sinTildes(p.trim()))));
       if (palabra) return { accion: "revision", motivo: `Tiene una medida correctiva que nunca se tolera («${palabra}»).` };
+      const porExcepcion = [...new Set(conConducta.map(toleradaPor).filter((x): x is string => !!x))];
       // Dice que tiene medidas pero no trae la lista (revisión a mano): no se puede contar.
       if (!medidas.length) return { accion: reglas.rnmcExceso === "tolera" ? "revision" : reglas.rnmcExceso, motivo: "Tiene medidas correctivas pendientes, sin el detalle para contarlas." };
+      // Sin la conducta (GH, 27-nov-2026): Croma solo trae la tabla del expediente y el portal no
+      // siempre responde; sin saber qué hizo no se tolera, lo revisa una persona.
+      const sinConducta = medidas.filter((m) => !tieneConducta(m));
+      if (sinConducta.length) {
+        const expedientes = sinConducta.map((m) => String(Object.entries(m).find(([k]) => k.toLowerCase() === "expediente")?.[1] ?? "").trim()).filter(Boolean);
+        return {
+          accion: reglas.rnmcExceso === "descarta" ? "descarta" : "revision",
+          motivo: `Tiene ${sinConducta.length === 1 ? "una medida correctiva pendiente" : `${sinConducta.length} medidas correctivas pendientes`} sin la conducta${
+            expedientes.length ? ` (expediente ${expedientes.join(", ")}: búsquelo en el portal de la Policía, «Número de Comparendo o Expediente»)` : ""
+          }.`,
+        };
+      }
       const n = medidas.length;
       const cuantas = `${n} ${n === 1 ? "medida correctiva pendiente" : "medidas correctivas pendientes"}`;
+      const excepcion = porExcepcion.length ? ` La conducta trae «${porExcepcion.join("», «")}», que se tolera.` : "";
       return n <= reglas.rnmcMaxToleradas
-        ? { accion: "tolera", motivo: `Tiene ${cuantas}: se toleran hasta ${reglas.rnmcMaxToleradas}.` }
+        ? { accion: "tolera", motivo: `Tiene ${cuantas}: se toleran hasta ${reglas.rnmcMaxToleradas}.${excepcion}` }
         : { accion: reglas.rnmcExceso, motivo: `Tiene ${cuantas}: más de las ${reglas.rnmcMaxToleradas} que se toleran.` };
     }
   }

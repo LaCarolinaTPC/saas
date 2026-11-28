@@ -7,6 +7,17 @@
  * consulta igual en el RUNT (`consultarRuntProceso`), con `resolverRuntPendientes`.
  */
 import { cromaPausado, siCromaActivo } from "./pausa";
+import { completarConductaRnmc, proveedorRnmcPortal } from "./rnmc-portal";
+
+/** ¿Se usa el portal de la Policía cuando Croma no responde? Ajuste `rnmc_respaldo_portal` (sin él, sí). */
+async function respaldoPortalRnmc(): Promise<boolean> {
+  try {
+    const { leerAjustes, valorAjuste } = await import("@/lib/seleccion/servidor");
+    return valorAjuste<unknown>(await leerAjustes(), "rnmc_respaldo_portal", true) !== false;
+  } catch {
+    return true;
+  }
+}
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ACTOR_SISTEMA, registrarEvento, type ActorProceso } from "@/lib/contratacion/servidor";
 import {
@@ -135,7 +146,7 @@ export async function consultarSimitProceso(
   procesoId: string,
   actor: ActorProceso,
   /** `seguirMs`: cuánto se sigue el trabajo si Croma lo deja en curso (un minuto en el turno del aspirante). */
-  opciones: { seguirMs?: number } = {}
+  opciones: { seguirMs?: number; forzar?: boolean } = {}
 ): Promise<ResultadoConsultaSimit> {
   const admin = createAdminClient();
   const { data: p } = await admin
@@ -166,7 +177,7 @@ export async function consultarSimitProceso(
     .maybeSingle();
   if (enCurso) return { modo: "pendiente", mensaje: "La consulta del SIMIT sigue en curso en Croma; el resultado llega solo." };
 
-  const cache = await consultaReciente("simit", cedula);
+  const cache = opciones.forzar ? null : await consultaReciente("simit", cedula);
   const enCache = cache ? interpretarSimitCroma(cache.resultado as never) : null;
   const usaCache = !!cache && !!enCache && enCache.valor != null && (enCache.estado === "ok" || enCache.estado === "hallazgo");
   const r = usaCache ? enCache! : await conReintentos(() => proveedor.consultarSimit(cedula));
@@ -184,9 +195,28 @@ export async function consultarSimitProceso(
   });
 
   if (r.estado === "pendiente") return { modo: "pendiente", mensaje: "Croma está consultando el SIMIT; el resultado llega en unos minutos." };
-  if (r.estado === "error" || r.valor == null) return { modo: "error", mensaje: r.error ?? "La consulta del SIMIT falló." };
+  if (r.estado === "error" || r.valor == null) {
+    await avisarSimitSinRespuesta(procesoId);
+    return { modo: "error", mensaje: r.error ?? "La consulta del SIMIT falló." };
+  }
   await aplicarResultado(procesoId, r, proveedor.nombre, actor);
   return { modo: "consultado", estado: r.estado, valor: r.valor };
+}
+
+/**
+ * Croma no respondió el SIMIT (27-nov-2026): correo a Gestión Humana para que lo
+ * revise a mano, si el proceso sigue abierto y todavía no tiene SIMIT. Una vez
+ * por proceso (alertarAntecedentes no repite la misma causa). Nunca lanza.
+ */
+async function avisarSimitSinRespuesta(procesoId: string): Promise<void> {
+  try {
+    const { data: p } = await createAdminClient().from("procesos_contratacion").select("estado, simit").eq("id", procesoId).maybeSingle();
+    if (!p || p.simit || ["cierre", "contratado"].includes(p.estado as string)) return;
+    const { alertarAntecedentes } = await import("@/lib/seleccion/alerta-antecedentes-servidor");
+    await alertarAntecedentes(procesoId, "simit_sin_respuesta", ["simit"]);
+  } catch (e) {
+    console.error("[seleccion] aviso de SIMIT sin respuesta:", e);
+  }
 }
 
 /**
@@ -217,6 +247,7 @@ export async function resolverSimitPendientes(limite = 20): Promise<{ revisadas:
         .update({ estado: "error", error: trabajoId ? "Croma no terminó la consulta en 24 horas." : "Consulta pendiente sin id de trabajo." })
         .eq("id", f.id);
       terminadas++;
+      if (f.proceso_id) await avisarSimitSinRespuesta(f.proceso_id as string);
       continue;
     }
     const r = await proveedor.consultarTrabajoSimit(trabajoId);
@@ -658,7 +689,7 @@ async function aplicarPolicia(procesoId: string, r: ResultadoPolicia, proveedor:
  * autorización (que incluye consultar antecedentes). El resultado de
  * antecedentes queda guardado para la entrega 3; hoy se usa por el nombre.
  */
-export async function consultarPoliciaProceso(procesoId: string, actor: ActorProceso, opciones: { seguirMs?: number } = {}): Promise<ResultadoConsultaPolicia> {
+export async function consultarPoliciaProceso(procesoId: string, actor: ActorProceso, opciones: { seguirMs?: number; forzar?: boolean } = {}): Promise<ResultadoConsultaPolicia> {
   const admin = createAdminClient();
   const { data: p } = await admin.from("procesos_contratacion").select("id, cedula, autorizacion_datos").eq("id", procesoId).maybeSingle();
   if (!p) return { modo: "error", mensaje: "El proceso no existe." };
@@ -676,9 +707,10 @@ export async function consultarPoliciaProceso(procesoId: string, actor: ActorPro
     .in("estado", ["ok", "pendiente"])
     .limit(1)
     .maybeSingle();
-  if (previa) return { modo: "omitida", mensaje: "La Policía ya se consultó para esta cédula." };
+  if (previa && !opciones.forzar) return { modo: "omitida", mensaje: "La Policía ya se consultó para esta cédula." };
 
-  const cache = await consultaReciente("policia", cedula);
+  // «Reintentar en Croma» (forzar): de nuevo en Croma, sin la caché.
+  const cache = opciones.forzar ? null : await consultaReciente("policia", cedula);
   const enCache = cache ? interpretarPoliciaCroma(cache.resultado as never) : null;
   const usaCache = !!cache && enCache?.estado === "ok" && !!enCache.resumen;
   const r = usaCache ? enCache! : await conReintentos(() => proveedor.consultarPolicia(cedula));
@@ -1146,6 +1178,8 @@ export async function consultarRnmcProceso(
     consultarRuntSiFalta?: boolean;
     /** Cuánto se le pide a Croma esperar en línea (por defecto 55 s, su máximo; la llamada se corta a los 90 s). */
     esperaSegundos?: number;
+    /** «Reintentar en Croma» después de una revisión manual: de nuevo, sin la caché ni lo ya consultado. */
+    forzar?: boolean;
   } = {}
 ): Promise<ResultadoConsultaRnmc> {
   const admin = createAdminClient();
@@ -1156,7 +1190,9 @@ export async function consultarRnmcProceso(
   if (!cedula) return { modo: "error", mensaje: "El proceso no tiene cédula." };
   const fecha = fechaExpedicion ?? (await fechaExpedicionDe(procesoId));
   if (!fecha) return { modo: "omitida", mensaje: "Falta la fecha de expedición de la cédula." };
-  const proveedor = await siCromaActivo(proveedorRnmc());
+  // Si Croma está en pausa o sin configurar, el RNMC va directo al portal de la Policía (27-nov-2026).
+  const respaldo = await respaldoPortalRnmc();
+  let proveedor = (await siCromaActivo(proveedorRnmc())) ?? (respaldo ? proveedorRnmcPortal() : null);
   if (!proveedor) return { modo: "manual", mensaje: "No hay proveedor configurado (falta CROMA_API_KEY)." };
 
   const { data: previa } = await admin
@@ -1168,7 +1204,7 @@ export async function consultarRnmcProceso(
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
-  if (previa?.estado === "ok" || previa?.estado === "pendiente") return { modo: "omitida", mensaje: "El RNMC ya se consultó para esta cédula." };
+  if (!opciones.forzar && (previa?.estado === "ok" || previa?.estado === "pendiente")) return { modo: "omitida", mensaje: "El RNMC ya se consultó para esta cédula." };
   // Fecha rechazada por el registro: con la misma fecha no se repite (va en el
   // error). Un error de Croma (caída, tiempo agotado) sí se reintenta.
   if (previa?.estado === "error" && /no coincide/i.test(String(previa.error ?? "")) && String(previa.error ?? "").includes(fecha)) {
@@ -1178,7 +1214,7 @@ export async function consultarRnmcProceso(
   // Pedido de GH del 18-nov-2026: si la misma cédula con la misma fecha se
   // consultó hace poco (hasta 3 días, en cualquier proceso), se reutiliza: el
   // RNMC se demora y puede bloquear consultas repetidas.
-  const reciente = await rnmcReciente(cedula, fecha, await identidadConfirmadaRunt(procesoId).catch(() => false));
+  const reciente = opciones.forzar ? null : await rnmcReciente(cedula, fecha, await identidadConfirmadaRunt(procesoId).catch(() => false));
   if (reciente) {
     await admin.from("verificaciones_externas").insert({
       proceso_id: procesoId,
@@ -1187,7 +1223,7 @@ export async function consultarRnmcProceso(
       fuente: "rnmc",
       estado: reciente.noCoincide ? "error" : "ok",
       valor: reciente.r.resumen?.cantidad ?? null,
-      resultado: reciente.noCoincide ? reciente.crudo : { ...(reciente.crudo as object), fecha_expedicion_consultada: fecha },
+      resultado: reciente.noCoincide ? reciente.crudo : { ...((await completarConductaRnmc(reciente.crudo)) as object), fecha_expedicion_consultada: fecha },
       error: reciente.noCoincide ? errorFechaNoCoincide(fecha) : null,
       consultado_por: `${actor.userEmail ?? "Sistema"} (reutilizada de la consulta del ${reciente.del.slice(0, 10)})`,
     });
@@ -1218,7 +1254,22 @@ export async function consultarRnmcProceso(
     if (t.estado === "error" && errorTransitorio(t.error)) continue;
     r = t;
   }
+  // Croma no respondió (caída, tiempo agotado): el portal de la Policía como respaldo (27-nov-2026).
+  // Lo que siga en curso en Croma no se toca: ese llega solo.
+  if (respaldo && r.estado === "error" && errorTransitorio(r.error) && proveedor.nombre !== "policia_portal") {
+    const portal = proveedorRnmcPortal();
+    const rp = await portal.consultarRnmc(cedula, fecha);
+    if (rp.estado === "ok") {
+      r = rp;
+      proveedor = portal;
+    } else {
+      r = { ...r, error: `${r.error} · respaldo del portal: ${rp.error ?? "sin respuesta"}` };
+    }
+  }
   const noCoincide = r.estado === "ok" && r.resumen?.fechaCoincide === false;
+  // La conducta de cada medida, del portal de la Policía por expediente (27-nov-2026): Croma solo
+  // trae la tabla y sin la conducta las reglas mandan la medida a revisión.
+  if (r.estado === "ok" && !noCoincide) r = { ...r, crudo: await completarConductaRnmc(r.crudo) };
   // «El registro responde cualquier número»: limpio sin nombre no confirma a la
   // persona, salvo que el RUNT ya la haya confirmado (el certificado de la
   // Policía ya no imprime el nombre, 18-nov-2026). Sin esa confirmación queda
@@ -1287,9 +1338,11 @@ export async function resolverRnmcPendientes(limite = 20): Promise<{ revisadas: 
       terminadas++;
       continue;
     }
-    const r = await proveedor.consultarTrabajoRnmc(trabajoId);
+    let r = await proveedor.consultarTrabajoRnmc(trabajoId);
     if (r.estado === "pendiente") continue;
     const noCoincide = r.estado === "ok" && r.resumen?.fechaCoincide === false;
+    // La conducta del portal de la Policía, como en la consulta directa (27-nov-2026).
+    if (r.estado === "ok" && !noCoincide) r = { ...r, crudo: await completarConductaRnmc(r.crudo) };
     const sinNombre =
       r.estado === "ok" &&
       r.resumen?.fechaCoincide === true &&
@@ -1323,7 +1376,7 @@ export async function resolverRnmcPendientes(limite = 20): Promise<{ revisadas: 
 // ── Antecedentes: Policía, Procuraduría, Contraloría y RNMC ────────────────
 
 /** Procuraduría o Contraloría para el proceso, una sola vez por cédula. */
-async function consultarFuenteAntecedentes(procesoId: string, cedula: string, fuente: FuenteAntecedenteCroma, actor: ActorProceso): Promise<void> {
+async function consultarFuenteAntecedentes(procesoId: string, cedula: string, fuente: FuenteAntecedenteCroma, actor: ActorProceso, forzar = false): Promise<void> {
   const proveedor = await siCromaActivo(proveedorAntecedentes());
   if (!proveedor) return;
   const admin = createAdminClient();
@@ -1336,9 +1389,9 @@ async function consultarFuenteAntecedentes(procesoId: string, cedula: string, fu
     .in("estado", ["ok", "pendiente"])
     .limit(1)
     .maybeSingle();
-  if (previa) return;
-  // Caché: solo una respuesta con veredicto (con o sin hallazgo).
-  const cache = await consultaReciente(fuente, cedula);
+  if (previa && !forzar) return;
+  // Caché: solo una respuesta con veredicto (con o sin hallazgo). «Reintentar en Croma»: sin caché.
+  const cache = forzar ? null : await consultaReciente(fuente, cedula);
   const usaCache = !!cache && hallazgoDe(fuente, cache.resultado) != null;
   const r = usaCache ? { estado: "ok" as const, crudo: cache!.resultado, error: null, trabajoId: null } : await conReintentos(() => proveedor.consultar(fuente, cedula));
   await admin.from("verificaciones_externas").insert({
@@ -1524,4 +1577,43 @@ export async function lanzarAntecedentesPendientes(limite = 2): Promise<{ revisa
     }
   }
   return { revisados, fechaRechazada };
+}
+
+export type FuenteReintento = "policia" | "procuraduria" | "contraloria" | "rnmc" | "simit";
+
+/**
+ * «Reintentar en Croma» (27-nov-2026): después de una revisión manual, Gestivo
+ * deja de consultar esa fuente (ahorra créditos y servidor). Este botón la vuelve
+ * a consultar una vez, sin caché. Si Croma responde, vale su respuesta (es la más
+ * reciente); si falla, sigue valiendo la revisión manual.
+ */
+export async function reintentarEnCroma(procesoId: string, fuente: FuenteReintento, actor: ActorProceso): Promise<{ ok: boolean; mensaje: string }> {
+  const admin = createAdminClient();
+  const { data: p } = await admin.from("procesos_contratacion").select("cedula").eq("id", procesoId).maybeSingle();
+  const cedula = String(p?.cedula ?? "").replace(/\D/g, "");
+  if (!cedula) return { ok: false, mensaje: "El proceso no tiene cédula." };
+  if (fuente === "simit") {
+    const r = await consultarSimitProceso(procesoId, actor, { forzar: true });
+    return r.modo === "consultado" ? { ok: true, mensaje: `Croma respondió el SIMIT: $${r.valor.toLocaleString("es-CO")}.` } : { ok: false, mensaje: `${r.mensaje} Sigue valiendo la revisión manual.` };
+  }
+  if (fuente === "policia") {
+    const r = await consultarPoliciaProceso(procesoId, actor, { forzar: true });
+    const ok = r.modo === "consultado";
+    await evaluarAntecedentesProceso(procesoId).catch(() => null);
+    return ok ? { ok: true, mensaje: "Croma respondió la Policía: ahora vale su respuesta." } : { ok: false, mensaje: `${"mensaje" in r ? r.mensaje : "Croma no respondió."} Sigue valiendo la revisión manual.` };
+  }
+  if (fuente === "rnmc") {
+    const r = await consultarRnmcProceso(procesoId, actor, null, { forzar: true, esperarMs: 90_000 });
+    await evaluarAntecedentesProceso(procesoId).catch(() => null);
+    return r.modo === "consultado" ? { ok: true, mensaje: "Croma respondió el RNMC: ahora vale su respuesta." } : { ok: false, mensaje: `${"mensaje" in r ? r.mensaje : "Croma no respondió."} Sigue valiendo la revisión manual.` };
+  }
+  await consultarFuenteAntecedentes(procesoId, cedula, fuente, actor, true);
+  const { data: ultima } = await admin.from("verificaciones_externas").select("estado, error").eq("proceso_id", procesoId).eq("fuente", fuente).order("created_at", { ascending: false }).limit(1).maybeSingle();
+  await evaluarAntecedentesProceso(procesoId).catch(() => null);
+  const nombre = fuente === "procuraduria" ? "la Procuraduría" : "la Contraloría";
+  return ultima?.estado === "ok"
+    ? { ok: true, mensaje: `Croma respondió ${nombre}: ahora vale su respuesta.` }
+    : ultima?.estado === "pendiente"
+      ? { ok: true, mensaje: `Croma está consultando ${nombre}: el resultado llega solo.` }
+      : { ok: false, mensaje: `Croma no respondió ${nombre}${ultima?.error ? ` (${ultima.error})` : ""}. Sigue valiendo la revisión manual.` };
 }

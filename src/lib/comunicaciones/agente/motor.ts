@@ -146,7 +146,7 @@ export interface ReglasSeleccion {
    */
   regreso?: MotivoRegreso | null;
   /**
-   * Correo para la prueba psicosensotécnica (24-nov-2026): en qué va. El
+   * Correo para la prueba psicotécnica (24-nov-2026): en qué va. El
    * correo que escribe y el sí o el no los atiende Gestivo sin el asistente;
    * esto es para lo demás que pregunte.
    */
@@ -212,11 +212,11 @@ export function reglasPreguntaExamen(p: ReglasSeleccion["preguntaExamen"]): stri
   return [];
 }
 
-/** Lo que sabe el asistente del correo para la psicosensotécnica. */
+/** Lo que sabe el asistente del correo para la psicotécnica. */
 export function reglasCorreoPsico(c: ReglasSeleccion["correoPsico"]): string[] {
   if (!c) return [];
   const correo = c.correo ? `«${c.correo}»` : "su correo";
-  const base = "La prueba psicosensotécnica se presenta en una plataforma en internet y la información para presentarla le llega por correo electrónico; es necesaria para continuar el proceso. No inventes cuándo, cómo ni dónde es la prueba.";
+  const base = "La prueba psicotécnica se presenta en una plataforma en internet y la información para presentarla le llega por correo electrónico; es necesaria para continuar el proceso. No inventes cuándo, cómo ni dónde es la prueba.";
   const porEstado: Record<NonNullable<ReglasSeleccion["correoPsico"]>["estado"], string> = {
     pedido: "Le pedimos su correo electrónico y todavía no lo ha escrito. Responde lo que pregunte y, al final, recuérdale con amabilidad que nos escriba su correo por aquí. Si pregunta para qué es, explícale lo de arriba.",
     por_confirmar: `Escribió el correo ${correo} y le preguntamos si está bien escrito. Responde lo que pregunte y vuelve a preguntarle si ${correo} es correcto (que responda sí o no), o que escriba el correcto.`,
@@ -224,7 +224,7 @@ export function reglasCorreoPsico(c: ReglasSeleccion["correoPsico"]): string[] {
     validado: `Su correo ${correo} ya está confirmado. Si pregunta por la prueba, dile que Gestión Humana lo inscribe en la plataforma y le avisamos; la información le llega a ese correo.`,
     inscrito: `Ya lo inscribimos en la plataforma de la prueba: la información le llega a ${correo}. Si no la ve, que revise spam o correo no deseado; si no le llegó, dile que Gestión Humana lo revisa.`,
   };
-  return ["", "Correo para la prueba psicosensotécnica:", `- ${base}`, `- ${porEstado[c.estado]}`];
+  return ["", "Correo para la prueba psicotécnica:", `- ${base}`, `- ${porEstado[c.estado]}`];
 }
 
 function reglasRegreso(motivo: MotivoRegreso | null | undefined, ciudades: string[], licencias: string[]): string[] {
@@ -750,6 +750,8 @@ export function construirSistema(
         ...(documentos.length && seleccion.recibidos
           ? [`- Archivos que la persona ha enviado en toda la conversación: ${seleccion.recibidos}.`]
           : []),
+        // 27-nov-2026: en pruebas, un documento con un texto que lo contradice confundía al asistente.
+        "- Si junto con un archivo escribió algo («Junto con el archivo escribió: …»), respóndele también a eso. Si lo que escribió contradice el archivo (por ejemplo, manda un documento y escribe «no la tengo» o «no es la hoja de vida»), no lo des por recibido como ese documento: pregúntale con amabilidad qué envió o si es su hoja de vida. Si escribe algo que no tiene que ver con el archivo (una pregunta, un dato), atiende las dos cosas en tu respuesta.",
         "- Si dice que no tiene la hoja de vida a la mano o que la manda después, no lo dejes así: anímala a enviarla ya y dale alternativas concretas (una foto de la que tenga, un PDF, o un audio contando dónde ha trabajado, cuánto tiempo y qué vehículos ha manejado). Si aun así prefiere después, acéptalo y sigue con lo que falte.",
         "- Si la persona duda, cambia de tema o no envía nada, anímala con amabilidad: es rápido, basta una foto con el celular, también puede mandar un PDF o contar su experiencia en un audio, y así Gestión Humana puede contactarla pronto. Responde sus dudas con lo que dicen las instrucciones y vuelve a pedir lo que falta. No presiones ni prometas nada que no esté en las instrucciones (por ejemplo, que la van a contratar).",
         "- Este WhatsApp es solo para el proceso de selección. Si quien escribe trata otro tema (ofrece productos o servicios, publicidad, es trabajador o extrabajador con un tema de nómina, liquidación, certificados o permisos, es pasajero, es un número equivocado, insulta o reclama sin decir que quiere trabajar con nosotros, o cualquier otro asunto), despídete con amabilidad en un solo mensaje: explícale que este número es solo para el proceso de selección de conductores y, si es trabajador o pasajero, que use los canales habituales de la empresa. No le hagas las preguntas de selección, no le pidas datos ni documentos, no le ofrezcas postularse y no pases la conversación. Si insiste, repítelo en una frase y despídete. Solo si la persona dice que quiere trabajar con nosotros como conductor, sigue con el proceso.",
@@ -883,7 +885,9 @@ function textoDeMensaje(m: MensajeHistorial): string {
   const audio = audioParaModelo(m.transcripcion);
   const oido = audio ? ` ${audio}` : "";
   const medio = `[Envió ${legible}]${lectura}${oido}`;
-  return texto ? `${medio} ${texto}` : medio;
+  // Lo que escribió con el archivo, marcado (27-nov-2026): pegado al final de la lectura, el asistente
+  // lo confundía con parte del archivo (p. ej. un documento con «no la tengo»).
+  return texto ? `${medio} Junto con el archivo escribió: «${texto}»` : medio;
 }
 
 /**

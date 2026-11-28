@@ -14,12 +14,12 @@
  *   devuelve lo que habría salido (simulador de Selección).
  */
 import { createAdminClient } from "@/lib/supabase/admin";
+import { conEnvioRealDePrueba } from "@/lib/entorno-pruebas";
 import { ACTOR_SISTEMA, registrarEvento, type ActorProceso } from "@/lib/contratacion/servidor";
 import { horaBogota, ventanaAbierta } from "@/lib/comunicaciones/seguimiento";
 import { enviarMedio, subirMedioAMeta } from "@/lib/comunicaciones/whatsapp";
 import { normalizarTelefono, obtenerOCrearConversacion, registrarSaliente } from "@/lib/comunicaciones/registro";
 import { correoConfigurado, enviarCorreo } from "@/lib/correo/enviar";
-import { destinoDePrueba } from "@/lib/entorno-pruebas";
 import { fechaBogota } from "@/lib/tesoreria/recobros";
 import { fechaEnTexto, horaEnTexto, siguienteDiaHabil } from "./agenda";
 import { conversacionDeProceso } from "./agenda-servidor";
@@ -709,11 +709,12 @@ export async function enviarOrdenLaboratorio(
   if (!vista) return { ok: false, error: "El laboratorio no existe.", simulado: false, enviados: 0, vista: null, detalle: [] };
   if (!vista.aspirantes.length) return { ok: false, error: "No hay aspirantes citados ese día en este laboratorio sin la orden enviada.", simulado: false, enviados: 0, vista, detalle: [] };
   const lab = (await laboratorioPorId(labId))!;
-  // Entorno de pruebas con el laboratorio apuntando a un correo o número de prueba
-  // (24-nov-2026): la orden de los candidatos de prueba también sale de verdad.
-  const aDestinoDePrueba = !opciones.simular && (await destinoDePrueba(lab)) != null;
-  const reales = opciones.simular ? [] : vista.aspirantes.filter((a) => !a.prueba || aDestinoDePrueba);
-  const simulados = opciones.simular ? vista.aspirantes : vista.aspirantes.filter((a) => a.prueba && !aDestinoDePrueba);
+  // Pruebas más reales (27-nov-2026): la orden de un candidato del chat de prueba sale de verdad al
+  // laboratorio que tenga, marcada «PRUEBA». Solo en el envío de sus propias citas: en el envío del día
+  // con aspirantes reales, los de prueba no van (se simulan), para no mezclarlos en la orden real.
+  const soloPrueba = vista.aspirantes.every((a) => a.prueba);
+  const reales = opciones.simular ? [] : vista.aspirantes.filter((a) => !a.prueba || soloPrueba).map((a) => (a.prueba ? { ...a, nombre: `PRUEBA · ${a.nombre}` } : a));
+  const simulados = opciones.simular ? vista.aspirantes : vista.aspirantes.filter((a) => a.prueba && !soloPrueba);
   const marcar = async (citas: string[]) => {
     if (citas.length) await db.from("seleccion_citas").update({ orden_laboratorio_at: new Date().toISOString() }).in("id", citas);
   };
@@ -722,7 +723,19 @@ export async function enviarOrdenLaboratorio(
   if (!opciones.simular) await marcar(simulados.map((a) => a.citaId));
   if (!reales.length) return { ok: true, simulado: true, enviados: 0, vista, detalle: ["Simulación: no se envió nada."] };
   if (vista.faltantes.length) return { ok: false, error: `Al laboratorio le falta ${vista.faltantes.join(" y ")}.`, simulado: false, enviados: 0, vista, detalle: [] };
+  // Con candidatos de prueba sale de verdad aunque sea el entorno de desarrollo.
+  return soloPrueba ? conEnvioRealDePrueba(() => enviarOrdenReal(lab, vista, reales, actor, marcar)) : enviarOrdenReal(lab, vista, reales, actor, marcar);
+}
 
+/** El envío de verdad de la orden (correo con todos o un WhatsApp por aspirante). */
+async function enviarOrdenReal(
+  lab: Laboratorio,
+  vista: NonNullable<Awaited<ReturnType<typeof vistaOrden>>>,
+  reales: AspiranteOrden[],
+  actor: ActorProceso,
+  marcar: (citas: string[]) => Promise<void>
+): Promise<ResultadoOrden> {
+  const db = createAdminClient();
   const detalle: string[] = [];
   if (lab.canal === "correo") {
     if (!correoConfigurado()) return { ok: false, error: "El correo de salida no está configurado (SMTP_* en el servidor). Use la vista previa mientras tanto.", simulado: false, enviados: 0, vista, detalle };
@@ -734,6 +747,8 @@ export async function enviarOrdenLaboratorio(
       adjuntos.push({ nombre: orden.nombre, contenido: orden.contenido, mime: orden.mime });
     }
     const correo = armarCorreoOrden(lab, reales, new Date());
+    const deprueba = reales.some((a) => a.prueba);
+    if (deprueba) correo.asunto = `[PRUEBA] ${correo.asunto}`;
     const r = await enviarCorreo({ para: correo.para, copia: correo.copia, asunto: correo.asunto, texto: correo.texto, html: correo.html, adjuntos });
     await registrarEnvio({
       laboratorio_id: lab.id, canal: "correo", para: correo.para, copia: correo.copia, asunto: correo.asunto, cuerpo: correo.texto,

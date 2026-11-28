@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import { confirmar } from "@/components/ui/confirmar";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -444,11 +445,11 @@ function DetalleRuta({ ruta, color, puedeEditar, versionVista, onVerVersion, onC
                           type="button"
                           className={`${btnCls} text-red-600`}
                           disabled={pendiente}
-                          onClick={() => {
+                          onClick={async () => {
                             const aviso = ver_.vigente
                               ? `v${ver_.version} es la vigente: la ruta quedará SIN KML hasta que active otra versión. ¿Eliminarla?`
                               : `¿Eliminar la v${ver_.version} y su archivo?`;
-                            if (confirm(aviso)) accion(ver_.id, () => eliminarVersionKml(ver_.id), "Versión eliminada");
+                            if (await confirmar(aviso)) accion(ver_.id, () => eliminarVersionKml(ver_.id), "Versión eliminada");
                           }}
                         >
                           <Trash2 className="h-3.5 w-3.5" />

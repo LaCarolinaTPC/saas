@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Correo para la prueba psicosensotécnica en la ficha (24-nov-2026): en qué
+ * Correo para la prueba psicotécnica en la ficha (24-nov-2026): en qué
  * va (pedido, por confirmar, enviado, confirmado, inscrito) y lo que puede
  * hacer Gestión Humana: pedirlo de nuevo, escribirlo, reenviar el enlace y
  * marcar que ya lo inscribió en la plataforma.
@@ -66,7 +66,7 @@ export function CorreoPsicoFicha({ procesoId }: { procesoId: string }) {
 
   if (!datos) return <p className="text-xs text-gray-500">Cargando el correo…</p>;
   if ("error" in datos) return <p className="text-xs text-red-700">{datos.error}</p>;
-  if (!datos.disponible) return <p className="text-xs text-gray-500">El correo para la psicosensotécnica se activa al aplicar su migración.</p>;
+  if (!datos.disponible) return <p className="text-xs text-gray-500">El correo para la psicotécnica se activa al aplicar su migración.</p>;
 
   const d = datos;
   const editar = d.puedeEditar && !d.cerrado;

@@ -84,15 +84,16 @@ test("laboratorio: apto solo con la frase (o una variante); en la fase 1, otro r
   assert.deepEqual(decidirResultado("Juan aplazado por hemograma", { ...juan, resultado: "aplazado" }, false, null, 1), { resultado: "aplazado", automatico: true });
   // Sin resultado (un saludo, «pendiente»): no se decide.
   assert.deepEqual(decidirResultado("Juan está pendiente", { ...juan, resultado: null }, false, null, 1), { resultado: null, automatico: false });
-  // En la fase 2 la regla no aplica: lo confirma una persona (salvo frase exacta acordada).
+  // En la fase 2 la regla no aplica: lo confirma una persona.
   assert.deepEqual(decidirResultado("Juan apto en fase 2", { ...juan, fase: 2, resultado: "apto" }, false, null, 2), { resultado: "apto", automatico: false });
   // Un archivo solo (sin texto) que la IA lee como apto sin la frase: lo confirma una persona, no se vuelve no apto.
   assert.deepEqual(decidirResultado("", { ...juan, resultado: "apto" }, false, null, 1, { soloArchivo: true }), { resultado: "apto", automatico: false });
   assert.deepEqual(decidirResultado("", { ...juan, resultado: "no_apto" }, false, null, 1, { soloArchivo: true }), { resultado: "no_apto", automatico: true });
   // La frase de apto repetida con el aspirante ya en la fase 2 no aprueba la fase 2.
   assert.deepEqual(decidirResultado("Juan: Sí, puede pasar a fase 2", { ...juan, fase: null, resultado: "apto" }, false, null, 2), { resultado: "apto", automatico: false });
-  // Las frases propias de no apto y aplazado sí valen en la fase 2.
-  assert.deepEqual(decidirResultado("Juan: No continúa", { ...juan, fase: 2, resultado: null }, false, { no_apto: "No continúa" }, 2), { resultado: "no_apto", automatico: true });
+  // Fase 2 (27-nov-2026): resultados médicos, siempre los registra una persona; la frase solo propone.
+  assert.deepEqual(decidirResultado("Juan: No continúa", { ...juan, fase: 2, resultado: null }, false, { no_apto: "No continúa" }, 2), { resultado: "no_apto", automatico: false });
+  assert.deepEqual(decidirResultado("Juan aplazado por hemograma", { ...juan, fase: 2, resultado: "aplazado" }, false, null, 2), { resultado: "aplazado", automatico: false });
   // La IA recibe la frase y la instrucción de las variantes; su marca se lee.
   assert.match(sistemaLaboratorio(null), new RegExp(FRASE_APTO_POR_DEFECTO));
   assert.match(sistemaLaboratorio({ apto: "Continúa" }), /«Continúa»/);

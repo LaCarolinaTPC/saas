@@ -1,8 +1,10 @@
 "use client";
 
 import { usePermisos } from "@/components/permisos/permisos-provider";
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
-import { BarChart3, Brain, CalendarClock, ClipboardList, LayoutGrid, List, Users, Trash2, MoreHorizontal, Eye, Briefcase, X } from "lucide-react";
+import { confirmar } from "@/components/ui/confirmar";
+import { leerFicha } from "@/lib/lectura-ficha";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { BarChart3, Brain, CalendarClock, ClipboardList, LayoutGrid, List, Users, Trash2, MoreHorizontal, Eye, Briefcase, X, Route, Stethoscope } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { KanbanProcesos } from "@/components/candidatos/kanban-procesos";
 import { AgendaDia } from "@/components/seleccion/agenda-dia";
@@ -74,8 +76,36 @@ export function CandidatosClient({ vacancies, tablero, procesos }: CandidatosCli
     vacancyFilter === "all"
       ? (pipeline ?? [])
       : (pipeline ?? []).filter((r) => r.vacancy_id === vacancyFilter);
+  // Tablero por mes (27-nov-2026): llega el mes actual; otro mes (o «todos») se pide al elegirlo.
+  const meses = useMemo(() => mesesDelTablero(), []);
+  const [mesTablero, setMesTablero] = useState(meses[0].valor);
+  const [otroMes, setOtroMes] = useState<{ mes: string; filas: ProcesoContratacion[] } | null>(null);
+  const [cargandoMes, setCargandoMes] = useState(false);
+  function elegirMes(mes: string) {
+    setMesTablero(mes);
+    if (mes === meses[0].valor) return setOtroMes(null);
+    setCargandoMes(true);
+    leerFicha("tableroDelMes", mes)
+      .then((filas) => setOtroMes({ mes, filas }))
+      .catch(() => setOtroMes({ mes, filas: [] }))
+      .finally(() => setCargandoMes(false));
+  }
+  // Con el tablero abierto y la pestaña visible, se vuelve a leer cada minuto (27-nov-2026): las
+  // tarjetas y su semáforo al día sin recargar la página (y sin saturar el servidor).
+  useEffect(() => {
+    if (view !== "kanban") return;
+    const t = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      const mes = mesTablero;
+      leerFicha("tableroDelMes", mes)
+        .then((filas) => setOtroMes((actual) => (mesTablero === mes ? { mes, filas } : actual)))
+        .catch(() => undefined);
+    }, 60_000);
+    return () => clearInterval(t);
+  }, [view, mesTablero]);
+  const tableroDelMes = otroMes && otroMes.mes === mesTablero ? otroMes.filas : mesTablero === meses[0].valor ? tablero : [];
   const filteredTablero =
-    vacancyFilter === "all" ? tablero : tablero.filter((p) => p.vacancy_id === vacancyFilter);
+    vacancyFilter === "all" ? tableroDelMes : tableroDelMes.filter((p) => p.vacancy_id === vacancyFilter);
 
   const viewSwitcher = (
     <div className="flex flex-wrap items-center gap-1 rounded-lg border border-[#F1F5F9] bg-white p-1">
@@ -103,10 +133,24 @@ export function CandidatosClient({ vacancies, tablero, procesos }: CandidatosCli
       </Link>
       {/* 24-nov-2026: inscribir en PsicoAlianza y subir los resultados. */}
       <Link
-        href="/candidatos/psicosensotecnica"
+        href="/candidatos/psicotecnica"
         className="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-sm font-medium text-gray-500 hover:bg-gray-100"
       >
-        <Brain className="h-4 w-4" /> Psicosensotécnica
+        <Brain className="h-4 w-4" /> Psicotécnica
+      </Link>
+      {/* 27-nov-2026: el reconocimiento de ruta, dentro de Candidatos (antes solo en /reconocimiento). */}
+      <Link
+        href="/candidatos/reconocimiento"
+        className="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-sm font-medium text-gray-500 hover:bg-gray-100"
+      >
+        <Route className="h-4 w-4" /> Reconocimiento
+      </Link>
+      {/* 27-nov-2026: resultados de la fase 2 de exámenes (médicos: los pone una persona). */}
+      <Link
+        href="/candidatos/examenes-fase2"
+        className="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-sm font-medium text-gray-500 hover:bg-gray-100"
+      >
+        <Stethoscope className="h-4 w-4" /> Exámenes fase 2
       </Link>
     </div>
   );
@@ -141,6 +185,19 @@ export function CandidatosClient({ vacancies, tablero, procesos }: CandidatosCli
             </span>
           </div>
           <div className="flex items-center gap-2">
+          {isKanban && (
+            <select
+              value={mesTablero}
+              onChange={(e) => elegirMes(e.target.value)}
+              disabled={cargandoMes}
+              title="Procesos creados en ese mes (en cualquier etapa)"
+              className="h-9 rounded-lg border border-[#E2E8F0] bg-white px-2 text-sm font-medium text-gray-700 outline-none focus:border-[#4F46E5] disabled:opacity-60"
+            >
+              {meses.map((m) => (
+                <option key={m.valor} value={m.valor}>{m.texto}</option>
+              ))}
+            </select>
+          )}
           {view !== "todos" && (
             <select
               value={vacancyFilter}
@@ -295,8 +352,8 @@ function CandidateActions({ id, name, hasVacancy, vacancies, onCambio }: { id: s
   const elimina = puede("candidatos.eliminar");
   const [showAssign, setShowAssign] = useState(false);
 
-  function handleDelete() {
-    if (!confirm(`¿Eliminar candidato "${name ?? "Sin nombre"}"? Esta acción no se puede deshacer.`)) return;
+  async function handleDelete() {
+    if (!await confirmar(`¿Eliminar candidato "${name ?? "Sin nombre"}"? Esta acción no se puede deshacer.`)) return;
     startTransition(async () => {
       await deleteCandidate(id);
       onCambio();
@@ -377,4 +434,18 @@ function CandidateActions({ id, name, hasVacancy, vacancies, onCambio }: { id: s
       )}
     </>
   );
+}
+
+/** Los meses del filtro del tablero: el actual y los 11 anteriores, más «todos» (en curso de cualquier mes). */
+function mesesDelTablero(): { valor: string; texto: string }[] {
+  const ahora = new Date(Date.now() - 5 * 3_600_000);
+  const lista: { valor: string; texto: string }[] = [];
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(Date.UTC(ahora.getUTCFullYear(), ahora.getUTCMonth() - i, 1));
+    const valor = d.toISOString().slice(0, 7);
+    const texto = d.toLocaleDateString("es-CO", { month: "long", year: "numeric", timeZone: "UTC" });
+    lista.push({ valor, texto: `${i === 0 ? "Este mes · " : ""}${texto.charAt(0).toUpperCase()}${texto.slice(1)}` });
+  }
+  lista.push({ valor: "todos", texto: "En curso (todos los meses)" });
+  return lista;
 }

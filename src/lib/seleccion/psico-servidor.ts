@@ -1,5 +1,5 @@
 /**
- * Prueba psicosensotécnica en PsicoAlianza (24-nov-2026). Solo servidor; las
+ * Prueba psicotécnica en PsicoAlianza (24-nov-2026). Solo servidor; las
  * reglas están en ./psico-resultados. Quien llama revisa los permisos.
  *
  * 1. Por inscribir: aspirantes en curso con el correo confirmado. Se descarga
@@ -23,6 +23,7 @@ import { registrarPsicotecnicaExterna } from "./dia-contratacion-servidor";
 import type { ResultadoPsicoExterna } from "./dia-contratacion";
 import { registrarEvento } from "@/lib/contratacion/servidor";
 import { leerAjustes, valorAjuste } from "./servidor";
+import { noCoincideConAspirante } from "./documento-de-quien";
 import { COLUMNAS_PLANTILLA, ENTIDAD_PSICO, HOJA_PLANTILLA, combinarPruebas, cortesPsico, textoCortes, type CortesPsico, type EstadoPrueba, leerFilasResultados, leerInformePsicoAlianza, type FilaResultado, type InformePrueba } from "./psico-resultados";
 
 export interface AspirantePsico {
@@ -112,7 +113,7 @@ export async function listasPsico(): Promise<ListasPsico> {
   const ajustes = await leerAjustes().catch(() => []);
   const dias = Math.max(1, Number(valorAjuste<unknown>(ajustes, "psico_dias_para_presentar", 3)) || 3);
   const cortes = cortesPsico((k) => valorAjuste<unknown>(ajustes, k, undefined));
-  if (pend.error || res.error) return { porInscribir: [], esperando: [], conResultado: [], diasParaPresentar: dias, cortes, error: "Falta aplicar las migraciones del correo para la psicosensotécnica o de la entrega 4." };
+  if (pend.error || res.error) return { porInscribir: [], esperando: [], conResultado: [], diasParaPresentar: dias, cortes, error: "Falta aplicar las migraciones del correo para la psicotécnica o de la entrega 4." };
   const pendientes = (pend.data ?? []).map((p) => aAspirante(p as Record<string, unknown>));
   const veces = await reprogramacionesDe(pendientes.map((a) => a.procesoId)).catch(() => new Map());
   const limite = Date.now() - dias * 86_400_000;
@@ -213,6 +214,8 @@ export interface FilaVista extends FilaResultado {
   nombreProceso: string | null;
   estadoProceso: string | null;
   prueba: boolean;
+  /** El informe parece de otra persona (el nombre no es el del proceso): no se marca para guardar (27-nov-2026). */
+  noCoincide?: boolean;
   /** El concepto que ya tenía (se reemplaza al confirmar). */
   previo: ResultadoPsicoExterna | null;
   aviso: string | null;
@@ -306,6 +309,9 @@ export async function vistaResultados(archivos: ArchivoSubido[]): Promise<{ fila
     else if (!c.resultado) avisos.push(c.archivos.length ? "Alguna prueba no trae resultado: elíjalo." : c.concepto ? `No se entiende el concepto «${c.concepto}»: elíjalo.` : "Sin concepto: elíjalo.");
     if (c.deducido) avisos.push(`El concepto de alguna prueba viene como imagen en el PDF: se dedujo del porcentaje (${textoCortes(cortes)}). Confírmelo con el informe y márquelo para guardar.`);
     avisos.push(...c.alertas);
+    // ¿El informe es de esa persona? La cédula la encontró; el nombre debe coincidir (27-nov-2026).
+    const otraPersona = p ? noCoincideConAspirante({ nombre: c.nombre }, { nombre: (p.nombre as string | null) ?? null, cedula: null }) : null;
+    if (otraPersona) avisos.unshift(`¿Es de otra persona? ${otraPersona} Revise el informe antes de guardarlo.`);
     if (p && p.psicotecnica_resultado) avisos.push("Ya tenía un concepto: se reemplaza.");
     if (p && ["cierre", "contratado"].includes(String(p.estado))) avisos.push(`El proceso está ${p.estado === "cierre" ? "cerrado" : "contratado"}.`);
     return {
@@ -317,6 +323,7 @@ export async function vistaResultados(archivos: ArchivoSubido[]): Promise<{ fila
       nombreProceso: (p?.nombre as string | undefined) ?? c.nombre ?? null,
       estadoProceso: (p?.estado as string | undefined) ?? null,
       prueba: p?.origen === "chat_prueba",
+      noCoincide: !!otraPersona,
       previo: (p?.psicotecnica_resultado as ResultadoPsicoExterna | undefined) ?? null,
       aviso: avisos.join(" ") || null,
     };

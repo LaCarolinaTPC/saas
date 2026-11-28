@@ -6,6 +6,7 @@
  * las condiciones para contratar (Resumen).
  */
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { confirmar } from "@/components/ui/confirmar";
 import { CheckCircle2, Circle, ExternalLink, FileUp, FolderOpen, Route, Stethoscope, TriangleAlert, UserCheck } from "lucide-react";
 import { revalidarCandidatosFicha,
   agregarReferenciaFicha, anularAdjuntoFicha, aprobarContratacionFicha, contratarFicha, decidirNoAptoFicha, marcarItemCarpetaFicha,
@@ -13,6 +14,7 @@ import { revalidarCandidatosFicha,
 } from "@/app/(dashboard)/candidatos/entrega3-actions";
 import type { AdjuntoVista } from "@/lib/seleccion/carpeta-servidor";
 import { ETIQUETA_RESULTADO } from "@/lib/seleccion/examenes";
+import { CAUSAS_DESISTIMIENTO, CAUSAS_NO_APTO_EXAMEN } from "@/lib/seleccion/estadisticas-examenes";
 import { LaboratorioFicha } from "./laboratorio-ficha";
 import { CorreoPsicoFicha } from "./correo-psico-ficha";
 import type { EstadoCarpeta } from "@/lib/seleccion/contratacion";
@@ -73,14 +75,15 @@ export function useAccion(recargar: () => void) {
   return { mensaje, ocupado, correr };
 }
 
-async function subirArchivo(procesoId: string, tipo: string, archivo: File): Promise<{ ok: boolean; error?: string }> {
+async function subirArchivo(procesoId: string, tipo: string, archivo: File, confirmar = false): Promise<{ ok: boolean; error?: string; confirmar?: boolean }> {
   const form = new FormData();
   form.set("proceso_id", procesoId);
   form.set("tipo", tipo);
   form.set("archivo", archivo);
+  if (confirmar) form.set("confirmar", "1");
   try {
     const r = await fetch("/api/seleccion/adjuntos", { method: "POST", body: form });
-    return (await r.json()) as { ok: boolean; error?: string };
+    return (await r.json()) as { ok: boolean; error?: string; confirmar?: boolean };
   } catch {
     return { ok: false, error: "No hay conexión con el servidor." };
   }
@@ -88,23 +91,48 @@ async function subirArchivo(procesoId: string, tipo: string, archivo: File): Pro
 
 export function BotonSubir({ procesoId, tipo, onSubido, texto = "Subir archivo" }: { procesoId: string; tipo: string; onSubido: (r: { ok: boolean; error?: string }) => void; texto?: string }) {
   const [subiendo, setSubiendo] = useState(false);
+  // 27-nov-2026: el PDF parece de otra persona: se pregunta antes de guardarlo.
+  const [dudoso, setDudoso] = useState<{ archivo: File; motivo: string } | null>(null);
+  const subir = async (f: File, confirmar = false) => {
+    setSubiendo(true);
+    const r = await subirArchivo(procesoId, tipo, f, confirmar);
+    setSubiendo(false);
+    if (r.confirmar) {
+      setDudoso({ archivo: f, motivo: r.error ?? "El archivo parece de otra persona." });
+      return;
+    }
+    setDudoso(null);
+    onSubido(r);
+  };
   return (
-    <label className={`${botonSec} inline-flex cursor-pointer items-center gap-1.5 ${subiendo ? "pointer-events-none opacity-50" : ""}`}>
-      <FileUp className="h-4 w-4" /> {subiendo ? "Subiendo…" : texto}
-      <input
-        type="file"
-        accept=".pdf,image/jpeg,image/png,image/webp"
-        className="sr-only"
-        onChange={async (e) => {
-          const f = e.target.files?.[0];
-          e.target.value = "";
-          if (!f) return;
-          setSubiendo(true);
-          onSubido(await subirArchivo(procesoId, tipo, f));
-          setSubiendo(false);
-        }}
-      />
-    </label>
+    <span className="inline-flex flex-col gap-1.5">
+      <label className={`${botonSec} inline-flex cursor-pointer items-center gap-1.5 ${subiendo ? "pointer-events-none opacity-50" : ""}`}>
+        <FileUp className="h-4 w-4" /> {subiendo ? "Subiendo…" : texto}
+        <input
+          type="file"
+          accept=".pdf,image/jpeg,image/png,image/webp"
+          className="sr-only"
+          onChange={async (e) => {
+            const f = e.target.files?.[0];
+            e.target.value = "";
+            if (f) await subir(f);
+          }}
+        />
+      </label>
+      {dudoso && (
+        <span className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-900">
+          {dudoso.motivo}
+          <span className="mt-1.5 flex flex-wrap gap-2">
+            <button type="button" disabled={subiendo} className="rounded-md bg-amber-600 px-2 py-1 font-medium text-white disabled:opacity-50" onClick={() => subir(dudoso.archivo, true)}>
+              Es suyo: subirlo
+            </button>
+            <button type="button" disabled={subiendo} className="rounded-md border border-amber-300 bg-white px-2 py-1" onClick={() => setDudoso(null)}>
+              Cancelar
+            </button>
+          </span>
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -147,6 +175,12 @@ export function SeccionExamenesRutas({ procesoId, abierto, version }: { procesoI
   const { mensaje, ocupado, correr } = useAccion(recargar);
   const [fase, setFase] = useState<1 | 2 | null>(null);
   const [observacion, setObservacion] = useState("");
+  // 27-nov-2026: por qué no fue apto o desistió (estadísticas de exámenes).
+  const [causaExamen, setCausaExamen] = useState("");
+  const limpiarExamen = () => {
+    setObservacion("");
+    setCausaExamen("");
+  };
   const [rutas, setRutas] = useState<string[] | null>(null);
   const [ruta, setRuta] = useState("");
   const [obsRuta, setObsRuta] = useState("");
@@ -197,7 +231,7 @@ export function SeccionExamenesRutas({ procesoId, abierto, version }: { procesoI
 
         <LaboratorioFicha procesoId={procesoId} puedeEditar={datos.puede.editar && sigueAbierto} />
 
-        {/* Correo para la prueba psicosensotécnica: se pide al entrar a la fase 1. */}
+        {/* Correo para la prueba psicotécnica: se pide al entrar a la fase 1. */}
         <div className="mt-3">
           <CorreoPsicoFicha procesoId={procesoId} />
         </div>
@@ -236,8 +270,8 @@ export function SeccionExamenesRutas({ procesoId, abierto, version }: { procesoI
                   <button
                     type="button"
                     disabled={ocupado || decision.trim().length < 5}
-                    onClick={() =>
-                      confirm("¿Cerrar el proceso por exámenes médicos? Ya no se le enviarán más mensajes.") &&
+                    onClick={async () =>
+                      await confirmar("¿Cerrar el proceso por exámenes médicos? Ya no se le enviarán más mensajes.") &&
                       correr(() => decidirNoAptoFicha(procesoId, false, decision), "Proceso cerrado por exámenes médicos.", () => {
                         setDecision("");
                         setCerradoAqui(true);
@@ -269,6 +303,18 @@ export function SeccionExamenesRutas({ procesoId, abierto, version }: { procesoI
               </select>
             </div>
             <input className={campo} placeholder="Observación (obligatoria si es no apto o aplazado; p. ej. «apto con restricciones», «aplazado por hemograma»)" value={observacion} onChange={(e) => setObservacion(e.target.value)} />
+            <input
+              className={campo}
+              list="causas-examen"
+              placeholder="Causa, si no fue apto o desistió (p. ej. «Columna», «Sin explicación», «Mejor oferta laboral»)"
+              value={causaExamen}
+              onChange={(e) => setCausaExamen(e.target.value)}
+            />
+            <datalist id="causas-examen">
+              {[...CAUSAS_DESISTIMIENTO, ...CAUSAS_NO_APTO_EXAMEN.filter((c) => c !== "Otra")].map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
@@ -282,7 +328,7 @@ export function SeccionExamenesRutas({ procesoId, abierto, version }: { procesoI
                 type="button"
                 disabled={ocupado}
                 className="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
-                onClick={() => correr(() => registrarExamenFicha(procesoId, faseForm, "no_apto", observacion), "Registrado como no apto.", () => setObservacion(""))}
+                onClick={() => correr(() => registrarExamenFicha(procesoId, faseForm, "no_apto", observacion, causaExamen), "Registrado como no apto.", limpiarExamen)}
               >
                 No apto
               </button>
@@ -294,7 +340,27 @@ export function SeccionExamenesRutas({ procesoId, abierto, version }: { procesoI
               >
                 Aplazado
               </button>
+              <button
+                type="button"
+                disabled={ocupado || !causaExamen.trim()}
+                title={causaExamen.trim() ? "Cierra el proceso con «Desistimiento»" : "Escriba o elija la causa (o «Sin explicación»)"}
+                className="rounded-md border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+                onClick={() =>
+                  correr(
+                    () => registrarExamenFicha(procesoId, faseForm, "desistio", observacion, causaExamen),
+                    `Desistió en la fase ${faseForm}: el proceso quedó cerrado por desistimiento.`,
+                    () => {
+                      limpiarExamen();
+                      setCerradoAqui(true);
+                    },
+                    { refrescarPagina: true }
+                  )
+                }
+              >
+                Desistió
+              </button>
             </div>
+            <p className="text-[11px] text-gray-500">«Desistió»: no fue al laboratorio, dejó la fase a medias o dijo que no sigue. Pide la causa y cierra el proceso.</p>
           </div>
         )}
       </section>
@@ -557,7 +623,7 @@ export function SeccionContratacion({ procesoId, estado, version, onCambio }: { 
             type="button"
             disabled={ocupado}
             className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
-            onClick={() => confirm("¿Pasar el proceso a «Contratado»? Se crea el conductor (o el empleado, si la vacante no es de conductor) en Gestivo.") && correr(() => contratar(), "Contratado.")}
+            onClick={async () => await confirmar("¿Pasar el proceso a «Contratado»? Se crea el conductor (o el empleado, si la vacante no es de conductor) en Gestivo.") && correr(() => contratar(), "Contratado.")}
           >
             Contratar
           </button>

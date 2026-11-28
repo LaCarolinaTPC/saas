@@ -24,8 +24,44 @@ export function extraerJson(texto: string): unknown {
   try {
     return JSON.parse(t.slice(ini, fin + 1));
   } catch {
-    return null;
+    // 28-nov-2026: a veces el modelo cierra la lista después del primer documento
+    // («…}]}]},{"archivos":[2]…»). Cada documento sí está bien escrito: se rescatan uno por uno.
+    const docs = documentosSueltos(t);
+    return docs.length ? { documentos: docs } : null;
   }
+}
+
+/** Cada objeto `{"archivos": …}` del texto, bien formado, aunque la estructura que los rodea no lo esté. */
+export function documentosSueltos(t: string): unknown[] {
+  const out: unknown[] = [];
+  const re = /\{\s*"archivos"\s*:/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(t))) {
+    // Se busca la llave que cierra este objeto, sin contar las que van dentro de un texto.
+    let nivel = 0;
+    let enTexto = false;
+    let fin = -1;
+    for (let i = m.index; i < t.length; i++) {
+      const c = t[i];
+      if (enTexto) {
+        if (c === "\\") i++;
+        else if (c === '"') enTexto = false;
+      } else if (c === '"') enTexto = true;
+      else if (c === "{") nivel++;
+      else if (c === "}" && --nivel === 0) {
+        fin = i;
+        break;
+      }
+    }
+    if (fin < 0) break;
+    try {
+      out.push(JSON.parse(t.slice(m.index, fin + 1)));
+      re.lastIndex = fin + 1;
+    } catch {
+      // Ese documento sí está mal: se sigue con el siguiente.
+    }
+  }
+  return out;
 }
 
 /** Un documento leído, con los archivos (índices desde 0) que lo forman. */

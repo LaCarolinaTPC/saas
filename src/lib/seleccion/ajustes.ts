@@ -46,7 +46,7 @@ const RANGO_UNIDAD: Record<string, [number, number]> = {
   minutos: [0, 1440],
   numero: [0, 1000],
   pesos: [0, 1_000_000_000],
-  // 24-nov-2026: umbrales de las alertas y cortes de la psicosensotécnica.
+  // 24-nov-2026: umbrales de las alertas y cortes de la psicotécnica.
   porcentaje: [0, 100],
 };
 
@@ -95,7 +95,7 @@ export const OPCIONES_AJUSTE: Record<string, Record<string, string>> = {
 };
 
 /** Listas que pueden quedar vacías (lo normal es que una lista vacía sea un error). */
-const LISTAS_OPCIONALES = new Set(["ant_rnmc_palabras_revision", "ant_policia_palabras_revision", "ant_procuraduria_palabras_revision", "ant_contraloria_palabras_revision", "correos_prueba_desarrollo", "whatsapp_prueba_desarrollo", "alerta_servicios_correos", "alerta_servicios_copia", "listo_contratar_correos"]);
+const LISTAS_OPCIONALES = new Set(["notif_defecto_correos", "notif_defecto_copia", "notif_examenes_correos", "notif_examenes_copia", "notif_laboratorio_correos", "notif_laboratorio_copia", "notif_documentos_correos", "notif_documentos_copia", "notif_chats_correos", "notif_chats_copia", "notif_listo_copia", "antecedentes_alerta_correos", "antecedentes_alerta_copia", "reporte_diario_correos", "reporte_diario_copia", "ant_rnmc_palabras_revision", "ant_rnmc_palabras_toleradas", "ant_policia_palabras_revision", "ant_procuraduria_palabras_revision", "ant_contraloria_palabras_revision", "correos_prueba_desarrollo", "whatsapp_prueba_desarrollo", "alerta_servicios_correos", "alerta_servicios_copia", "listo_contratar_correos"]);
 
 export type ValidacionAjuste = { ok: true; valor: unknown } | { ok: false; error: string };
 
@@ -210,7 +210,7 @@ export function validarAjuste(a: Pick<AjusteSeleccion, "clave" | "unidad" | "nom
       if (a.clave === "edad_maxima" && Number(otro("edad_minima")) && v <= Number(otro("edad_minima"))) {
         return { ok: false, error: "La edad máxima debe ser mayor que la mínima." };
       }
-      // Cortes de la psicosensotécnica: «no recomendado» va por debajo de «con sugerencias».
+      // Cortes de la psicotécnica: «no recomendado» va por debajo de «con sugerencias».
       if (a.clave === "psico_corte_no_recomendado" && Number(otro("psico_corte_con_sugerencias")) && v >= Number(otro("psico_corte_con_sugerencias"))) {
         return { ok: false, error: "El corte de «no recomendado» debe ser menor que el de «recomendado con sugerencias»." };
       }

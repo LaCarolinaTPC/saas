@@ -39,9 +39,11 @@ export interface EstadoServicio {
   /**
    * Croma: lo que dice su página de estado pública (27-nov-2026). Croma no tiene
    * una API de estado por fuente; la página solo dice si su API funciona.
-   * Leerla no gasta créditos.
+   * Leerla no gasta créditos. Correo: la de Brevo (componentes SMTP y envíos).
    */
   paginaEstado?: PaginaEstado | null;
+  /** Correo: el inicio de sesión en el SMTP, sin enviar nada (27-nov-2026). */
+  smtp?: { ok: boolean; error: string | null; at: string } | null;
 }
 
 export interface PaginaEstado {
@@ -132,7 +134,7 @@ const NOMBRES: Record<IdServicio, string> = {
   croma: "Croma (RUNT, SIMIT y antecedentes)",
   ia: "Asistente de IA",
   whatsapp: "WhatsApp (envíos)",
-  correo: "Correo (órdenes a laboratorios)",
+  correo: "Correo (órdenes, alertas y reportes)",
 };
 
 const CONSEJO: Record<IdServicio, string> = {
@@ -142,25 +144,28 @@ const CONSEJO: Record<IdServicio, string> = {
   correo: "Revise el SMTP del servidor; las órdenes que no salieron se envían a mano desde Selección › Laboratorios.",
 };
 
+const CONSEJO_CREDENCIALES =
+  "El servidor de correo rechaza el usuario o la clave SMTP: revise que la clave siga activa en Brevo › SMTP & API › SMTP y que sea la misma de SMTP_PASS (en el servidor local y en Vercel). Mientras tanto no salen órdenes, alertas a GH ni reportes.";
+
 // ── Croma por fuente ────────────────────────────────────────────────────────
 
 export const FUENTES_CROMA: Record<string, { nombre: string; consejo: string }> = {
   rnmc: {
     nombre: "RNMC (medidas correctivas)",
     consejo:
-      "Para que el proceso siga, revíselo a mano: en la ficha del candidato, pestaña Antecedentes › «Lo revisé a mano» (abre el portal de la Policía; adjunte el certificado). Gestivo sigue reintentando solo.",
+      "Para que el proceso siga, revíselo a mano: en la ficha del candidato, pestaña Antecedentes › «Lo revisé a mano» (abre el portal de la Policía; adjunte el certificado). Gestivo lo reintenta solo hasta que alguien lo revise a mano.",
   },
   policia: {
     nombre: "Policía (antecedentes judiciales)",
-    consejo: "Revíselo a mano en la ficha del candidato, pestaña Antecedentes › «Lo revisé a mano» (portal de antecedentes de la Policía). Gestivo sigue reintentando solo.",
+    consejo: "Revíselo a mano en la ficha del candidato, pestaña Antecedentes › «Lo revisé a mano» (portal de antecedentes de la Policía). Gestivo lo reintenta solo hasta que alguien lo revise a mano.",
   },
   procuraduria: {
     nombre: "Procuraduría",
-    consejo: "Revíselo a mano en la ficha del candidato, pestaña Antecedentes › «Lo revisé a mano» (portal de la Procuraduría). Gestivo sigue reintentando solo.",
+    consejo: "Revíselo a mano en la ficha del candidato, pestaña Antecedentes › «Lo revisé a mano» (portal de la Procuraduría). Gestivo lo reintenta solo hasta que alguien lo revise a mano.",
   },
   contraloria: {
     nombre: "Contraloría",
-    consejo: "Revíselo a mano en la ficha del candidato, pestaña Antecedentes › «Lo revisé a mano» (portal de la Contraloría). Gestivo sigue reintentando solo.",
+    consejo: "Revíselo a mano en la ficha del candidato, pestaña Antecedentes › «Lo revisé a mano» (portal de la Contraloría). Gestivo lo reintenta solo hasta que alguien lo revise a mano.",
   },
   simit: {
     nombre: "SIMIT (multas)",
@@ -231,15 +236,54 @@ export function evaluarCroma(
         ? CONSEJO.croma
         : caidas.length === 1
           ? peor.consejo
-          : `${nombres.join(" y ")}: revíselos a mano en la ficha del candidato, pestaña Antecedentes › «Lo revisé a mano». Gestivo sigue reintentando solo.`,
+          : `${nombres.join(" y ")}: revíselos a mano en la ficha del candidato, pestaña Antecedentes › «Lo revisé a mano». Gestivo lo reintenta solo hasta que alguien lo revise a mano.`,
     },
   };
 }
 
+/**
+ * El correo con sus tres señales (27-nov-2026), puro: si el SMTP no deja iniciar
+ * sesión, está fallando aunque los últimos envíos salieran bien (nadie se enteraba
+ * hasta que una alerta no llegaba); si la página de Brevo reporta problemas, también.
+ * Si no, mandan los envíos.
+ */
+export function evaluarCorreo(
+  ev: Pick<EstadoServicio, "nivel" | "seguidos" | "errores24h" | "total24h" | "ultimoError" | "ultimoOkAt">,
+  smtp: { ok: boolean; credenciales: boolean; error: string | null; at: string } | null,
+  brevo: PaginaEstado | null
+): Pick<EstadoServicio, "nivel" | "seguidos" | "errores24h" | "total24h" | "ultimoError" | "ultimoOkAt" | "consejo"> {
+  if (smtp && !smtp.ok) {
+    return {
+      ...ev,
+      nivel: "fallando",
+      ultimoError: { texto: `Al iniciar sesión en el SMTP: ${smtp.error ?? "sin detalle"}`, at: smtp.at },
+      consejo: smtp.credenciales
+        ? CONSEJO_CREDENCIALES
+        : "No se pudo conectar con el servidor de correo (puede ser pasajero): si sigue, revise SMTP_HOST y SMTP_PORT y la página de estado del proveedor.",
+    };
+  }
+  if (brevo?.estado === "problemas") {
+    return { ...ev, nivel: "fallando", consejo: `La página de estado de Brevo reporta problemas (${brevo.texto}). Los correos que no salgan se pueden reenviar cuando se normalice.` };
+  }
+  if (ev.nivel === "fallando") {
+    const credenciales = /535|authentication failed|invalid login/i.test(ev.ultimoError?.texto ?? "");
+    return { ...ev, consejo: credenciales ? CONSEJO_CREDENCIALES : CONSEJO.correo };
+  }
+  return { ...ev, consejo: null };
+}
+
 let cache: { hasta: number; datos: Promise<EstadoServicio[]> } | null = null;
 
-/** Los cuatro servicios. Un minuto en memoria (lo piden varias pantallas). */
-export async function leerEstadoServicios(): Promise<EstadoServicio[]> {
+/**
+ * Los cuatro servicios. Un minuto en memoria (lo piden varias pantallas).
+ * `forzar` («Actualizar el estado»): vuelve a revisar el SMTP y las páginas de estado.
+ */
+export async function leerEstadoServicios(opciones: { forzar?: boolean } = {}): Promise<EstadoServicio[]> {
+  if (opciones.forzar) {
+    cache = null;
+    cachePagina = null;
+    (await import("@/lib/correo/salud")).olvidarSaludCorreo();
+  }
   if (cache && cache.hasta > Date.now()) return cache.datos;
   const datos = calcular().catch((e) => {
     console.error("[estado-servicios]", e);
@@ -253,8 +297,9 @@ async function calcular(): Promise<EstadoServicio[]> {
   const { createAdminClient } = await import("@/lib/supabase/admin");
   const { cromaPausado } = await import("@/lib/verificacion/pausa");
   const { correoConfigurado } = await import("@/lib/correo/enviar");
+  const { revisarSmtp, leerEstadoBrevo } = await import("@/lib/correo/salud");
   const db = createAdminClient();
-  const [croma, ia, wa, correo, pausado, pagina] = await Promise.all([
+  const [croma, ia, wa, correo, pausado, pagina, bitacora, smtp, brevo] = await Promise.all([
     // Por fuente (26-nov-2026): las suficientes para tener las últimas de cada una.
     db.from("verificaciones_externas").select("fuente, estado, error, created_at").eq("proveedor", "croma").in("estado", ["ok", "hallazgo", "error"]).order("created_at", { ascending: false }).limit(300),
     db.from("wa_agente_ejecuciones").select("resultado, error, created_at").in("resultado", ["respondido", "transferido", "error"]).order("created_at", { ascending: false }).limit(30),
@@ -269,6 +314,10 @@ async function calcular(): Promise<EstadoServicio[]> {
     db.from("seleccion_envios_laboratorio").select("resultado, error, created_at").eq("canal", "correo").in("resultado", ["enviado", "fallido"]).order("created_at", { ascending: false }).limit(20),
     cromaPausado(),
     process.env.CROMA_API_KEY?.trim() ? leerPaginaEstadoCroma() : Promise.resolve(null),
+    // Todos los correos (27-nov-2026); sin la migración 20261127215621, solo las órdenes de arriba.
+    db.from("correo_envios").select("resultado, error, created_at").order("created_at", { ascending: false }).limit(30),
+    correoConfigurado() ? revisarSmtp() : Promise.resolve(null),
+    correoConfigurado() ? leerEstadoBrevo() : Promise.resolve(null),
   ]);
   const filas = (r: { data: unknown }) => (r.data ?? []) as Record<string, unknown>[];
   const eventos: Record<Exclude<IdServicio, "croma">, EventoServicio[]> = {
@@ -277,7 +326,7 @@ async function calcular(): Promise<EstadoServicio[]> {
       .filter((f) => !/WhatsApp rechaz/i.test(String(f.error ?? "")))
       .map((f) => ({ ok: f.resultado !== "error", at: f.created_at as string, error: f.error as string | null })),
     whatsapp: filas(wa).map((f) => ({ ok: f.estado !== "failed", at: f.created_at as string, error: f.error_mensaje as string | null })),
-    correo: filas(correo).map((f) => ({ ok: f.resultado !== "fallido", at: f.created_at as string, error: f.error as string | null })),
+    correo: (bitacora.error || !filas(bitacora).length ? filas(correo) : filas(bitacora)).map((f) => ({ ok: f.resultado !== "fallido", at: f.created_at as string, error: f.error as string | null })),
   };
   const porFuente = evaluarCroma(
     filas(croma).map((f) => ({ fuente: String(f.fuente ?? "otra"), ok: f.estado !== "error", at: f.created_at as string, error: f.error as string | null }))
@@ -297,8 +346,11 @@ async function calcular(): Promise<EstadoServicio[]> {
       return { id, ...porFuente.resumen, nivel, nombre: fallando && !problemasPagina ? porFuente.resumen.nombre : NOMBRES.croma, consejo, partes: porFuente.partes, paginaEstado: pagina };
     }
     const ev = evaluarEventos(eventos[id]);
-    let nivel = ev.nivel;
-    if (id === "correo" && !correoConfigurado()) nivel = "sin_configurar";
+    const nivel = ev.nivel;
+    if (id === "correo") {
+      if (!correoConfigurado()) return { id, nombre: NOMBRES[id], ...ev, nivel: "sin_configurar", consejo: null };
+      return { id, nombre: NOMBRES[id], ...evaluarCorreo(ev, smtp, brevo), paginaEstado: brevo, smtp: smtp ? { ok: smtp.ok, error: smtp.error, at: smtp.at } : null };
+    }
     return { id, nombre: NOMBRES[id], ...ev, nivel, consejo: nivel === "fallando" ? CONSEJO[id] : null };
   });
 }

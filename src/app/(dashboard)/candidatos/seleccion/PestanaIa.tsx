@@ -12,6 +12,7 @@
  */
 
 import { useState } from "react";
+import { confirmar } from "@/components/ui/confirmar";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AudioLines, Bot, CheckCircle2, ClipboardList, FileText, Hand, KeyRound, Loader2, MessageSquare, TriangleAlert } from "lucide-react";
@@ -516,8 +517,8 @@ export default function PestanaIa({
           />
           <button
             type="button"
-            onClick={() => {
-              if (!f.prompt.trim() || confirm("¿Reemplazar las instrucciones actuales por el prompt sugerido de selección de conductores?")) {
+            onClick={async () => {
+              if (!f.prompt.trim() || await confirmar("¿Reemplazar las instrucciones actuales por el prompt sugerido de selección de conductores?")) {
                 set("prompt", PROMPT_SELECCION_SUGERIDO);
               }
             }}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
+import { confirmar } from "@/components/ui/confirmar";
 import { toast } from "sonner";
 import { Download, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -161,7 +162,7 @@ export function PlantillaNovedad({
       return t + (Number.isFinite(v) ? v : 0);
     }, 0);
     if (
-      !window.confirm(
+      !await confirmar(
         `¿Cargar ${nombre.toLowerCase()} de ${filas.length} conductores por ${cop.format(suma)} en el corte ${etiqueta}?` +
           (cargadas.length ? `\n\nReemplaza el cargue anterior por Excel (${cargadas.length} conductores, ${cop.format(total)}).` : "")
       )

@@ -253,7 +253,15 @@ try {
   const { data: bajado } = primero ? await db.storage.from("seleccion").download(primero.ruta as string) : { data: null };
   revisar("y se pueden descargar", bajado && bajado.size > 0);
   const { data: carpeta } = await db.from("seleccion_carpeta_items").select("item, estado").eq("proceso_id", pid);
-  revisar("la carpeta marca la hoja de vida y las cartas como recibidas", (carpeta ?? []).some((c) => /hoja/i.test(c.item) && c.estado === "recibido") && (carpeta ?? []).some((c) => /carta|certific/i.test(c.item) && c.estado === "recibido"), carpeta);
+  // Con «validar_documentos_auto» (27-nov-2026, encendido por defecto) lo que coincide con el aspirante
+  // queda validado solo; apagado, queda «recibido» para que una persona lo valide.
+  const auto = (await db.from("seleccion_ajustes").select("valor").eq("clave", "validar_documentos_auto").maybeSingle()).data?.valor !== false;
+  const esperado = auto ? ["recibido", "validado"] : ["recibido"];
+  revisar(
+    `la carpeta marca la hoja de vida y las cartas como ${auto ? "recibidas o validadas (validación automática)" : "recibidas"}`,
+    (carpeta ?? []).some((c) => /hoja/i.test(c.item) && esperado.includes(c.estado)) && (carpeta ?? []).some((c) => /carta|certific/i.test(c.item) && esperado.includes(c.estado)),
+    carpeta
+  );
 } catch (e) {
   fallos.push(`excepción: ${e instanceof Error ? e.stack : String(e)}`);
   console.error(e);

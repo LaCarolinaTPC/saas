@@ -378,8 +378,14 @@ try {
 
   titulo("4p. Por el webhook: un mensaje del número del laboratorio");
   const f14 = await esperando("GLORIA INES MEJIA WEBHOOK", labTemp);
-  const { data: cl } = await db.from("wa_contactos").insert({ telefono: TEL_LAB, nombre: NOMBRE_LAB, tipo: "laboratorio" }).select("id").single();
-  const { data: cvl } = await db.from("wa_conversaciones").insert({ contacto_id: cl!.id, ultimo_entrante_at: new Date().toISOString() }).select("id").single();
+  // La orden (simulada) al laboratorio temporal ya pudo crear el contacto de ese número: se usa ese.
+  const { data: clPrevio } = await db.from("wa_contactos").select("id").eq("telefono", TEL_LAB).maybeSingle();
+  const { data: cl } = clPrevio ? { data: clPrevio } : await db.from("wa_contactos").insert({ telefono: TEL_LAB, nombre: NOMBRE_LAB, tipo: "laboratorio" }).select("id").single();
+  // Una conversación por contacto: si la orden ya la creó, se usa esa.
+  const { data: cvPrevia } = await db.from("wa_conversaciones").select("id").eq("contacto_id", cl!.id).maybeSingle();
+  const { data: cvl } = cvPrevia
+    ? { data: cvPrevia }
+    : await db.from("wa_conversaciones").insert({ contacto_id: cl!.id, ultimo_entrante_at: new Date().toISOString() }).select("id").single();
   const { data: ml } = await db
     .from("wa_mensajes")
     .insert({ conversacion_id: cvl!.id, direccion: "entrante", contenido: `GLORIA INES MEJIA WEBHOOK CC ${f14.cedula} sí puede pasar a fase 2`, timestamp: new Date().toISOString() })

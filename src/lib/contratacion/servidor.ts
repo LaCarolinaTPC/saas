@@ -27,7 +27,7 @@ export function actorUsuario(perms: { userId: string | null; userEmail: string |
 export interface EventoProceso {
   /**
    * «cita» y «prueba» (profesor) llegan con la entrega 2 de selección;
-   * «examen» lo usó la prueba psicosensotécnica propia (quitada el 24-nov-2026):
+   * «examen» lo usó la prueba psicotécnica propia (quitada el 24-nov-2026):
    * queda para leer el historial.
    */
   tipo: "creado" | "estado" | "preseleccion" | "autorizacion" | "dato" | "cita" | "prueba" | "examen" | "examen_medico" | "carpeta" | "recomendado" | "laboratorio";
@@ -271,7 +271,7 @@ export async function cambiarEstadoProceso(
   const admin = createAdminClient();
   const { data: actual, error: errLectura } = await admin
     .from("procesos_contratacion")
-    .select("estado")
+    .select("estado, observacion")
     .eq("id", id)
     .maybeSingle();
   if (errLectura) throw new Error(errLectura.message);
@@ -309,6 +309,14 @@ export async function cambiarEstadoProceso(
     causa_no_contrato: nuevo === "cierre" ? causa : null,
     updated_by: opciones.actor.userId,
   };
+  // 27-nov-2026 (pedido de GH): al cerrar, el porqué queda también en la observación (se ve en la
+  // lista de Candidatos y en el Excel), sin borrar lo que ya hubiera escrito.
+  if (nuevo === "cierre" && causa) {
+    const motivo = typeof opciones.detalle?.motivo === "string" ? opciones.detalle.motivo.trim() : "";
+    const linea = observacionDeCierre(causa, motivo, new Date());
+    const previa = String((actual as { observacion?: string | null }).observacion ?? "").trim();
+    if (!previa.includes(linea)) patch.observacion = (previa ? `${previa}\n${linea}` : linea).slice(0, 2000);
+  }
   let { data: proc, error } = await admin.from("procesos_contratacion").update(patch).eq("id", id).select(COLUMNAS_ALTA).single();
   // Sin la migración 20261113205625 no existe updated_by: reintenta sin ella.
   if (error && /updated_by/.test(error.message)) {
@@ -338,8 +346,40 @@ export async function cambiarEstadoProceso(
     await asegurarAltaContratado(proc);
     await sincronizarConProceso(id, opciones.actor);
   }
+  // 27-nov-2026 (reunión con Salud Ocupacional): cerrar por «Desistimiento» a quien estaba en exámenes
+  // (desde el tablero o la ficha) deja la fase como «desistió», con las observaciones como causa, para
+  // que se vea en qué fase se quedó y cuente en Indicadores › Exámenes médicos. Si viene de «Desistió»
+  // en el resultado del examen (detalle.fase), ya quedó registrado.
+  if (nuevo === "cierre" && /^desist/i.test(causa ?? "") && (anterior === "en_examenes" || anterior === "en_examenes_fase2") && detalle?.fase == null) {
+    const fase = anterior === "en_examenes" ? 1 : 2;
+    const motivo = typeof detalle?.motivo === "string" ? detalle.motivo.trim() : "";
+    const { data: previo } = await admin.from("seleccion_examenes").select("resultado").eq("proceso_id", id).eq("fase", fase).maybeSingle();
+    if (!previo || previo.resultado === "pendiente" || previo.resultado === "aplazado") {
+      const fila = {
+        proceso_id: id,
+        fase,
+        fecha: new Date(Date.now() - 5 * 3_600_000).toISOString().slice(0, 10),
+        resultado: "desistio",
+        observacion: motivo || null,
+        causa: motivo.slice(0, 200) || "Sin explicación",
+        confirmado_por: opciones.actor.userEmail,
+        confirmado_at: new Date().toISOString(),
+      };
+      const { error: eEx } = await admin.from("seleccion_examenes").upsert(fila, { onConflict: "proceso_id,fase" });
+      // Sin la migración 20261128035646 no existe «desistio»: el cierre sigue igual.
+      if (eEx) console.warn("[contratacion] desistimiento en exámenes sin registrar:", eEx.message);
+      else await registrarEvento(id, { tipo: "examen_medico", detalle: { fase, resultado: "desistio", causa: fila.causa, desde: "cierre" } }, opciones.actor);
+    }
+  }
   // Plan Padrino (27-nov-2026): al cerrar, el referido pasa solo a «No contratado»; al reabrir, vuelve a validación.
   if (nuevo === "cierre") await cerrarReferidoPorProceso(id, causa, opciones.actor);
   else if (anterior === "cierre") await reabrirReferidoPorProceso(id, opciones.actor);
   return { cambiado: true, anterior };
+}
+
+/** La línea que el cierre deja en la observación (puro): «Cierre 27/11/2026: causa (motivo)». */
+export function observacionDeCierre(causa: string, motivo: string | null | undefined, cuando: Date): string {
+  const fecha = new Date(cuando.getTime() - 5 * 3_600_000).toISOString().slice(0, 10).split("-").reverse().join("/");
+  const m = String(motivo ?? "").trim();
+  return `Cierre ${fecha}: ${causa}${m && !m.includes(causa) ? ` (${m})` : ""}`;
 }

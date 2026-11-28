@@ -70,7 +70,7 @@ const hayMensaje = (k: string) => hay(`m:${k}`, () => db.from("seleccion_mensaje
 
 const archivos = readdirSync(DIR)
   .filter((f) => /^\d{14}_.+\.sql$/.test(f) && f.slice(0, DESDE.length) >= DESDE)
-  .filter((f) => TODAS || /seleccion|agente|asistente|seguimiento|ia_por_separado|psicosensotecnica|alertas_por_correo/.test(f))
+  .filter((f) => TODAS || /seleccion|agente|asistente|seguimiento|ia_por_separado|psicosensotecnica|psicotecnica|alertas_por_correo/.test(f))
   .sort();
 
 // Lo que una migración posterior quita a propósito (la prueba psicosensotécnica propia, 24-nov-2026).

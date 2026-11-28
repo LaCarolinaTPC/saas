@@ -3,18 +3,13 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { ESTADOS_EN_CURSO, ESTADOS_REVISION_REINGRESO, FILTRO_ANTECEDENTES, FILTRO_APADRINADOS, FILTRO_PSICO_INSCRIBIR, FILTRO_REINGRESOS, campoFecha, type ProcesoContratacion } from "@/lib/contratacion/constants";
 import { idsApadrinadosSinPadrino } from "@/lib/padrino/datos";
-import { examenesPorRevisar } from "@/lib/seleccion/examenes-servidor";
-import { procesosConCedulaDistinta } from "@/lib/seleccion/lectura/revision-servidor";
+import { leerTablero } from "@/lib/contratacion/tablero-servidor";
 import { CandidatosClient } from "./client";
 import { AvisoServicios } from "@/components/estado-servicios/aviso-servicios";
 
 export const dynamic = "force-dynamic";
 
 const PAGE_SIZE = 50;
-/** Columnas que usa la tarjeta del tablero (kanban-procesos.tsx) y su filtro por vacante. */
-const COLUMNAS_TABLERO =
-  "id, estado, nombre, cedula, edad, vacancy_id, origen, requisito_incumplido, preseleccion, causa_no_contrato, aprobacion_contratacion_at, updated_at, vacancies(title)";
-
 interface Filters {
   q?: string;
   estado?: string;
@@ -28,10 +23,6 @@ interface Filters {
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-/** Instante de hace `dias` días, en ISO (para el filtro del tablero). */
-function haceDias(dias: number): string {
-  return new Date(Date.now() - dias * 86_400_000).toISOString();
-}
 
 /** Vista estructural mínima del query builder de Supabase (evita instanciación
  *  de tipos excesivamente profunda al pasar el builder entre funciones). */
@@ -63,7 +54,7 @@ function applyFilters(query: Filterable, f: Filters, apadrinados: string[] = [])
   else if (f.estado === FILTRO_ANTECEDENTES) q = q.in("antecedentes_resultado", ["revision", "descarta"]).or("antecedentes_decision.is.null").in("estado", ESTADOS_EN_CURSO);
   // «Apadrinados sin padrino»: dijeron venir recomendados y Gestión Humana no les ha asignado padrino.
   else if (f.estado === FILTRO_APADRINADOS) q = q.in("id", apadrinados.length ? apadrinados : [ID_NINGUNO]);
-  // «Psicosensotécnica: por inscribir»: confirmaron el correo y falta inscribirlos en la plataforma.
+  // «Psicotécnica: por inscribir»: confirmaron el correo y falta inscribirlos en la plataforma.
   else if (f.estado === FILTRO_PSICO_INSCRIBIR) q = q.eq("correo_estado", "validado").in("estado", ESTADOS_EN_CURSO);
   else if (f.estado && f.estado !== "todos") q = q.eq("estado", f.estado);
   if (f.medio && f.medio !== "todos") q = q.eq("medio_postulacion", f.medio);
@@ -116,27 +107,8 @@ export default async function CandidatosPage({
     base().in("estado", ESTADOS_EN_CURSO),
   ]);
 
-  // Tablero: procesos en curso y los cerrados o contratados de los últimos 30 días.
-  const hace30 = haceDias(30);
-  // Solo lo que muestra la tarjeta (27-nov-2026): con todas las columnas eran ~1,5 MB y ~1,2 s
-  // en cada carga y recarga; la ficha completa se trae al abrir la tarjeta (procesoCompleto).
-  const { data: tablero } = await admin
-    .from("procesos_contratacion")
-    .select(COLUMNAS_TABLERO)
-    .or(`estado.not.in.(contratado,cierre),updated_at.gte.${hace30}`)
-    .order("updated_at", { ascending: false })
-    .limit(1000);
-  // 24-nov-2026: el no apto de los exámenes queda marcado en la tarjeta para revisarlo a mano (y el aplazado).
-  const enExamenes = (tablero ?? []).filter((p) => ["en_examenes", "en_examenes_fase2", "reconocimiento_ruta"].includes(p.estado as string)).map((p) => p.id as string);
-  const porRevisar = await examenesPorRevisar(enExamenes).catch(() => new Map());
-  // 25-nov-2026 (R2): un documento leído trae una cédula que no es la del proceso y nadie lo ha revisado.
-  const abiertos = (tablero ?? []).filter((p) => p.estado !== "cierre" && p.estado !== "contratado").map((p) => ({ id: p.id as string, cedula: (p.cedula as string | null) ?? null }));
-  const cedulaDistinta = await procesosConCedulaDistinta(abiertos).catch(() => new Set<string>());
-  const tableroMarcado = (tablero ?? []).map((p) => ({
-    ...p,
-    ...(porRevisar.has(p.id as string) ? { revision_examen: porRevisar.get(p.id as string) } : {}),
-    ...(cedulaDistinta.has(p.id as string) ? { cedula_no_coincide: true } : {}),
-  }));
+  // Tablero: los procesos del mes actual (27-nov-2026); el filtro del tablero pide otro mes.
+  const tableroMarcado = await leerTablero();
 
   return (
     <>

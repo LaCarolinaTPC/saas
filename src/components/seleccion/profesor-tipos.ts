@@ -125,7 +125,7 @@ export const ETIQUETA_MENSAJE: Record<string, string> = {
   reconocimiento_aviso: "Aviso del reconocimiento de ruta (¿cuántas rutas conoce?)",
   rutas_suficientes: "Respuesta: conoce las rutas suficientes",
   rutas_faltan: "Respuesta: debe hacer el reconocimiento de rutas",
-  pedir_correo: "Pedido del correo para la psicosensotécnica",
+  pedir_correo: "Pedido del correo para la psicotécnica",
 };
 
 // ── Citar ──────────────────────────────────────────────────────────────────

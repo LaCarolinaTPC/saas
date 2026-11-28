@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
+import { confirmar } from "@/components/ui/confirmar";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, CheckCircle2, FileSpreadsheet, Loader2, Undo2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
@@ -88,12 +89,12 @@ export function CargaCombustibleClient({ cargas, conciliaciones, ultimoDia, pued
     }
   }
 
-  function reversar(c: CargaCombustible) {
+  async function reversar(c: CargaCombustible) {
     const texto =
       `¿Reversar la carga de «${c.archivo_nombre}»?\n\n` +
       "Se borran los tanqueos que esta carga creó o corrigió por última vez. " +
       "Si un tanqueo corregido venía de un archivo anterior, vuelve a subir ese archivo para recuperarlo.";
-    if (!confirm(texto)) return;
+    if (!await confirmar(texto)) return;
     empezar(async () => {
       const r = await reversarCargaCombustible(c.id);
       if (!r.success) { toast.error(r.error ?? "No se pudo reversar."); return; }

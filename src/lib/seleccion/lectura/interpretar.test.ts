@@ -223,3 +223,17 @@ test("experiencias y referencias guardan la página de origen; una página mal e
   assert.equal(docs![0].referencias[0].pagina, null);
   assert.equal(docs![0].referencias[0].nombre, "Luis");
 });
+
+test("lectura: el modelo cierra la lista antes de tiempo y se rescatan los documentos (28-nov-2026)", async () => {
+  const { extraerJson, documentosSueltos } = await import("./interpretar");
+  const doc = (n: number, clase: string) => `{"archivos":[${n}],"clase":"${clase}","legible":true,"motivo":null,"resumen":"Texto con { llaves } y \\"comillas\\"","campos":[],"experiencias":[],"referencias":[{"nombre":"A","telefono":"300","tipo":"laboral","pagina":1}]}`;
+  // Como lo devolvió Haiku: «…}]}]},{"archivos":[2]…» (cierra «documentos» y el objeto tras el primero).
+  const malo = `{"documentos":[${doc(1, "hoja_vida")}]},${doc(2, "carta_laboral")},${doc(3, "carta_laboral")}]}`;
+  const r = extraerJson(malo) as { documentos: { clase: string; archivos: number[] }[] };
+  assert.deepEqual(r.documentos.map((d) => [d.clase, d.archivos[0]]), [["hoja_vida", 1], ["carta_laboral", 2], ["carta_laboral", 3]]);
+  // Bien formado: igual que siempre.
+  assert.equal((extraerJson(`{"documentos":[${doc(1, "cedula")}]}`) as { documentos: unknown[] }).documentos.length, 1);
+  // Un documento roto no tumba a los demás; sin documentos, null.
+  assert.equal(documentosSueltos(`${doc(1, "hoja_vida")} {"archivos":[2],"clase": }`).length, 1);
+  assert.equal(extraerJson("no hay nada"), null);
+});

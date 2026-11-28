@@ -23,7 +23,7 @@ export const ETIQUETA_TIPO_CITA: Record<TipoCita, string> = {
   prueba_manejo: "Prueba de manejo",
   examen_f1: "Exámenes, fase 1",
   examen_f2: "Exámenes, fase 2",
-  psicotecnica: "Prueba psicosensotécnica",
+  psicotecnica: "Prueba psicotécnica",
   reconocimiento: "Reconocimiento de ruta",
 };
 export type EstadoCita = "programada" | "confirmada" | "pide_otra_fecha" | "asistio" | "no_asistio" | "reprogramada" | "cancelada";
@@ -82,6 +82,12 @@ export interface AjustesAgenda {
    * (y de la hora nueva), para alcanzar a avisar a los aspirantes.
    */
   cambioMismoDiaMinutos: number;
+  /**
+   * Recordatorio de la fase 2 de exámenes la víspera (27-nov-2026): va en ayunas,
+   * así que se le recuerda la tarde anterior, desde esta hora.
+   */
+  recordatorioExamenF2Activo: boolean;
+  recordatorioExamenF2Hora: string;
 }
 
 /** Valores de la reunión con GH (2026-11-10); se cambian en seleccion_ajustes. */
@@ -99,6 +105,8 @@ export const AJUSTES_AGENDA_POR_DEFECTO: AjustesAgenda = {
   rutasMinimas: 2,
   reconocimientoHora: "09:00",
   cambioMismoDiaMinutos: 120,
+  recordatorioExamenF2Activo: true,
+  recordatorioExamenF2Hora: "18:00",
 };
 
 const HORA_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -132,7 +140,29 @@ export function ajustesAgenda(filas: { clave: string; valor: unknown }[]): Ajust
     rutasMinimas: num("rutas_minimas", d.rutasMinimas) || d.rutasMinimas,
     reconocimientoHora: hora("reconocimiento_hora", d.reconocimientoHora),
     cambioMismoDiaMinutos: num("cambio_mismo_dia_minutos", d.cambioMismoDiaMinutos),
+    recordatorioExamenF2Activo: m.get("recordatorio_examen_f2_activo") !== false && m.get("recordatorio_examen_f2_activo") !== "false",
+    recordatorioExamenF2Hora: hora("recordatorio_examen_f2_hora", d.recordatorioExamenF2Hora),
   };
+}
+
+/**
+ * ¿Toca el recordatorio de la víspera de la fase 2? (27-nov-2026). La cita es
+ * mañana (hora de Bogotá), ya son las `recordatorioExamenF2Hora`, sigue en pie
+ * y no se le ha recordado. Si la citación salió hace menos de 6 horas (la fase 1
+ * se registró esa misma tarde), no se repite: el mensaje de la citación es reciente.
+ */
+export function tocaRecordatorioExamenF2(
+  c: Pick<Cita, "tipo" | "fecha" | "estado" | "recordatorio_at"> & { created_at?: string | null },
+  ahora: Date,
+  a: Pick<AjustesAgenda, "recordatorioExamenF2Activo" | "recordatorioExamenF2Hora">
+): boolean {
+  if (!a.recordatorioExamenF2Activo || c.tipo !== "examen_f2" || c.recordatorio_at) return false;
+  if (!["programada", "confirmada", "pide_otra_fecha"].includes(c.estado)) return false;
+  const hoy = fechaBogota(ahora.toISOString());
+  if (c.fecha !== sumarDias(hoy, 1)) return false;
+  if (horaBogota(ahora) < a.recordatorioExamenF2Hora) return false;
+  if (c.created_at && ahora.getTime() - new Date(c.created_at).getTime() < 6 * 3_600_000) return false;
+  return true;
 }
 
 /** Motivos que permiten cambiar las citas de hoy: algo que no se podía prever. */

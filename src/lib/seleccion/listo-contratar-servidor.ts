@@ -20,8 +20,6 @@ import { ACTOR_SISTEMA, cambiarEstadoProceso, type ActorProceso } from "@/lib/co
 import { ESTADO_LISTO, ETAPAS_ANTES_DE_LISTO, listoParaContratar, movimientoListo } from "./contratacion";
 import { armarCorreoListo } from "./listo-contratar";
 import { condicionesDeProceso } from "./contratacion-servidor";
-import { leerConfigReporte } from "./reporte-diario-servidor";
-import { leerAjustes, valorAjuste } from "./servidor";
 
 const urlApp = () =>
   process.env.GESTIVO_ENTORNO === "desarrollo"
@@ -30,20 +28,15 @@ const urlApp = () =>
       ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
       : "https://saas-six-vert.vercel.app";
 
-const correos = (v: unknown): string[] =>
-  (Array.isArray(v) ? v : typeof v === "string" ? v.split(/[,;\s]+/) : []).map((x) => String(x).trim().toLowerCase()).filter((x) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x));
-
 /**
  * A quién se le avisa: el ajuste `listo_contratar_correos`; vacío, los del
  * reporte diario. `listo_contratar_avisar` en «no» lo apaga.
  */
 export async function destinatariosListo(): Promise<{ activo: boolean; para: string[]; copia: string[] }> {
-  const a = await leerAjustes().catch(() => []);
-  const activo = valorAjuste<unknown>(a, "listo_contratar_avisar", true) !== false;
-  const propios = correos(valorAjuste<unknown>(a, "listo_contratar_correos", []));
-  if (propios.length) return { activo, para: propios, copia: [] };
-  const reporte = await leerConfigReporte();
-  return { activo, para: reporte.para, copia: reporte.copia };
+  // 27-nov-2026: con copia y con los correos por defecto de Selección › Notificaciones.
+  const { destinatariosNotificacion } = await import("./notificaciones-servidor");
+  const d = await destinatariosNotificacion("listo_contratar");
+  return { activo: d.activo, para: d.para, copia: d.copia };
 }
 
 export interface ResultadoListo {
@@ -98,6 +91,8 @@ export async function sincronizarListoContratar(procesoId: string, actor: ActorP
   const correo = armarCorreoListo({ nombre: String(p.nombre ?? ""), cedula: String(p.cedula ?? ""), vacante }, c.condiciones, urlApp(), process.env.GESTIVO_ENTORNO === "desarrollo");
   const envio = await enviarCorreo({ para: destino.para, copia: destino.copia, ...correo });
   if (!envio.ok) console.error("[seleccion] correo de «Listo para contratar»:", envio.error);
+  const { anotarNovedad, enlaceProceso } = await import("./notificaciones-servidor");
+  await anotarNovedad("listo_contratar", { clave: procesoId, procesoId, titulo: `${String(p.nombre ?? "").trim() || `Aspirante CC ${p.cedula ?? ""}`} quedó listo para contratar`, enlace: enlaceProceso(p.cedula as string | null, procesoId) }, envio.ok ? "enviado" : "fallido", envio.ok ? null : envio.error);
   return { movido: "sube", estado: ESTADO_LISTO, correo: envio.ok ? "enviado" : envio.error };
 }
 

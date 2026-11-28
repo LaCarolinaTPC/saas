@@ -1,13 +1,14 @@
 "use client";
 
 /**
- * Prueba psicosensotécnica en PsicoAlianza (24-nov-2026):
+ * Prueba psicotécnica en PsicoAlianza (24-nov-2026):
  * 1. Por inscribir → plantilla de carga masiva llena y «marcar inscritos».
  * 2. Esperando el resultado.
  * 3. Subir resultados (Excel/CSV o informes PDF) con vista previa.
  * 4. Resultados de los últimos 60 días.
  */
 import { useMemo, useRef, useState, useTransition } from "react";
+import { confirmar } from "@/components/ui/confirmar";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, Download, FileUp, Send, TriangleAlert } from "lucide-react";
 import type { AspirantePsico, FilaVista, ListasPsico } from "@/lib/seleccion/psico-servidor";
@@ -108,7 +109,7 @@ export function PsicoClient({ datos }: { datos: ListasPsico & { puedeEditar: boo
 
   const marcar = () =>
     correr(async () => {
-      if (!confirm(`¿Marcar ${elegidos.size} como inscritos en la plataforma? A cada uno se le avisa por WhatsApp que le llega la información por correo.`)) return;
+      if (!await confirmar(`¿Marcar ${elegidos.size} como inscritos en la plataforma? A cada uno se le avisa por WhatsApp que le llega la información por correo.`)) return;
       const r = await marcarInscritosAccion([...elegidos]);
       if (!r.ok) return avisar(r.error ?? "No se pudo marcar.", true);
       avisar(`${r.marcados} marcados como inscritos.${r.errores?.length ? ` ${r.errores.length} no: ${r.errores.map((e) => e.error).join("; ")}` : ""}`, !!r.errores?.length);
@@ -123,7 +124,7 @@ export function PsicoClient({ datos }: { datos: ListasPsico & { puedeEditar: boo
       const r = await leerResultadosAccion(fd);
       if (!r.ok) return avisar(r.error ?? "No se pudieron leer los archivos.", true);
       setErroresLectura(r.errores ?? []);
-      setVista((r.filas ?? []).map((f) => ({ ...f, incluir: !!f.procesoId && (!!f.estadoPrueba || (!!f.resultado && !f.deducido)) })));
+      setVista((r.filas ?? []).map((f) => ({ ...f, incluir: !!f.procesoId && !f.noCoincide && (!!f.estadoPrueba || (!!f.resultado && !f.deducido)) })));
       if (!r.filas?.length) avisar("No se encontró ningún resultado en los archivos.", true);
     });
 
@@ -143,7 +144,7 @@ export function PsicoClient({ datos }: { datos: ListasPsico & { puedeEditar: boo
   /** No la presentó o no la terminó: vuelve a «Por inscribir». */
   const reprogramar = (ids: string[], razon: EstadoPrueba) =>
     correr(async () => {
-      if (!confirm(`¿${ETIQUETA_ESTADO_PRUEBA[razon]}? Vuelve a «Por inscribir» para subirlo otra vez en la plantilla de la plataforma.`)) return;
+      if (!await confirmar(`¿${ETIQUETA_ESTADO_PRUEBA[razon]}? Vuelve a «Por inscribir» para subirlo otra vez en la plantilla de la plataforma.`)) return;
       const r = await reprogramarAccion(ids, razon);
       if (!r.ok) return avisar(r.error ?? "No se pudo.", true);
       avisar(`${r.hechos} vuelven a «Por inscribir».${r.errores?.length ? ` ${r.errores.join("; ")}` : ""}`, !!r.errores?.length);

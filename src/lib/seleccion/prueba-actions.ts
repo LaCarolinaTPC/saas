@@ -68,8 +68,10 @@ import { archivoParaModelo, mimeDeFormato } from "./lectura/formatos";
 import { MAX_BYTES_DOCUMENTO_PRUEBA } from "./lectura/formatos-aceptados";
 import { leerArchivos } from "./lectura/leer";
 import { itemDeClase, resumenParaAsistente } from "./lectura/interpretar";
-import { validarCartasAutomaticas } from "./lectura/revision-servidor";
-import { ADJUNTO_MIMES, guardarAdjuntoSeleccion, itemsCarpeta, tipoDeItem } from "./carpeta-servidor";
+import { conContradicciones, type DatosAspirante, type LecturaPrevia } from "./lectura/contradicciones";
+import { NOMBRE_CLASE, type CampoLeido, type ClaseDocumento } from "./lectura/esquema";
+import { validarDocumentosAutomaticos } from "./lectura/revision-servidor";
+import { ADJUNTO_MIMES, guardarAdjuntoSeleccion, itemsCarpeta, marcarItemCarpeta, tipoDeItem } from "./carpeta-servidor";
 import { registrarConsumo } from "./consumos-servidor";
 import { costoUsd } from "./consumos";
 import { configDocumentos } from "@/lib/comunicaciones/agente/config";
@@ -151,7 +153,7 @@ async function regresoDePrueba(procesoId: string | null | undefined) {
 /**
  * Lo demás que el chat real le pasa al asistente (27-nov-2026): la pregunta del
  * mensaje de exámenes que espera respuesta, en qué va el correo de la
- * psicosensotécnica y el nombre del candidato. Sin esto el asistente del chat
+ * psicotécnica y el nombre del candidato. Sin esto el asistente del chat
  * de prueba no sabía que le habíamos enviado los exámenes y decía que ese
  * mensaje no era nuestro. Solo candidatos «chat_prueba».
  */
@@ -789,7 +791,7 @@ export async function simularSilencioPrueba(p: {
 // ── Documentos en el chat de prueba (23-nov-2026) ───────────────────────────
 
 export type ResultadoDocumentoPrueba =
-  | { ok: true; resumen: string; clase: string; estado: "leido" | "ilegible"; modelo: string; ms: number; guardado: boolean; nota: string | null }
+  | { ok: true; resumen: string; clase: string; estado: "leido" | "ilegible"; modelo: string; ms: number; guardado: boolean; nota: string | null; avisos: string[] }
   | { ok: false; error: string };
 
 /**
@@ -826,7 +828,9 @@ export async function leerDocumentoPrueba(datos: FormData): Promise<ResultadoDoc
     // Candidato de prueba de esta conversación (solo chat_prueba), para guardar en su ficha.
     const db = createAdminClient();
     const procesoId = typeof datos.get("procesoId") === "string" ? String(datos.get("procesoId")) : "";
-    const { data: proc } = procesoId ? await db.from("procesos_contratacion").select("id, origen, cedula").eq("id", procesoId).maybeSingle() : { data: null };
+    const { data: proc } = procesoId
+      ? await db.from("procesos_contratacion").select("id, origen, cedula, nombre, fecha_nacimiento, edad, ciudad_residencia, celular, experiencia_meses").eq("id", procesoId).maybeSingle()
+      : { data: null };
     const dePrueba = proc?.origen === "chat_prueba" ? proc : null;
 
     const inicio = Date.now();
@@ -834,8 +838,34 @@ export async function leerDocumentoPrueba(datos: FormData): Promise<ResultadoDoc
     const r = await leerArchivos([a.archivo], { config, claves, hoy, cedulaProceso: (dePrueba?.cedula as string | null) ?? null });
     const costo = r.costoUsd ?? costoUsd(r.modelo, r.tokensEntrada, r.tokensSalida);
     await registrarConsumo({ concepto: "lectura", proveedor: configDocumentos(config).proveedor, modelo: r.modelo, tokensEntrada: r.tokensEntrada, tokensSalida: r.tokensSalida, costoUsd: costo, procesoId: dePrueba?.id as string | undefined }).catch(() => undefined);
-    const d = r.docs?.[0];
-    if (!d) return { ok: false, error: `El modelo no devolvió una lectura válida: «${r.texto.slice(0, 200)}»` };
+    const leido = r.docs?.[0];
+    if (!leido) return { ok: false, error: `El modelo no devolvió una lectura válida: «${r.texto.slice(0, 200)}»` };
+    // ¿Contradice lo que ya sabemos? (27-nov-2026): contra el candidato y sus otros documentos o, si
+    // todavía no es candidato, contra lo que dijo en el chat. Las advertencias van como nota del campo.
+    let aspirante: DatosAspirante = {};
+    let previas: LecturaPrevia[] = [];
+    if (dePrueba) {
+      aspirante = {
+        nombre: dePrueba.nombre as string | null,
+        cedula: dePrueba.cedula as string | null,
+        fecha_nacimiento: dePrueba.fecha_nacimiento as string | null,
+        edad: dePrueba.edad as number | null,
+        ciudad_residencia: dePrueba.ciudad_residencia as string | null,
+        celular: dePrueba.celular as string | null,
+        experiencia_meses: dePrueba.experiencia_meses as number | null,
+      };
+      const { data: otras } = await db.from("seleccion_lecturas").select("clase, campos").eq("proceso_id", dePrueba.id).eq("estado", "leido");
+      previas = ((otras ?? []) as { clase: ClaseDocumento; campos: CampoLeido[] | null }[]).map((o) => ({ clase: o.clase, campos: o.campos ?? [] }));
+    } else {
+      try {
+        const chat = JSON.parse(String(datos.get("datosChat") ?? "null")) as Partial<DatosPrefiltro> | null;
+        if (chat) aspirante = { nombre: chat.nombre, cedula: chat.cedula, fecha_nacimiento: chat.fecha_nacimiento, edad: chat.edad, ciudad_residencia: chat.ciudad, experiencia_meses: chat.experiencia_meses };
+      } catch {
+        // Sin datos del chat: no se compara.
+      }
+    }
+    const revisado = leido.estado === "leido" ? conContradicciones(leido.clase, leido.campos, aspirante, previas, hoy) : { campos: leido.campos, avisos: [] };
+    const d = { ...leido, campos: revisado.campos };
     const resumen = resumenParaAsistente(d).slice(0, 4000);
 
     let guardado = false;
@@ -849,28 +879,71 @@ export async function leerDocumentoPrueba(datos: FormData): Promise<ResultadoDoc
           { procesoId: dePrueba.id as string, tipo: item ? tipoDeItem(item) : "otro", nombre: archivo.name || `${d.clase}.${ADJUNTO_MIMES[mime] ?? "bin"}`, mime, buffer: bytes, origen: "subido" },
           actor
         );
-        const { error } = await db.from("seleccion_lecturas").insert({
-          proceso_id: dePrueba.id,
-          adjunto_id: adjuntoId,
-          clase: d.clase,
-          estado: d.estado,
-          campos: d.campos,
-          resumen: d.resumen,
-          modelo: r.modelo,
-          costo_usd: costo,
-        });
+        const { data: lectura, error } = await db
+          .from("seleccion_lecturas")
+          .insert({
+            proceso_id: dePrueba.id,
+            adjunto_id: adjuntoId,
+            clase: d.clase,
+            estado: d.estado,
+            campos: d.campos,
+            resumen: d.resumen,
+            modelo: r.modelo,
+            costo_usd: costo,
+          })
+          .select("id")
+          .maybeSingle();
         if (error) throw new Error(error.message);
         guardado = true;
-        await validarCartasAutomaticas(dePrueba.id as string).catch((e) => console.error("[seleccion] validación automática (chat de prueba):", e));
+        // Contradice los datos del aspirante de prueba: el aviso sale de verdad, marcado [Prueba].
+        const claras = revisado.avisos.filter((x) => x.startsWith("⚠"));
+        if (claras.length && lectura?.id) {
+          const { notificar, enlaceProceso } = await import("./notificaciones-servidor");
+          await notificar("documentos", {
+            clave: lectura.id as string,
+            procesoId: dePrueba.id as string,
+            prueba: true,
+            titulo: `${aspirante.nombre?.trim() || "Aspirante de prueba"}: el documento no cuadra con sus datos`,
+            detalle: `${claras.join(" ")} Revíselo en Candidatos › ficha › Documentos leídos.`,
+            enlace: enlaceProceso((dePrueba.cedula as string | null) ?? null, dePrueba.id as string),
+          });
+        }
+        await validarDocumentosAutomaticos(dePrueba.id as string).catch((e) => console.error("[seleccion] validación automática (chat de prueba):", e));
       } catch (e) {
         nota = `Se leyó, pero no se pudo guardar en la ficha: ${e instanceof Error ? e.message : String(e)}`;
       }
     } else if (procesoId === "") {
       nota = "Todavía no es candidato: el documento se leyó para el asistente, pero no queda en ninguna ficha.";
     }
-    return { ok: true, resumen, clase: d.clase, estado: d.estado, modelo: r.modelo, ms: Date.now() - inicio, guardado, nota };
+    if (!dePrueba && !Object.values(aspirante).some((v) => v != null && v !== "")) {
+      nota = [nota, "No se comparó con los datos del aspirante: el chat todavía no tiene ninguno."].filter(Boolean).join(" ");
+    }
+    return { ok: true, resumen, clase: d.clase, estado: d.estado, modelo: r.modelo, ms: Date.now() - inicio, guardado, nota, avisos: revisado.avisos };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "No se pudo leer el documento." };
+  }
+}
+
+/**
+ * Documento simulado en el chat de prueba (27-nov-2026): «si se simula, se dice
+ * que está bien». El tipo sale del pie (claseDePie, en el navegador); con el
+ * candidato de prueba guardado, ese documento queda «recibido» en su carpeta,
+ * con la nota de que fue simulado. Solo candidatos del chat de prueba.
+ */
+export async function documentoSimuladoPrueba(procesoId: string, clase: ClaseDocumento): Promise<{ ok: boolean; nota: string }> {
+  try {
+    const perms = await exigirPrueba();
+    const db = createAdminClient();
+    const { data: p } = await db.from("procesos_contratacion").select("id, origen").eq("id", procesoId).maybeSingle();
+    if (p?.origen !== "chat_prueba") return { ok: false, nota: "Solo se marcan documentos de candidatos del chat de prueba." };
+    const item = itemDeClase(clase, await itemsCarpeta());
+    if (!item) return { ok: true, nota: `Documento simulado (${NOMBRE_CLASE[clase].toLowerCase()}): se da por bueno; no corresponde a ningún documento de la carpeta.` };
+    const r = await marcarItemCarpeta(procesoId, item, "validado", "Simulado en el chat de prueba: se da por bueno.", actorUsuario(perms));
+    return r.ok
+      ? { ok: true, nota: `Documento simulado: «${item}» quedó recibido en la carpeta del candidato (se da por bueno).` }
+      : { ok: false, nota: `Documento simulado, pero no se pudo marcar en la carpeta: ${r.error ?? "error"}` };
+  } catch (e) {
+    return { ok: false, nota: e instanceof Error ? e.message : "No se pudo marcar el documento simulado." };
   }
 }
 

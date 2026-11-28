@@ -11,16 +11,17 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { registrarEvento } from "@/lib/contratacion/servidor";
 import { enviarCorreo } from "@/lib/correo/enviar";
-import { leerConfigReporte } from "./reporte-diario-servidor";
-import { inicioVigenteProceso, leerAjustes, valorAjuste } from "./servidor";
+import { inicioVigenteProceso } from "./servidor";
 
-export type CausaAlertaAntecedentes = "hallazgo" | "sin_respuesta" | "requisito" | "tardio";
+export type CausaAlertaAntecedentes = "hallazgo" | "sin_respuesta" | "requisito" | "tardio" | "simit_sin_respuesta";
 
 const TITULO: Record<CausaAlertaAntecedentes, string> = {
   hallazgo: "tiene una anotación en sus antecedentes",
   sin_respuesta: "una fuente de antecedentes no respondió",
   requisito: "no cumple un requisito que las reglas mandan a revisión",
   tardio: "llegó tarde un resultado con anotación después del aval",
+  // 27-nov-2026: Croma no respondió el SIMIT; sin él (si es obligatorio) el aspirante se queda esperando.
+  simit_sin_respuesta: "Croma no respondió el SIMIT",
 };
 
 const NOMBRE_FUENTE: Record<string, string> = {
@@ -35,9 +36,6 @@ const NOMBRE_FUENTE: Record<string, string> = {
   residencia: "residencia",
 };
 
-const correos = (v: unknown): string[] =>
-  (Array.isArray(v) ? v : typeof v === "string" ? v.split(/[,;\s]+/) : []).map((x) => String(x).trim().toLowerCase()).filter((x) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x));
-
 const urlApp = () =>
   process.env.GESTIVO_ENTORNO === "desarrollo"
     ? "http://localhost:3000"
@@ -45,13 +43,11 @@ const urlApp = () =>
       ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
       : "https://saas-six-vert.vercel.app";
 
+/** Lista propia; si no, los correos por defecto de Selección › Notificaciones; si no, los del reporte diario. */
 export async function destinatariosAlertaAntecedentes(): Promise<{ activo: boolean; para: string[]; copia: string[] }> {
-  const a = await leerAjustes().catch(() => []);
-  const activo = valorAjuste<unknown>(a, "antecedentes_alerta_activo", true) !== false;
-  const para = correos(valorAjuste<unknown>(a, "antecedentes_alerta_correos", []));
-  if (para.length) return { activo, para, copia: correos(valorAjuste<unknown>(a, "antecedentes_alerta_copia", [])) };
-  const reporte = await leerConfigReporte();
-  return { activo, para: reporte.para, copia: reporte.copia };
+  const { destinatariosNotificacion } = await import("./notificaciones-servidor");
+  const d = await destinatariosNotificacion("antecedentes");
+  return { activo: d.activo, para: d.para, copia: d.copia };
 }
 
 /** El correo, armado (puro: se prueba sin enviarlo). */
@@ -68,7 +64,9 @@ export function armarCorreoAlerta(p: { nombre: string; cedula: string; prueba: b
         ? `No respondió: ${lista || "una fuente"}. Revísela a mano («Lo revisé a mano») o dé el aval para seguir sin ella.`
         : causa === "requisito"
           ? `Requisito: ${lista || "uno"}. Las reglas lo dejan para una persona (no se cierra solo).`
-          : `Resultado tardío con anotación en: ${lista || "una fuente"}. El aval que se había dado quedó anulado: vuelva a decidir.`;
+          : causa === "simit_sin_respuesta"
+            ? "Croma no respondió el SIMIT. Revíselo a mano en el portal del SIMIT y regístrelo en la ficha («Lo revisé a mano»). Gestivo lo reintenta solo hasta que alguien lo revise a mano."
+            : `Resultado tardío con anotación en: ${lista || "una fuente"}. El aval que se había dado quedó anulado: vuelva a decidir.`;
   const texto = [`${nombre} (CC ${p.cedula}) ${TITULO[causa]}.`, "", detalle, "", `Abrir: ${enlace}`].join("\n");
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#0f172a;max-width:560px">
@@ -80,27 +78,60 @@ export function armarCorreoAlerta(p: { nombre: string; cedula: string; prueba: b
   return { asunto, texto, html };
 }
 
+export type ResultadoAlerta = "enviado" | "ya_avisado" | "apagado" | "sin_destinatarios" | "fallido";
+
+export interface DetalleAlerta {
+  resultado: ResultadoAlerta;
+  error?: string;
+  /** A quién iba (antes del desvío de desarrollo, que deja solo los correos de prueba). */
+  para?: string[];
+  copia?: string[];
+  asunto?: string;
+}
+
 /**
  * Avisa por correo que el aspirante necesita una revisión de antecedentes.
  * Una vez por proceso y causa. Devuelve qué pasó (para el historial y las pruebas).
  */
-export async function alertarAntecedentes(procesoId: string, causa: CausaAlertaAntecedentes, fuentes: string[] = []): Promise<"enviado" | "ya_avisado" | "apagado" | "sin_destinatarios" | "fallido"> {
+export async function alertarAntecedentes(procesoId: string, causa: CausaAlertaAntecedentes, fuentes: string[] = []): Promise<ResultadoAlerta> {
+  return (await alertarAntecedentesDetalle(procesoId, causa, fuentes)).resultado;
+}
+
+/**
+ * Lo mismo, con el detalle. `forzar` (botón «Reenviar la alerta» del chat de
+ * prueba, 27-nov-2026): sale aunque ya se haya avisado.
+ */
+export async function alertarAntecedentesDetalle(
+  procesoId: string,
+  causa: CausaAlertaAntecedentes,
+  fuentes: string[] = [],
+  opciones: { forzar?: boolean } = {}
+): Promise<DetalleAlerta> {
   try {
     const db = createAdminClient();
-    const { data: ya } = await db
-      .from("procesos_contratacion_eventos")
-      .select("id")
-      .eq("proceso_id", procesoId)
-      .eq("detalle->>alerta_antecedentes", causa)
-      .gte("created_at", await inicioVigenteProceso(procesoId))
-      .limit(1)
-      .maybeSingle();
-    if (ya) return "ya_avisado";
+    if (!opciones.forzar) {
+      // Solo cuenta como avisado si el correo salió; uno fallido se reintenta pasada media hora
+      // (27-nov-2026: Brevo rechazó dos alertas con 535 y quedaban como «ya avisado» para siempre).
+      const { data: previas } = await db
+        .from("procesos_contratacion_eventos")
+        .select("created_at, detalle")
+        .eq("proceso_id", procesoId)
+        .eq("detalle->>alerta_antecedentes", causa)
+        .gte("created_at", await inicioVigenteProceso(procesoId))
+        .order("created_at", { ascending: false })
+        .limit(20);
+      const hace30 = Date.now() - 30 * 60_000;
+      const ya = (previas ?? []).some((e) => {
+        const d = e.detalle as { correo?: string } | null;
+        return d?.correo !== "fallido" || new Date(e.created_at as string).getTime() > hace30;
+      });
+      if (ya) return { resultado: "ya_avisado" };
+    }
     const destino = await destinatariosAlertaAntecedentes();
-    if (!destino.activo) return "apagado";
-    if (!destino.para.length) return "sin_destinatarios";
+    if (!destino.activo) return { resultado: "apagado" };
+    if (!destino.para.length) return { resultado: "sin_destinatarios" };
     const { data: p } = await db.from("procesos_contratacion").select("nombre, cedula, origen").eq("id", procesoId).maybeSingle();
-    if (!p) return "fallido";
+    if (!p) return { resultado: "fallido", error: "El proceso no existe." };
     const correo = armarCorreoAlerta(
       { nombre: String(p.nombre ?? ""), cedula: String(p.cedula ?? ""), prueba: p.origen === "chat_prueba" },
       causa,
@@ -108,12 +139,33 @@ export async function alertarAntecedentes(procesoId: string, causa: CausaAlertaA
       urlApp(),
       process.env.GESTIVO_ENTORNO === "desarrollo"
     );
-    const envio = await enviarCorreo({ para: destino.para, copia: destino.copia, ...correo });
+    // Un candidato del chat de prueba: sale de verdad también en desarrollo (27-nov-2026), con «[Prueba]» en el asunto.
+    const enviar = () => enviarCorreo({ para: destino.para, copia: destino.copia, ...correo });
+    const envio = p.origen === "chat_prueba" ? await (await import("@/lib/entorno-pruebas")).conEnvioRealDePrueba(enviar) : await enviar();
     const resultado = envio.ok ? "enviado" : "fallido";
-    await registrarEvento(procesoId, { tipo: "dato", detalle: { alerta_antecedentes: causa, fuentes, correo: resultado, ...(envio.ok ? {} : { error: envio.error }) } }, { tipo: "sistema", userId: null, userEmail: "Sistema" });
-    return resultado;
+    await registrarEvento(
+      procesoId,
+      { tipo: "dato", detalle: { alerta_antecedentes: causa, fuentes, correo: resultado, ...(opciones.forzar ? { reenvio: true } : {}), ...(envio.ok ? {} : { error: envio.error }) } },
+      { tipo: "sistema", userId: null, userEmail: "Sistema" }
+    );
+    // En la bitácora de avisos: sale en las novedades del día de Candidatos.
+    const { anotarNovedad, enlaceProceso } = await import("./notificaciones-servidor");
+    await anotarNovedad(
+      "antecedentes",
+      {
+        clave: `${procesoId}:${causa}:${new Date(Date.now() - 5 * 3_600_000).toISOString().slice(0, 10)}`,
+        procesoId,
+        prueba: p.origen === "chat_prueba",
+        titulo: `${String(p.nombre ?? "").trim() || `Aspirante CC ${p.cedula ?? ""}`}: ${TITULO[causa]}`,
+        detalle: fuentes.length ? `Fuentes: ${fuentes.map((f) => NOMBRE_FUENTE[f] ?? f).join(", ")}` : null,
+        enlace: enlaceProceso(p.cedula as string | null, procesoId),
+      },
+      resultado,
+      envio.ok ? null : envio.error
+    );
+    return { resultado, ...(envio.ok ? {} : { error: envio.error }), para: destino.para, copia: destino.copia, asunto: correo.asunto };
   } catch (e) {
     console.error("[seleccion] alerta de antecedentes:", e);
-    return "fallido";
+    return { resultado: "fallido", error: e instanceof Error ? e.message : "Error desconocido" };
   }
 }

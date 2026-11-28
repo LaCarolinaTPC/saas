@@ -25,12 +25,36 @@ export interface ResultadoLectura {
   texto: string;
 }
 
-/** Lee con el proveedor y el modelo de «Documentos» (pestaña IA de Selección). */
-export async function leerArchivos(
-  archivos: ImagenEntrada[],
-  ctx: { config: AgenteConfig; claves: AgenteClaves; hoy: string; cedulaProceso?: string | null }
-): Promise<ResultadoLectura> {
+type CtxLectura = { config: AgenteConfig; claves: AgenteClaves; hoy: string; cedulaProceso?: string | null };
+
+/**
+ * Lee con el proveedor y el modelo de «Documentos» (pestaña IA de Selección).
+ * Si la respuesta no se entiende (28-nov-2026: pasó en una batería con una hoja de
+ * vida y tres cartas; una respuesta mal formada o cortada por largo dejaba todos
+ * los archivos en error), se lee otra vez en dos mitades y se juntan los resultados.
+ */
+export async function leerArchivos(archivos: ImagenEntrada[], ctx: CtxLectura): Promise<ResultadoLectura> {
   const lote = archivos.slice(0, MAX_ARCHIVOS);
+  const r = await leerUnaVez(lote, ctx);
+  if (r.docs) return r;  // Uno solo: un segundo intento. Varios: cada mitad por su lado (respuestas más cortas).
+  const partes = lote.length > 1 ? [lote.slice(0, Math.ceil(lote.length / 2)), lote.slice(Math.ceil(lote.length / 2))] : [lote];
+  const leidas: ResultadoLectura[] = [];
+  for (const parte of partes) leidas.push(await leerUnaVez(parte, ctx));
+  const suma = (k: "tokensEntrada" | "tokensSalida" | "costoUsd") =>
+    [r, ...leidas].reduce<number | null>((t, x) => (x[k] == null ? t : (t ?? 0) + (x[k] as number)), null);
+  const base = { modelo: leidas.at(-1)?.modelo ?? r.modelo, tokensEntrada: suma("tokensEntrada"), tokensSalida: suma("tokensSalida"), costoUsd: suma("costoUsd") };
+  if (leidas.some((x) => !x.docs)) return { ...base, docs: null, texto: leidas.find((x) => !x.docs)?.texto ?? r.texto };
+  // Los índices de archivo de la segunda mitad se corren a su lugar en el lote.
+  let corrimiento = 0;
+  const docs: DocumentoLeido[] = [];
+  partes.forEach((parte, i) => {
+    for (const d of leidas[i].docs!) docs.push({ ...d, archivos: d.archivos.map((k) => k + corrimiento) });
+    corrimiento += parte.length;
+  });
+  return { ...base, docs, texto: leidas.map((x) => x.texto).join("\n") };
+}
+
+async function leerUnaVez(lote: ImagenEntrada[], ctx: CtxLectura): Promise<ResultadoLectura> {
   const r = await generarConAdjuntos(ctx.config, ctx.claves, SISTEMA_LECTURA, instruccionLectura(lote.length), lote, {
     // Una hoja de vida larga trae muchas experiencias y referencias.
     maxTokens: 6000,

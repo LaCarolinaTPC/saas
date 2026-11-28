@@ -175,3 +175,41 @@ test("duracionLegible", () => {
   assert.equal(duracionLegible(5 * H), "5 h");
   assert.equal(duracionLegible(84 * H), "3,5 días");
 });
+
+test("por día (27-nov-2026): aspirantes nuevos y los que no cumplieron el perfil, con la causa", () => {
+  const ind = calcularIndicadoresSeleccion(
+    entrada({
+      procesos: [
+        proceso("a", { created_at: "2026-11-16T15:00:00Z" }),
+        proceso("b", { created_at: "2026-11-16T16:00:00Z", estado: "cierre", causa_no_contrato: "SIMIT por encima del tope" }),
+        proceso("c", { created_at: "2026-11-16T17:00:00Z", estado: "cierre", causa_no_contrato: "Desistimiento" }), // no es del perfil
+        proceso("d", { created_at: "2026-11-17T15:00:00Z", estado: "cierre", causa_no_contrato: "Edad fuera del rango" }),
+        proceso("p", { created_at: "2026-11-17T15:00:00Z", origen: "chat_prueba", estado: "cierre", causa_no_contrato: "Edad fuera del rango" }), // prueba: no cuenta
+      ],
+    })
+  );
+  const dia16 = ind.porDia.find((d) => d.fecha === "2026-11-16")!;
+  assert.equal(dia16.aspirantes, 3);
+  assert.equal(dia16.noCumplieron, 1);
+  assert.deepEqual(dia16.causas.map((c) => c.etiqueta), ["SIMIT por encima del tope"]);
+  const dia17 = ind.porDia.find((d) => d.fecha === "2026-11-17")!;
+  assert.deepEqual([dia17.aspirantes, dia17.noCumplieron], [1, 1]);
+  assert.equal(ind.porDia.length, 7); // un renglón por día del periodo
+});
+
+test("resumen semanal (27-nov-2026): de los que se postularon, cuántos se citaron y se presentaron a la prueba", () => {
+  const ev = (proceso_id: string, estado_nuevo: string, estado_anterior: string | null = null) => ({ proceso_id, tipo: "estado", estado_anterior, estado_nuevo, created_at: "2026-11-18T15:00:00Z" });
+  const ind = calcularIndicadoresSeleccion(
+    entrada({
+      procesos: [
+        proceso("a"), // solo preselección
+        proceso("b", { estado: "citado" }),
+        proceso("c", { estado: "en_examenes" }), // pasó la prueba
+        proceso("d", { estado: "cierre", causa_no_contrato: "No asistió" }), // se citó y no llegó
+      ],
+      eventos: [ev("b", "citado"), ev("c", "citado"), ev("c", "prueba_manejo"), ev("c", "en_examenes"), ev("d", "citado"), ev("d", "cierre", "citado")],
+    })
+  );
+  const s = ind.porSemana.find((x) => x.fecha === "2026-11-16")!;
+  assert.deepEqual([s.aspirantes, s.citados, s.presentaron], [4, 3, 1]);
+});

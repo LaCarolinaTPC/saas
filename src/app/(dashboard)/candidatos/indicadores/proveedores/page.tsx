@@ -6,6 +6,7 @@ import { PERIODOS, resolverPeriodo, sumarDias } from "@/lib/comunicaciones/indic
 import { leerEstadisticasProveedores } from "@/lib/servicios/estadisticas-servidor";
 import { duracionLegible, tiempoLegible, type FilaProveedor } from "@/lib/servicios/estadisticas";
 import { PestanasIndicadores, periodoDeLaUrl } from "../pestanas-indicadores";
+import { HerramientasIndicadores } from "@/components/indicadores/herramientas-indicadores";
 
 const RUTA = "/candidatos/indicadores/proveedores";
 
@@ -66,6 +67,7 @@ export default async function IndicadoresProveedoresPage({ searchParams }: { sea
       </div>
 
       <PestanasIndicadores actual="proveedores" periodo={periodoDeLaUrl(sp)} />
+      <HerramientasIndicadores titulo="Proveedores" contexto={`Del ${diaCorto(periodo.rango.desde)} al ${diaCorto(periodo.rango.hasta)}`} />
 
       <form method="get" action={RUTA} className="mb-4 flex flex-wrap items-end gap-x-4 gap-y-3 rounded-2xl border border-border bg-white p-3">
         <fieldset>
@@ -105,7 +107,7 @@ export default async function IndicadoresProveedoresPage({ searchParams }: { sea
         Una caída son 3 errores seguidos de la misma fuente.
       </p>
 
-      <div className="space-y-6">
+      <div id="indicadores-contenido" className="space-y-6">
         {/* Qué hacer: lo primero que se ve. */}
         <section className={`rounded-2xl border p-4 sm:p-5 ${conAviso.length ? "border-red-200 bg-red-50" : "border-emerald-200 bg-emerald-50"}`}>
           <h2 className={`text-base font-semibold ${conAviso.length ? "text-red-800" : "text-emerald-800"}`}>

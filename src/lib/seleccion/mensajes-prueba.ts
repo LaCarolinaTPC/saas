@@ -28,9 +28,27 @@ export async function recogerMensajesPrueba<T>(fn: () => Promise<T>): Promise<{ 
   return { resultado, mensajes };
 }
 
-/** Anota un mensaje para el chat de prueba (no hace nada fuera de `recogerMensajesPrueba`). */
+/**
+ * Anota un mensaje para el chat de prueba. Dentro de `recogerMensajesPrueba` lo
+ * devuelve la acción; fuera (27-nov-2026: el webhook real, cuando el laboratorio
+ * responde por WhatsApp por un candidato de prueba, o el cron) queda como evento
+ * del proceso y el chat de prueba lo recoge solo (pendientesChatPrueba).
+ */
 export function anotarMensajePrueba(m: MensajePrueba): void {
-  if (m.texto.trim() || m.adjuntos?.length) almacen.getStore()?.push(m);
+  if (!m.texto.trim() && !m.adjuntos?.length) return;
+  const lista = almacen.getStore();
+  if (lista) return void lista.push(m);
+  if (!m.procesoId) return;
+  void (async () => {
+    try {
+      const { createAdminClient } = await import("@/lib/supabase/admin");
+      await createAdminClient()
+        .from("procesos_contratacion_eventos")
+        .insert({ proceso_id: m.procesoId, tipo: "dato", detalle: { mensaje_prueba: { clave: m.clave, texto: m.texto, adjuntos: m.adjuntos ?? [] } }, actor: "sistema", usuario_email: "Gestivo (chat de prueba)" });
+    } catch (e) {
+      console.error("[seleccion] mensaje para el chat de prueba:", e);
+    }
+  })();
 }
 
 /** Pega documentos al último mensaje anotado (o los anota solos). */

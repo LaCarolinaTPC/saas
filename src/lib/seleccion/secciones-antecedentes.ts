@@ -86,7 +86,8 @@ export const TABLA_ANTECEDENTES: FuenteReglas[] = [
       { etiqueta: "No tiene medidas correctivas pendientes", fijo: "pasa" },
       { clave: "ant_rnmc_max_toleradas", etiqueta: "Pasa solo si tiene hasta este número de medidas pendientes", ayuda: "0 = ninguna.", sufijo: "medidas" },
       { clave: "ant_rnmc_accion_exceso", etiqueta: "Tiene más medidas que ese número" },
-      { clave: "ant_rnmc_palabras_revision", etiqueta: "Palabras que siempre van a revisión manual", ayuda: "Una por línea o separadas por comas. Si la descripción de una medida trae alguna, la revisa una persona aunque no supere el número. Es una lista amplia para ir afinándola: quite las que manden casos de más y agregue las que vea en las medidas." },
+      { clave: "ant_rnmc_palabras_revision", etiqueta: "Palabras que siempre van a revisión manual", ayuda: "Una por línea o separadas por comas. Se buscan en la conducta de cada medida (numeral, literal, relato de los hechos y medidas impuestas, del portal de la Policía); no en el título del artículo ni en los descargos. Si alguna aparece, la revisa una persona aunque no supere el número. Una medida sin la conducta (el portal no respondió) también va a revisión." },
+      { clave: "ant_rnmc_palabras_toleradas", etiqueta: "Conductas que se toleran aunque traigan una de esas palabras", ayuda: "Una por línea o separadas por comas. Si la conducta de una medida trae alguna (por ejemplo «tapabocas»: casi todas las de la pandemia quedaron como Art. 35 num. 2, desacatar una orden de policía), esa medida no va a revisión por las palabras de arriba; solo cuenta para el número máximo." },
       { etiqueta: "La fecha de expedición no corresponde a la cédula", ayuda: "El registro rechaza la consulta: no hay veredicto.", fijo: "pregunta" },
       { clave: "ant_rnmc_sin_respuesta", etiqueta: "La consulta no responde" },
     ],
@@ -230,7 +231,7 @@ export function consultaDeEjemplo(fuente: FuenteAntecedentes, e: EjemploProbador
           full_name: nombre,
           has_pending_measures: hallazgo,
           status: hallazgo ? "Tiene medidas correctivas pendientes por cumplir" : "No tiene medidas correctivas pendientes por cumplir",
-          pending_measures: hallazgo ? Array.from({ length: Math.max(1, Math.min(20, Math.round(e.rnmcMedidas) || 1)) }, (_, i) => ({ expediente: `EJ-${i + 1}`, medida: e.rnmcTexto })) : [],
+          pending_measures: hallazgo ? Array.from({ length: Math.max(1, Math.min(20, Math.round(e.rnmcMedidas) || 1)) }, (_, i) => ({ expediente: `EJ-${i + 1}`, comportamiento: e.rnmcTexto })) : [],
         },
       };
   }

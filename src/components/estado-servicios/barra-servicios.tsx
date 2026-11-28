@@ -36,10 +36,10 @@ export function BarraServicios({ inicial, className = "" }: { inicial?: EstadoSe
   const [abierta, setAbierta] = useState(false);
   const [cargando, setCargando] = useState(false);
 
-  const cargar = useCallback(async () => {
+  const cargar = useCallback(async (forzar = false) => {
     setCargando(true);
     try {
-      const r = await fetch("/api/estado-servicios", { cache: "no-store" });
+      const r = await fetch(`/api/estado-servicios${forzar ? "?forzar=1" : ""}`, { cache: "no-store" });
       const j = (await r.json()) as { ok: boolean; estados?: EstadoServicio[] };
       if (j.ok && j.estados) {
         setEstados(j.estados);
@@ -137,7 +137,7 @@ export function BarraServicios({ inicial, className = "" }: { inicial?: EstadoSe
           ))}
           <span className="ml-auto flex items-center gap-2 text-text-muted">
             {leidoAt && <span>Actualizado {haceCuanto(leidoAt)}</span>}
-            <button type="button" onClick={() => void cargar()} disabled={cargando} className="cursor-pointer hover:text-text-primary disabled:opacity-50" aria-label="Actualizar el estado">
+            <button type="button" onClick={() => void cargar(true)} disabled={cargando} className="cursor-pointer hover:text-text-primary disabled:opacity-50" aria-label="Actualizar el estado">
               <RefreshCw className={`h-3.5 w-3.5 ${cargando ? "animate-spin" : ""}`} />
             </button>
             <button type="button" onClick={() => setAbierta((a) => !a)} className="flex cursor-pointer items-center gap-0.5 hover:text-text-primary">
@@ -158,13 +158,20 @@ export function BarraServicios({ inicial, className = "" }: { inicial?: EstadoSe
                     {s.ultimoOkAt ? ` · última buena ${haceCuanto(s.ultimoOkAt)}` : ""}
                   </span>
                 </div>
+                {s.id === "correo" && s.smtp && (
+                  <p className="mt-0.5 pl-4 text-text-tertiary">
+                    Inicio de sesión en el SMTP (sin enviar nada):{" "}
+                    <span className={`font-medium ${s.smtp.ok ? "text-emerald-700" : "text-red-700"}`}>{s.smtp.ok ? "aceptado" : `rechazado (${s.smtp.error ?? "sin detalle"})`}</span> · revisado{" "}
+                    {haceCuanto(s.smtp.at)}
+                  </p>
+                )}
                 {s.paginaEstado && (
                   <p className="mt-0.5 pl-4 text-text-tertiary">
-                    Página de estado de Croma:{" "}
+                    Página de estado de {s.id === "correo" ? "Brevo" : "Croma"}:{" "}
                     <a href={s.paginaEstado.url} target="_blank" rel="noreferrer" className={`font-medium hover:underline ${s.paginaEstado.estado === "problemas" ? "text-red-700" : s.paginaEstado.estado === "operativo" ? "text-emerald-700" : "text-text-secondary"}`}>
                       {s.paginaEstado.estado === "operativo" ? "operativa" : s.paginaEstado.estado === "problemas" ? `con problemas (${s.paginaEstado.texto})` : "no se pudo leer"}
                     </a>{" "}
-                    · solo dice si la API de Croma funciona, no cada fuente.
+                    {s.id === "correo" ? "· componentes SMTP y envíos transaccionales." : "· solo dice si la API de Croma funciona, no cada fuente."}
                   </p>
                 )}
                 {s.partes && s.partes.length > 0 && (

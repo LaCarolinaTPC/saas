@@ -10,6 +10,7 @@ import { revalidatePath } from "next/cache";
 import { canAccess, getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { actorUsuario, cambiarEstadoProceso } from "@/lib/contratacion/servidor";
 import { createAdminClient } from "@/lib/supabase/admin";
+import type { ProcesoContratacion } from "@/lib/contratacion/constants";
 import { citaVigenteDeProceso, marcarLlegada } from "@/lib/seleccion/agenda-servidor";
 import { enviarAExamenes, planExamenes, registrarClase, registrarPrueba, type PlanExamenes } from "@/lib/seleccion/profesor-servidor";
 import { examenesDeProceso, registrarExamen } from "@/lib/seleccion/examenes-servidor";
@@ -159,4 +160,12 @@ export async function revisarListoDesdeFicha(procesoId: string): Promise<Resulta
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "No se pudo revisar." };
   }
+}
+
+/** Las tarjetas del tablero de un mes (AAAA-MM) o «todos» (27-nov-2026). */
+export async function tableroDelMes(mes: string): Promise<ProcesoContratacion[]> {
+  const perms = await getCurrentPermissions();
+  if (!canAccess(perms, "candidatos")) throw new Error("Sin permisos para ver candidatos.");
+  const { leerTablero } = await import("@/lib/contratacion/tablero-servidor");
+  return (await leerTablero(mes)) as unknown as ProcesoContratacion[];
 }

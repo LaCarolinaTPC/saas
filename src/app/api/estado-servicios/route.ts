@@ -12,10 +12,12 @@ export const dynamic = "force-dynamic";
  * página (el chat de prueba hace muchas). Se calcula con las respuestas ya
  * recibidas; no consulta a los servicios. Un minuto en memoria.
  */
-export async function GET() {
+export async function GET(req: Request) {
   const perms = await getCurrentPermissions();
   if (!canAccess(perms, "candidatos") && !canAccess(perms, "comunicaciones")) {
     return NextResponse.json({ ok: false, error: "Sin permiso." }, { status: 403 });
   }
-  return NextResponse.json({ ok: true, estados: await leerEstadoServicios() });
+  // «Actualizar el estado» (?forzar=1): vuelve a revisar el SMTP y las páginas de estado.
+  const forzar = new URL(req.url).searchParams.get("forzar") === "1";
+  return NextResponse.json({ ok: true, estados: await leerEstadoServicios({ forzar }) });
 }

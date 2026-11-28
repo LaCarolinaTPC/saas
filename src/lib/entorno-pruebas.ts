@@ -82,3 +82,25 @@ export async function destinoDePrueba(lab: { canal: string; correos: string[]; w
   }
   return lab.whatsapp && esWhatsappDePrueba(whatsapp, lab.whatsapp) ? lab.whatsapp : null;
 }
+
+// ── Envío real desde el chat de prueba (27-nov-2026) ─────────────────────────
+// Pedido del usuario: las pruebas tienen que ser más reales. Lo que se envía por
+// un candidato del chat de prueba (la orden al laboratorio, las alertas) sale de
+// verdad, también en desarrollo y sin listas, marcado «PRUEBA». El freno de
+// desarrollo sigue para todo lo demás: los aspirantes de la copia son reales.
+import { AsyncLocalStorage } from "node:async_hooks";
+
+const envioDePrueba = new AsyncLocalStorage<true>();
+
+/** Corre `fn` dejando salir de verdad el WhatsApp y el correo (solo para envíos de candidatos de prueba). */
+export function conEnvioRealDePrueba<T>(fn: () => Promise<T>): Promise<T> {
+  return envioDePrueba.run(true, fn);
+}
+
+/** ¿Estamos dentro de un envío de prueba que debe salir de verdad? */
+export function envioRealDePrueba(): boolean {
+  // Las baterías de pruebas (scripts/) corren con GESTIVO_SIN_ENVIOS_REALES=1: sus laboratorios y
+  // contactos son ficticios y un número inventado puede ser de una persona real (27-nov-2026).
+  if (process.env.GESTIVO_SIN_ENVIOS_REALES === "1") return false;
+  return envioDePrueba.getStore() === true;
+}

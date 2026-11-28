@@ -43,6 +43,11 @@ function Aviso({ a, procesos, puedeEditar, onListo }: { a: AvisoLaboratorio; pro
     <li className="rounded-lg border border-[#E2E8F0] bg-white p-3 text-sm">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="font-medium text-gray-900">
+          {a.prueba && !a.simulado && (
+            <span className="mr-1.5 rounded-full bg-violet-50 px-1.5 py-px text-[10px] font-medium text-violet-700" title="Llegó por el WhatsApp real, pero es de un candidato del chat de prueba: no lo tome en cuenta (se ve también en el chat de prueba)">
+              PRUEBA · no tomar en cuenta
+            </span>
+          )}
           {a.simulado && <span className="mr-1.5 rounded-full bg-amber-50 px-1.5 py-px text-[10px] font-medium text-amber-700" title="Lo creó el simulador de Selección: no llegó por WhatsApp">Simulado</span>}
           {a.nombreLeido ?? "Sin nombre"}
           {a.cedulaLeida ? <span className="font-normal text-gray-500"> · C.C. {a.cedulaLeida}</span> : null}

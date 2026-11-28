@@ -1,5 +1,5 @@
 /**
- * Correo para la prueba psicosensotécnica (24-nov-2026): pedirlo por
+ * Correo para la prueba psicotécnica (24-nov-2026): pedirlo por
  * WhatsApp, atender lo que responde el aspirante, enviar el correo con el
  * enlace para confirmarlo, recordarlo y marcar la inscripción en la
  * plataforma. Solo servidor; quien llama desde una pantalla revisa permisos.
@@ -36,7 +36,7 @@ type Resultado = { ok: true; aviso?: string } | { ok: false; error: string };
 
 const ACTOR_WHATSAPP: ActorProceso = { tipo: "sistema", userId: null, userEmail: "WhatsApp" };
 
-const SIN_MIGRACION = "Falta aplicar la migración del correo de la psicosensotécnica.";
+const SIN_MIGRACION = "Falta aplicar la migración del correo de la psicotécnica.";
 
 const COLUMNAS =
   "id, nombre, celular, origen, estado, candidate_id, correo, correo_estado, correo_token_vence, correo_pedido_at, correo_enviado_at, correo_validado_at, correo_validado_por, correo_inscrito_at, correo_inscrito_por, correo_recordatorio_at, correo_recordatorios, correo_escalado_at, correo_error";
@@ -157,7 +157,7 @@ async function textoCatalogo(clave: string, valores: Record<string, string>, res
 }
 
 const RESPALDO = {
-  correo_confirmar: "¿Tu correo es {correo}? Revísalo bien, por favor: allí te llegará la información para la prueba psicosensotécnica.",
+  correo_confirmar: "¿Tu correo es {correo}? Revísalo bien, por favor: allí te llegará la información para la prueba psicotécnica.",
   correo_enviado: "Listo. Te enviamos un correo a {correo}. Ábrelo y toca «Sí, es mi correo» para confirmarlo. Si no lo ves, revisa la carpeta de spam o correo no deseado.",
   correo_corregir: "Está bien. Escríbenos tu correo electrónico correcto, por favor.",
   correo_no_enviado: "Gracias. Tuvimos un problema al enviarte el correo; Gestión Humana lo revisa y te escribimos.",
@@ -228,7 +228,7 @@ function cuerpoCorreo(nombre: string, url: string, empresa: string) {
   const texto = [
     saludo,
     "",
-    `Para continuar con tu proceso de selección en ${empresa} necesitamos confirmar que este es tu correo. Aquí te llegará la información para presentar la prueba psicosensotécnica.`,
+    `Para continuar con tu proceso de selección en ${empresa} necesitamos confirmar que este es tu correo. Aquí te llegará la información para presentar la prueba psicotécnica.`,
     "",
     "Abre este enlace y toca «Sí, es mi correo»:",
     url,
@@ -238,7 +238,7 @@ function cuerpoCorreo(nombre: string, url: string, empresa: string) {
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#0f172a;max-width:520px">
 <p>${esc(saludo)}</p>
-<p>Para continuar con tu proceso de selección en ${esc(empresa)} necesitamos confirmar que este es tu correo. Aquí te llegará la información para presentar la prueba psicosensotécnica.</p>
+<p>Para continuar con tu proceso de selección en ${esc(empresa)} necesitamos confirmar que este es tu correo. Aquí te llegará la información para presentar la prueba psicotécnica.</p>
 <p style="margin:24px 0"><a href="${esc(url)}" style="background:#4f46e5;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:8px;display:inline-block;font-weight:bold">Confirmar mi correo</a></p>
 <p style="font-size:13px;color:#64748b">Si el botón no abre, copia este enlace en el navegador:<br>${esc(url)}</p>
 <p style="font-size:13px;color:#64748b">El enlace vale ${DIAS_VIGENCIA_ENLACE} días. Si no estás en un proceso de selección con nosotros, ignora este mensaje.</p>

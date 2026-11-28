@@ -132,7 +132,13 @@ try {
     const conSi = await validar(idSi, padrino, undefined, { politica: conR13, registradoEl: dia(dijoSi) });
     revisar(`${conR13.version}: con la fecha del «sí» R13 se cumple`, r13(conSi)?.estado === "cumple", r13(conSi));
     const sinSi = await validar(idSi, padrino, undefined, { politica: conR13 });
-    revisar(`${conR13.version}: con la fecha de hoy sería registro tardío`, r13(sinSi)?.estado === "no_cumple", r13(sinSi));
+    // Desde el 27-nov-2026 la R13 se mide contra la fecha de contratación: antes de contratar, registrar hoy
+    // todavía es a tiempo («se confirma al contratar»), aunque hoy sea después del «sí» del chat.
+    revisar(
+      `${conR13.version}: con la fecha de hoy, antes de contratar, todavía cumple (se confirma al contratar)`,
+      r13(sinSi)?.estado === "cumple" && /contrataci/i.test(String(r13(sinSi)?.dato ?? "")),
+      r13(sinSi)
+    );
     const v2 = politicas.find((x) => x.version === "v2");
     if (v2) {
       const enV2 = await validar(idSi, padrino, undefined, { politica: v2, registradoEl: dia(dijoSi) });

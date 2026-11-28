@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  tocaRecordatorioExamenF2,
   AJUSTES_AGENDA_POR_DEFECTO as A,
   accionAgenda,
   ajustesAgenda,
@@ -240,4 +241,19 @@ test("agenda: la fecha y la hora que elige el profesor para exámenes (27-nov-20
   assert.match(validarFechaElegida({ fecha: "2027-03-01", hora: "06:30" }, ahora) ?? "", /próximos 60 días/);
   assert.match(validarFechaElegida({ fecha: "", hora: "06:30" }, ahora) ?? "", /fecha/);
   assert.match(validarFechaElegida({ fecha: "2026-11-28", hora: "6:30" }, ahora) ?? "", /hora/);
+});
+
+test("recordatorio de la fase 2 la víspera (27-nov-2026)", () => {
+  const a = { recordatorioExamenF2Activo: true, recordatorioExamenF2Hora: "18:00" };
+  // Jueves 26-nov-2026; 18:30 en Bogotá = 23:30 UTC.
+  const tarde = new Date("2026-11-26T23:30:00Z");
+  const cita = { tipo: "examen_f2" as const, fecha: "2026-11-27", estado: "programada" as const, recordatorio_at: null, created_at: "2026-11-25T15:00:00Z" };
+  assert.equal(tocaRecordatorioExamenF2(cita, tarde, a), true);
+  assert.equal(tocaRecordatorioExamenF2(cita, new Date("2026-11-26T22:30:00Z"), a), false, "17:30: todavía no");
+  assert.equal(tocaRecordatorioExamenF2({ ...cita, fecha: "2026-11-28" }, tarde, a), false, "es pasado mañana");
+  assert.equal(tocaRecordatorioExamenF2({ ...cita, recordatorio_at: "2026-11-26T23:00:00Z" }, tarde, a), false, "ya se le recordó");
+  assert.equal(tocaRecordatorioExamenF2({ ...cita, created_at: "2026-11-26T21:00:00Z" }, tarde, a), false, "la citación salió hace 2 h y media");
+  assert.equal(tocaRecordatorioExamenF2({ ...cita, tipo: "examen_f1" }, tarde, a), false);
+  assert.equal(tocaRecordatorioExamenF2({ ...cita, estado: "cancelada" }, tarde, a), false);
+  assert.equal(tocaRecordatorioExamenF2(cita, tarde, { ...a, recordatorioExamenF2Activo: false }), false);
 });

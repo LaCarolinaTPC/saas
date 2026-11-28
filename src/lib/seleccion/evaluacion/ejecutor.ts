@@ -66,7 +66,7 @@ export interface ContextoSimulacion {
   preguntaExamen?: "banco" | "rutas" | null;
   /** Candidato de prueba con cita de exámenes en pie: cuándo y dónde. */
   examen?: ReglasSeleccion["examen"];
-  /** Candidato de prueba: en qué va el correo para la prueba psicosensotécnica. */
+  /** Candidato de prueba: en qué va el correo para la prueba psicotécnica. */
   correoPsico?: ReglasSeleccion["correoPsico"];
   /** Solo pruebas: todo (asistente, extracción y aspirante) va a un servidor local tipo LM Studio. */
   local?: { url: string; modelo: string | null };

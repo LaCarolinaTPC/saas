@@ -5,6 +5,7 @@
  * (psicotécnica, entrevista, inducción). Solo registro: no cambia la etapa.
  */
 import { useCallback, useEffect, useState } from "react";
+import { confirmar } from "@/components/ui/confirmar";
 import { Brain, ExternalLink, MessagesSquare, ScanText, UserCheck } from "lucide-react";
 import {
   cambiarClaseDocumento,
@@ -48,7 +49,7 @@ function useDiaContratacion(procesoId: string, version: number) {
   return { datos, recargar };
 }
 
-// `abierto` lo pasa el panel; desde que se quitó la cita psicosensotécnica (24-nov-2026) no se usa aquí.
+// `abierto` lo pasa el panel; desde que se quitó la cita psicotécnica (24-nov-2026) no se usa aquí.
 export function SeccionDiaContratacion({ procesoId, version }: { procesoId: string; abierto: boolean; version: number }) {
   const { datos, recargar } = useDiaContratacion(procesoId, version);
   const e3 = useEntrega3(procesoId, version);
@@ -105,7 +106,7 @@ export function SeccionDiaContratacion({ procesoId, version }: { procesoId: stri
                   type="button"
                   className="ml-2 text-xs text-gray-400 underline hover:text-gray-600"
                   disabled={ocupado}
-                  onClick={() => confirm("¿Borrar el resultado de la IPS?") && correr(() => registrarPsicoExternaFicha(procesoId, null), "Resultado borrado.")}
+                  onClick={async () => await confirmar("¿Borrar el resultado de la IPS?") && correr(() => registrarPsicoExternaFicha(procesoId, null), "Resultado borrado.")}
                 >
                   borrar
                 </button>
@@ -173,7 +174,7 @@ export function SeccionDiaContratacion({ procesoId, version }: { procesoId: stri
                 type="button"
                 className="mt-1 block text-xs text-gray-400 underline hover:text-gray-600"
                 disabled={ocupado}
-                onClick={() => confirm("¿Borrar el registro de la entrevista?") && correr(() => registrarEntrevistaFicha(procesoId, "", "", true), "Registro borrado.")}
+                onClick={async () => await confirmar("¿Borrar el registro de la entrevista?") && correr(() => registrarEntrevistaFicha(procesoId, "", "", true), "Registro borrado.")}
               >
                 borrar
               </button>
@@ -217,7 +218,7 @@ export function SeccionDiaContratacion({ procesoId, version }: { procesoId: stri
                 type="button"
                 className="ml-2 text-xs text-gray-400 underline hover:text-gray-600"
                 disabled={ocupado}
-                onClick={() => confirm("¿Borrar el registro de la inducción?") && correr(() => registrarInduccionFicha(procesoId, "", true), "Registro borrado.")}
+                onClick={async () => await confirmar("¿Borrar el registro de la inducción?") && correr(() => registrarInduccionFicha(procesoId, "", true), "Registro borrado.")}
               >
                 borrar
               </button>

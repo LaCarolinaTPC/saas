@@ -150,9 +150,10 @@ export function decidirResultado(
   const f = frasesConDefecto(frases);
   const fase = l.fase ?? faseEsperada;
   const exacta = resultadoPorFrase(texto, l, variasPersonas, f);
-  // La frase de apto es la de la fase 1 («puede pasar a fase 2»): repetida con el
-  // aspirante ya en la fase 2 no aprueba la fase 2; eso lo confirma una persona.
-  if (exacta === "apto" && fase === 2) return { resultado: l.resultado, automatico: false };
+  // Fase 2 (27-nov-2026): son resultados médicos de laboratorio y, por ahora, los
+  // registra siempre una persona. Ni la frase acordada los registra sola: queda
+  // la propuesta para confirmar. (La frase de apto, además, es la de la fase 1.)
+  if (fase === 2) return { resultado: exacta && exacta !== "apto" ? exacta : l.resultado, automatico: false };
   if (exacta) return { resultado: exacta, automatico: true };
   if (fase !== 1 || !l.resultado) return { resultado: l.resultado, automatico: false };
   if (l.resultado === "aplazado") return { resultado: "aplazado", automatico: true };

@@ -1,7 +1,7 @@
 "use server";
 
 /**
- * Correo para la prueba psicosensotécnica desde la ficha del candidato
+ * Correo para la prueba psicotécnica desde la ficha del candidato
  * (24-nov-2026). Leer exige entrar a Candidatos; cambiar, `candidatos.editar`.
  */
 import { revalidatePath } from "next/cache";

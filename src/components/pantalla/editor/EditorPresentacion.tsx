@@ -11,6 +11,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { confirmar } from "@/components/ui/confirmar";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -388,7 +389,7 @@ export function EditorPresentacion({
 
   // ── Publicar ──────────────────────────────────────────────────────────────
   const onPublicar = async () => {
-    if (!window.confirm("¿Publicar? Los televisores con esta presentación cambiarán al terminar la diapositiva que estén mostrando.")) return;
+    if (!await confirmar("¿Publicar? Los televisores con esta presentación cambiarán al terminar la diapositiva que estén mostrando.")) return;
     setPublicando(true);
     try {
       const ok = await guardar();
@@ -403,7 +404,7 @@ export function EditorPresentacion({
   };
 
   const onRetirar = async () => {
-    if (!window.confirm("¿Retirar la publicación? Los televisores con esta presentación quedarán sin nada que mostrar.")) return;
+    if (!await confirmar("¿Retirar la publicación? Los televisores con esta presentación quedarán sin nada que mostrar.")) return;
     const r = await retirarPublicacion(id);
     if (!r.ok) return void toast.error(r.error);
     setPublicado({ version: publicado.version + 1, publicadaAt: null, cambios: true });
@@ -596,9 +597,9 @@ export function EditorPresentacion({
               setActual(i + 1);
               setSeleccion(null);
             }}
-            onBorrar={(i) => {
+            onBorrar={async (i) => {
               if (p.diapositivas.length <= 1) return;
-              if (!window.confirm(`¿Borrar la diapositiva ${i + 1}?`)) return;
+              if (!await confirmar(`¿Borrar la diapositiva ${i + 1}?`)) return;
               hist.set((pp) => ({ ...pp, diapositivas: pp.diapositivas.filter((_, j) => j !== i) }));
               setActual(Math.max(0, i <= indice ? indice - 1 : indice));
               setSeleccion(null);

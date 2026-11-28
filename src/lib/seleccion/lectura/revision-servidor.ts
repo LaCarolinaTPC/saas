@@ -393,6 +393,82 @@ export async function validarCartasAutomaticas(procesoId: string): Promise<numbe
   return validadas;
 }
 
+/**
+ * Valida solos los documentos de la carpeta que la IA leyó bien y coinciden con
+ * el aspirante (27-nov-2026, pedido de GH: «que solo tengan que validar lo que
+ * sea necesario»; ajuste `validar_documentos_auto`, en «sí» si no existe).
+ * Primero las cartas (validarCartasAutomaticas); después la hoja de vida, la
+ * cédula, la licencia y el certificado bancario sin revisar que pasan
+ * `documentoParaValidarSolo`: se aceptan como en «Documentos leídos» y el
+ * documento queda «validado» en la carpeta, con el motivo. Lo dudoso sigue
+ * esperando a una persona. Devuelve los documentos que validó.
+ */
+export async function validarDocumentosAutomaticos(procesoId: string): Promise<string[]> {
+  if (!/^[0-9a-f-]{36}$/i.test(procesoId)) return [];
+  await validarCartasAutomaticas(procesoId).catch((e) => console.error("[seleccion] validación automática de cartas:", e));
+  const ajustes = await leerAjustes().catch(() => []);
+  if (valorAjuste<unknown>(ajustes, "validar_documentos_auto", true) === false) return [];
+  const db = createAdminClient();
+  const convs = await conversacionesDe(procesoId);
+  const filtro = [`proceso_id.eq.${procesoId}`, ...(convs.length ? [`conversacion_id.in.(${convs.join(",")})`] : [])].join(",");
+  const [{ data: lecturas }, { data: p }, items, estados] = await Promise.all([
+    db.from("seleccion_lecturas").select("*").or(filtro).eq("estado", "leido").limit(100),
+    db.from("procesos_contratacion").select("nombre, cedula, fecha_nacimiento, edad, ciudad_residencia, celular, experiencia_meses, licencia_verificada_runt").eq("id", procesoId).maybeSingle(),
+    itemsCarpeta(),
+    estadosCarpeta(procesoId),
+  ]);
+  if (!lecturas?.length || !p) return [];
+  const filas = lecturas as FilaLectura[];
+  const aspirante = {
+    nombre: (p.nombre as string | null) ?? null,
+    cedula: (p.cedula as string | null) ?? null,
+    fecha_nacimiento: (p.fecha_nacimiento as string | null) ?? null,
+    edad: (p.edad as number | null) ?? null,
+    ciudad_residencia: (p.ciudad_residencia as string | null) ?? null,
+    celular: (p.celular as string | null) ?? null,
+    experiencia_meses: (p.experiencia_meses as number | null) ?? null,
+    licenciaVerificada: p.licencia_verificada_runt === true,
+  };
+  const hoy = fechaBogota(new Date().toISOString());
+  const previas = filas.map((f) => ({ clase: f.clase, campos: f.campos ?? [] }));
+  const { documentoParaValidarSolo } = await import("./validacion-automatica");
+  // Documentos que se pueden validar: el motivo por clase.
+  const validables = new Map<ClaseDocumento, string>();
+  for (const f of filas) {
+    if (!f.campos?.length) continue;
+    if (f.revisado_at) {
+      // Una carta que aceptó sola la validación automática de cartas.
+      if (f.clase === "carta_laboral" && f.revisado_por === ACTOR_VALIDACION_AUTOMATICA.userEmail) validables.set("carta_laboral", "la carta coincide con la hoja de vida");
+      continue;
+    }
+    if (!["hoja_vida", "cedula", "licencia", "certificado_bancario"].includes(f.clase)) continue;
+    const campos = conCedulaAlDia(f.clase, f.campos, aspirante.cedula);
+    const otras = previas.filter((x) => x.campos !== f.campos);
+    const d = documentoParaValidarSolo(f.clase, campos, aspirante, otras, hoy);
+    if (!d.ok) continue;
+    const decisiones = campos.filter((c) => !c.calculado).map((c) => ({ campo: c.campo, decision: "aceptado" as const }));
+    const r = await revisarLectura(procesoId, f.id, decisiones, ACTOR_VALIDACION_AUTOMATICA);
+    if (r.ok) validables.set(f.clase, d.motivo);
+  }
+  const validados: string[] = [];
+  for (const [clase, motivo] of validables) {
+    const item = itemDeClase(clase, items);
+    if (!item) continue;
+    const actual = estados.find((e) => e.item === item)?.estado;
+    // Ya validado (por una persona o antes): no se toca.
+    if (actual === "validado") continue;
+    const r = await marcarItemCarpeta(procesoId, item, "validado", `Validado solo por Gestivo: ${motivo}.`, ACTOR_VALIDACION_AUTOMATICA);
+    if (r.ok) validados.push(item);
+  }
+  if (validados.length) {
+    await registrarEvento(procesoId, { tipo: "dato", detalle: { documentos_validados_solos: validados } }, ACTOR_VALIDACION_AUTOMATICA);
+    // Con la carpeta completa puede quedar «Listo para contratar».
+    const { revisarListoContratar } = await import("../listo-contratar-revisar");
+    await revisarListoContratar(procesoId, ACTOR_VALIDACION_AUTOMATICA).catch(() => null);
+  }
+  return validados;
+}
+
 /** Cambia la clase de un documento mal clasificado (los campos se conservan). */
 export async function cambiarClaseLectura(procesoId: string, lecturaId: string, clase: ClaseDocumento, actor: ActorProceso): Promise<{ ok: boolean; error?: string }> {
   const db = createAdminClient();

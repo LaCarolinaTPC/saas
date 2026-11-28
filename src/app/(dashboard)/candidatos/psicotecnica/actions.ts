@@ -1,7 +1,7 @@
 "use server";
 
 /**
- * Psicosensotécnica en PsicoAlianza (24-nov-2026): plantilla de carga masiva,
+ * Psicotécnica en PsicoAlianza (24-nov-2026): plantilla de carga masiva,
  * inscritos y resultados. Ver exige entrar a Candidatos; cambiar, editar.
  */
 import { revalidatePath } from "next/cache";
@@ -21,7 +21,7 @@ import {
   type ResultadoAConfirmar,
 } from "@/lib/seleccion/psico-servidor";
 
-const RUTA = "/candidatos/psicosensotecnica";
+const RUTA = "/candidatos/psicotecnica";
 const fallo = (e: unknown) => ({ ok: false as const, error: e instanceof Error ? e.message : "No se pudo completar." });
 
 async function exigirLectura() {
